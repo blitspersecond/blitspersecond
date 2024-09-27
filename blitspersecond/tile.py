@@ -3,11 +3,13 @@ from .palette import Palette
 
 
 class Tile:
+    _target: ndarray
+
     def __init__(self, index_image: ndarray, palette: Palette):
         self._index_image = index_image
         self._palette = palette.copy()
         self._rgba_image = self._palette[self._index_image]
-        self._target = None
+        self._target = ndarray((0, 0, 4), dtype="uint8")
         self._tainted = True
 
     @property

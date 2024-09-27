@@ -42,7 +42,3 @@ class Metrics:
     def __len__(self):
         """Return the number of recorded delta times."""
         return len(self.records)
-
-    def __len__(self):
-        """Return the number of recorded delta times."""
-        return len(self.records)

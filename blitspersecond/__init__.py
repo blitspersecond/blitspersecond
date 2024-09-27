@@ -1,4 +1,5 @@
 import pyglet
+from typing import Callable
 from .framebuffer import FrameBuffer
 from .config import Config
 from .display import Display
@@ -17,7 +18,7 @@ class BlitsPerSecond:
         self._display = Display(self._eventloop, lambda dt: None)
         self._graphicsdata = ImageBank()
 
-    def run(self, callback: callable):
+    def run(self, callback: Callable[["BlitsPerSecond"], None]):
         self._callback = callback
         pyglet.clock.schedule_interval(
             self._run, 1.0 / 144
