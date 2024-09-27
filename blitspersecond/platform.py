@@ -2,7 +2,7 @@ import platform
 import ctypes
 
 
-class PlatformSupport:
+class PlatformSupport(object):
     """
     PlatformSupport is a Singleton class that ensures pixels are rendered one-to-one
     on different operating systems. It also provides a hook for other platform-specific
@@ -23,7 +23,7 @@ class PlatformSupport:
         return cls._instance
 
     @staticmethod
-    def configure_pixel_scaling():
+    def configure_pixel_scaling() -> None:
         """
         Configures pixel scaling for different platforms to ensure 1:1 pixel rendering.
 
@@ -87,7 +87,3 @@ class PlatformSupport:
         print(
             "Linux pixel scaling is typically managed by the desktop environment (e.g., GNOME, KDE)."
         )
-
-
-# Usage Example (Singleton ensures only one instance is created):
-# platform_support = PlatformSupport()
