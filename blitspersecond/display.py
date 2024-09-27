@@ -1,3 +1,4 @@
+from typing import Callable
 from .config import Config
 import pyglet
 from pyglet.gl import (
@@ -11,7 +12,7 @@ from pyglet.gl import (
 
 
 class Display:
-    def __init__(self, eventloop: pyglet.app.EventLoop, callback: callable) -> None:
+    def __init__(self, eventloop: pyglet.app.EventLoop, callback: Callable) -> None:
         self._window = pyglet.window.Window(
             Config().window.width * Config().window.scale,  # 640 * 3
             Config().window.height * Config().window.scale,  # 360 * 3
