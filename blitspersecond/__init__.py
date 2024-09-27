@@ -16,7 +16,7 @@ class BlitsPerSecond:
         self._metrics = Metrics(target_fps=Config().window.framerate)
         self._framebuffer = FrameBuffer()
         self._display = Display(self._eventloop, lambda dt: None)
-        self._graphicsdata = ImageBank()
+        self._imagebank = ImageBank()
 
     def run(self, callback: Callable[["BlitsPerSecond"], None]):
         self._callback = callback
@@ -42,3 +42,7 @@ class BlitsPerSecond:
     @property
     def images(self):
         return self._framebuffer.texture
+
+    @property
+    def imagebank(self) -> ImageBank:
+        return self._imagebank
