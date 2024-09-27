@@ -19,12 +19,15 @@ class BlitsPerSecond(object):
         self._imagebank = ImageBank()
 
     def run(self, callback: Callable[["BlitsPerSecond"], None]):
-        self._callback = callback
-        pyglet.clock.schedule_interval(self._run, 1.0 / Config().window.framerate)
-        if Config().window.vsync:
-            self._eventloop.run(Config().window.framerate)
-        else:
-            self._eventloop.run(None)
+        try:
+            self._callback = callback
+            pyglet.clock.schedule_interval(self._run, 1.0 / Config().window.framerate)
+            if Config().window.vsync:
+                self._eventloop.run(Config().window.framerate)
+            else:
+                self._eventloop.run(None)
+        except KeyboardInterrupt:
+            Logger().info("Exiting...")
 
     def _run(self, dt: float):
         self._metrics(dt)
