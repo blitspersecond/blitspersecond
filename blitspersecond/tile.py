@@ -2,10 +2,10 @@ from numpy import ndarray
 from .palette import Palette
 
 
-class Tile:
+class Tile(object):
     _target: ndarray
 
-    def __init__(self, index_image: ndarray, palette: Palette):
+    def __init__(self, index_image: ndarray, palette: Palette) -> None:
         self._index_image = index_image
         self._palette = palette.copy()
         self._rgba_image = self._palette[self._index_image]

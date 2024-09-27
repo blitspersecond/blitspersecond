@@ -3,33 +3,30 @@ import pyglet
 from .layer import Layer
 from .config import Config
 
-FRAME_BUFFER_LAYERS = 8
 
+class FrameBuffer(object):
+    _DEPTH = 8
 
-class FrameBuffer:
-    _DEPTH = FRAME_BUFFER_LAYERS
-
-    def __init__(self):
-        self.height = Config().window.height  # 360, for example
-        self.width = Config().window.width  # 640, for example
-        self._framebuffer = np.zeros((self.height, self.width, 4), dtype=np.uint8)
+    def __init__(self) -> None:
+        self.height = Config().window.height
+        self.width = Config().window.width
+        self._rgba_framebuffer = np.zeros((self.height, self.width, 4), dtype=np.uint8)
         self._layers = [Layer() for _ in range(self._DEPTH)]
 
-    def _compose(self):
+    def _compose(self) -> None:
         """
         Compose the layers onto the framebuffer, handling transparency.
         Each layer should be composited where alpha > 0.
         """
-        self._framebuffer.fill(0)  # Clear the framebuffer
+        self._rgba_framebuffer.fill(0)
 
         for layer in self._layers:
-            layer_data = layer.image  # Get the image data from the layer
-            # Alpha blending: where layer alpha is > 0, blend with framebuffer
-            alpha_mask = layer_data[..., 3] > 0  # Mask for pixels with alpha > 0
-            self._framebuffer[alpha_mask] = layer_data[alpha_mask]
+            layer_data = layer.image
+            alpha_mask = layer_data[..., 3] > 0
+            self._rgba_framebuffer[alpha_mask] = layer_data[alpha_mask]
 
     @property
-    def texture(self):
+    def texture(self) -> pyglet.image.Texture:
         self._compose()
         """
         Get the composited framebuffer as a pyglet texture.
@@ -37,30 +34,27 @@ class FrameBuffer:
         Returns:
             pyglet.image.Texture: The framebuffer as a texture.
         """
-        # Correct width and height from framebuffer shape
         return pyglet.image.ImageData(
-            self.width,  # Width of the framebuffer
-            self.height,  # Height of the framebuffer
-            "RGBA",  # Color format
-            np.flip(
-                self._framebuffer, axis=0
-            ).tobytes(),  # Flip vertically for correct orientation
+            self.width,
+            self.height,
+            "RGBA",
+            np.flip(self._rgba_framebuffer, axis=0).tobytes(),
         ).get_texture()
 
-    # Implementing list-like access to the layers
-    def __getitem__(self, index):
-        """Allows access to individual layers via indexing."""
+    @property
+    def depth(self) -> int:
+        return self._DEPTH
+
+    def __getitem__(self, index: int) -> Layer:
         if 0 <= index < len(self._layers):
             return self._layers[index]
         raise IndexError(f"Layer index {index} out of bounds.")
 
-    # Implementing the iterable interface
     def __iter__(self):
-        """Allows iteration over the layers in the framebuffer."""
-        self._current_layer = 0  # Reset iteration
+        self._current_layer = 0
         return self
 
-    def __next__(self):
+    def __next__(self) -> Layer:
         """Returns the next layer in the framebuffer during iteration."""
         if self._current_layer >= len(self._layers):
             raise StopIteration
@@ -72,7 +66,7 @@ class FrameBuffer:
 # # Example for more complex blending (alpha compositing):
 # alpha_layer = layer_data[..., 3] / 255.0  # Normalize alpha to range [0, 1]
 # for c in range(3):  # For each color channel (R, G, B)
-#     self._framebuffer[..., c] = (
+#     self._rgba_framebuffer[..., c] = (
 #         alpha_layer * layer_data[..., c] +
-#         (1 - alpha_layer) * self._framebuffer[..., c]
+#         (1 - alpha_layer) * self._rgba_framebuffer[..., c]
 #    )

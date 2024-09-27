@@ -3,7 +3,7 @@ import configparser
 from typing import List
 
 
-class Config:
+class Config(object):
     """
     A Singleton configuration handler for managing settings across the application.
 
@@ -167,7 +167,7 @@ class Config:
 
         raise AttributeError(f"No such section or default option: {section}")
 
-    class _SectionProxy:
+    class _SectionProxy(object):
         """
         Private proxy class for handling access to individual sections.
 
@@ -180,7 +180,7 @@ class Config:
             config: configparser.ConfigParser,
             section: str,
             config_instance: "Config",
-        ):
+        ) -> None:
             """
             Initialize the SectionProxy for a given section.
 
