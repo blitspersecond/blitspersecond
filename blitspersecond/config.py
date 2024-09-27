@@ -37,7 +37,7 @@ class Config(object):
         config file will be created with those defaults.
         """
         self.config = configparser.ConfigParser(allow_no_value=True)
-        self.config_file = os.path.join(os.getcwd(), "config.ini")
+        self.config_file = os.path.join(os.getcwd(), "blitspersecond.ini")
 
         # Default values for the configuration
         self.defaults = {

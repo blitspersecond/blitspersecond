@@ -1,16 +1,20 @@
 import numpy as np
 from collections import deque
+from .config import Config
 
 
-class Metrics:
-    def __init__(self, target_fps=60, max_records=1000):
-        self.max_records = max_records
+class Metrics(object):
+
+    _MAX_RECORDS = 1000
+
+    def __init__(self):
+        self.max_records = self._MAX_RECORDS
         self.records = deque(maxlen=self.max_records)
         self._last_dt = 0.0
-        self.target_fps = target_fps
-        self.target_dt = 1.0 / target_fps
+        self.target_fps = Config().window.framerate
+        self.target_dt = 1.0 / Config().window.framerate
 
-    def __call__(self, dt: float):
+    def __call__(self, dt: float) -> None:
         """Add a new delta time when the object is called."""
         self._last_dt = dt
         self.records.append(dt)
@@ -29,16 +33,15 @@ class Metrics:
     def percentile_99(self) -> float:
         """Return the 99th percentile of the recorded delta times (in FPS)."""
         if self.records:
-            # Convert delta times to FPS before computing the 99th percentile
             fps_values = [1.0 / dt for dt in self.records if dt > 0]
             return np.percentile(fps_values, 99)
-        return 0.0  # If no records are available
+        return 0.0
 
     @property
     def target_fps_delta(self) -> float:
         """Return the target delta time for the desired FPS."""
         return self.target_dt
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Return the number of recorded delta times."""
         return len(self.records)

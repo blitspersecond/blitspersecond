@@ -1,5 +1,6 @@
 from typing import Callable
 from .config import Config
+from .logger import Logger
 import pyglet
 from pyglet.gl import (
     glBindTexture,
@@ -11,12 +12,12 @@ from pyglet.gl import (
 )
 
 
-class Display:
+class Display(object):
     def __init__(self, eventloop: pyglet.app.EventLoop, callback: Callable) -> None:
         self._window = pyglet.window.Window(
-            Config().window.width * Config().window.scale,  # 640 * 3
-            Config().window.height * Config().window.scale,  # 360 * 3
-            vsync=Config().window.vsync,  # 60
+            Config().window.width * Config().window.scale,
+            Config().window.height * Config().window.scale,
+            vsync=Config().window.vsync,
         )
         self._callback = callback
         self._eventloop = eventloop
@@ -27,7 +28,7 @@ class Display:
             self._eventloop.exit()
             self._window.close()
 
-    def update(self, texture: pyglet.image.Texture):
+    def update(self, texture: pyglet.image.Texture) -> None:
         self._window.clear()
         _t = texture
         glBindTexture(GL_TEXTURE_2D, _t.id)
@@ -42,4 +43,4 @@ class Display:
         try:
             self._window.flip()
         except AttributeError:
-            print("window has been closed")
+            Logger().error("window has been closed")

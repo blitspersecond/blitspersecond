@@ -1,5 +1,6 @@
 import platform
 import ctypes
+from .logger import Logger
 
 
 class PlatformSupport(object):
@@ -43,7 +44,7 @@ class PlatformSupport(object):
         elif current_platform == "Linux":
             PlatformSupport._set_linux_pixel_scaling()
         else:
-            print(
+            Logger().warning(
                 f"Platform {current_platform} is not explicitly supported for pixel scaling."
             )
 
@@ -59,15 +60,18 @@ class PlatformSupport(object):
                 ctypes.windll.shcore.SetProcessDpiAwareness(
                     2
                 )  # Per-monitor DPI awareness
-                print("Pixel scaling set for Windows (8.1 or later).")
+                Logger().info("Pixel scaling set for Windows (8.1 or later).")
             else:
                 # Fallback for older Windows versions
                 ctypes.windll.user32.SetProcessDPIAware()  # System DPI awareness
-                print("Pixel scaling set for older Windows versions.")
+                Logger().info("Pixel scaling set for older Windows versions.")
         except AttributeError:
-            print("Failed to set DPI awareness. Unsupported Windows version.")
+            Logger().warning(
+                "Failed to set DPI awareness. Unsupported Windows version."
+            )
         except Exception as e:
-            print(f"Error while setting Windows pixel scaling: {e}")
+            print(e)
+            Logger().error(f"Error while setting Windows pixel scaling: {e}")
 
     @staticmethod
     def _set_macos_pixel_scaling():
@@ -76,7 +80,7 @@ class PlatformSupport(object):
         macOS handles DPI scaling automatically, particularly on Retina displays.
         Additional platform-specific settings can be added here if needed.
         """
-        print("macOS pixel scaling is typically automatic (Retina displays).")
+        Logger().info("macOS pixel scaling is typically automatic (Retina displays).")
 
     @staticmethod
     def _set_linux_pixel_scaling():
@@ -84,6 +88,6 @@ class PlatformSupport(object):
         Ensures Linux renders pixels 1:1, depending on desktop environment settings.
         Typically, the desktop environment (e.g., GNOME, KDE) manages pixel scaling.
         """
-        print(
+        Logger().info(
             "Linux pixel scaling is typically managed by the desktop environment (e.g., GNOME, KDE)."
         )

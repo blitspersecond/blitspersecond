@@ -6,24 +6,25 @@ from .display import Display
 from .metrics import Metrics
 from .platform import PlatformSupport
 from .imagebank import ImageBank
+from .logger import Logger
 
 
-class BlitsPerSecond:
+class BlitsPerSecond(object):
     def __init__(self):
         PlatformSupport()
         self._eventloop = pyglet.app.EventLoop()
-
-        self._metrics = Metrics(target_fps=Config().window.framerate)
+        self._metrics = Metrics()
         self._framebuffer = FrameBuffer()
         self._display = Display(self._eventloop, lambda dt: None)
         self._imagebank = ImageBank()
 
     def run(self, callback: Callable[["BlitsPerSecond"], None]):
         self._callback = callback
-        pyglet.clock.schedule_interval(
-            self._run, 1.0 / 144
-        )  # Config().window.framerate)
-        self._eventloop.run(144)
+        pyglet.clock.schedule_interval(self._run, 1.0 / Config().window.framerate)
+        if Config().window.vsync:
+            self._eventloop.run(Config().window.framerate)
+        else:
+            self._eventloop.run(None)
 
     def _run(self, dt: float):
         self._metrics(dt)
@@ -31,17 +32,13 @@ class BlitsPerSecond:
         self._display.update(self._framebuffer.texture)
 
         if Config().default.show_fps == True:
-            print(
+            Logger().debug(
                 f"FPS: {self._metrics.last_fps:.2f} | 99th percentile: {self._metrics.percentile_99:.2f}"
             )
 
     @property
-    def framebuffer(self):
+    def framebuffer(self) -> FrameBuffer:
         return self._framebuffer
-
-    @property
-    def images(self):
-        return self._framebuffer.texture
 
     @property
     def imagebank(self) -> ImageBank:
