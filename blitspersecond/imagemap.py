@@ -8,7 +8,7 @@ from .tile import Tile
 
 
 class ImageMap:
-    def __init__(self, file: str, tilesize=None):
+    def __init__(self, file: str, tilesize=Tuple[int, int]) -> None:
         try:
             image = Image.open(file)
         except FileNotFoundError:
@@ -19,6 +19,8 @@ class ImageMap:
         self._index_tile = np.array(image)
         self._palette = Palette()
         _p = image.getpalette()
+        if _p is None:
+            raise ValueError("Palette is not available.")
         for i in range(0, len(_p), 3):
             r, g, b = _p[i : i + 3]
             self._palette[i // 3] = (r, g, b, 255)
@@ -29,7 +31,7 @@ class ImageMap:
         return self._palette
 
     @property
-    def tilesize(self) -> int:
+    def tilesize(self) -> Tuple[int, int]:
         return self._tilesize
 
     @tilesize.setter

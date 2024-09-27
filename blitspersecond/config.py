@@ -1,6 +1,6 @@
 import os
 import configparser
-from typing import List
+from typing import Any, Dict, List
 
 
 class Config(object):
@@ -40,7 +40,7 @@ class Config(object):
         self.config_file = os.path.join(os.getcwd(), "blitspersecond.ini")
 
         # Default values for the configuration
-        self.defaults = {
+        self.defaults: Dict[str, Dict[str, Any]] = {
             "default": {
                 "debug": False,
                 "show_fps": False,
@@ -51,7 +51,7 @@ class Config(object):
                 "fullscreen": False,
                 "vsync": False,
                 "framerate": 60,
-                "scale": 1,
+                "scale": 3,
             },
             "audio": {
                 "volume": 50,
@@ -79,6 +79,7 @@ class Config(object):
         else:
             # If the file doesn't exist, load defaults and save them to a new file
             self.config.read_dict(self.defaults)
+            # blitspersecond\config.py:81: error: Argument 1 to "read_dict" of "RawConfigParser" has incompatible type "dict[str, object]"; expected "Mapping[str, Mapping[str, Any]]"  [arg-type]
             self.save_config()
 
         # Merge any missing defaults into the loaded config
