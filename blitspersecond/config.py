@@ -56,6 +56,9 @@ class Config(object):
             "audio": {
                 "volume": 50,
             },
+            "console": {
+                "tileset": "img/ascii12x8.png",
+            },
         }
 
         # Load or initialize config

@@ -7,7 +7,7 @@ from .palette import Palette
 from .tile import Tile
 
 
-class ImageMap:
+class ImageMap(object):
     def __init__(self, file: str, tilesize=Tuple[int, int]) -> None:
         try:
             image = Image.open(file)

@@ -1,4 +1,5 @@
-from numpy import ndarray, uint8
+from numpy import copyto, ndarray, uint8
+from .constants import BPS_DEFAULT_COLORS
 
 
 class Palette(ndarray):
@@ -10,7 +11,7 @@ class Palette(ndarray):
 
     def __new__(cls) -> "Palette":
         obj = super().__new__(cls, (32, 4), dtype=uint8)
-        obj.fill(0x00)
+        copyto(obj, BPS_DEFAULT_COLORS)
         return obj
 
     def __setitem__(self, index, value) -> None:

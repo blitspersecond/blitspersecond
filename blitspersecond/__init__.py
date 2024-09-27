@@ -2,6 +2,7 @@ import pyglet
 from typing import Callable
 from .framebuffer import FrameBuffer
 from .config import Config
+from .console import Console
 from .display import Display
 from .metrics import Metrics
 from .platform import PlatformSupport
@@ -17,6 +18,7 @@ class BlitsPerSecond(object):
         self._framebuffer = FrameBuffer()
         self._display = Display(self._eventloop, lambda dt: None)
         self._imagebank = ImageBank()
+        self._console = Console()
 
     def run(self, callback: Callable[["BlitsPerSecond"], None]):
         try:

@@ -34,7 +34,7 @@ def color_transition(step):
 
 
 def loop(bps: BlitsPerSecond):
-    ansi = bps.imagebank.get("img/ansi.png", (8, 12))
+    ansi = bps.imagebank.get("blitspersecond/resources/ascii12x8.png", (8, 12))
     if not hasattr(loop, "step"):
         loop.step = 0
     x = 0
