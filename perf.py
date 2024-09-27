@@ -43,26 +43,3 @@ def loop(bps: BlitsPerSecond):
 
 bps = BlitsPerSecond()
 bps.run(loop)
-
-# PS C:\Users\kris\Documents\expansive> python .\main.py
-# Pixel scaling set for Windows (8.1 or later).
-# Sprite Shape: 32x32
-# Blits per second: 27175.73
-# Total pixels processed: 111311805.41522822
-# Pixel fill rate: 7562449.97 pixels/second
-# Delta time (last frame): 0.0149 seconds
-# PS C:\Users\kris\Documents\expansive> python .\main.py
-# Pixel scaling set for Windows (8.1 or later).
-# Sprite Shape: 12x8
-# Blits per second: 36625.24
-# Total pixels processed: 14064091.180586794
-# Pixel fill rate: 1287751.70 pixels/second
-# Delta time (last frame): 0.0106 seconds
-# PS C:\Users\kris\Documents\expansive> python .\main.py
-# Pixel scaling set for Windows (8.1 or later).
-# Sprite Shape: 64x64
-# Blits per second: 13949.77
-# Total pixels processed: 228552982.99420527
-# Pixel fill rate: 7970652.17 pixels/second
-# Delta time (last frame): 0.0291 seconds
-# PS C:\Users\kris\Documents\expansive>
