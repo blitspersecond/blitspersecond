@@ -1,5 +1,6 @@
 import os
 import configparser
+from typing import List
 
 
 class Config:
@@ -17,7 +18,7 @@ class Config:
 
     _instance = None  # Singleton instance
 
-    def __new__(cls):
+    def __new__(cls) -> "Config":
         """
         Create a new instance of the Config class if one does not already exist.
         Implements the Singleton pattern to ensure that only one instance of the
@@ -60,7 +61,7 @@ class Config:
         # Load or initialize config
         self.load_config()
 
-    def load_config(self):
+    def load_config(self) -> None:
         """
         Load the configuration from the config.ini file.
 
@@ -111,7 +112,7 @@ class Config:
                     )
                 seen[key] = self._get_current_section(lines, lineno)
 
-    def _get_current_section(self, lines, lineno):
+    def _get_current_section(self, lines: List, lineno: int) -> str:
         """
         Helper method to find the current section based on the line number.
 
@@ -140,7 +141,7 @@ class Config:
         with open(self.config_file, "w") as configfile:
             self.config.write(configfile)
 
-    def __getattr__(self, section):
+    def __getattr__(self, section: str) -> "_SectionProxy":
         """
         Allow dynamic access to configuration sections and options.
 
@@ -174,7 +175,12 @@ class Config:
         to sections and their options. It allows getting and setting options dynamically.
         """
 
-        def __init__(self, config, section, config_instance):
+        def __init__(
+            self,
+            config: configparser.ConfigParser,
+            section: str,
+            config_instance: "Config",
+        ):
             """
             Initialize the SectionProxy for a given section.
 
@@ -187,7 +193,7 @@ class Config:
             self._section = section
             self._config_instance = config_instance
 
-        def __getattr__(self, option):
+        def __getattr__(self, option: str):
             """
             Get the value of a specific option in the section.
 
@@ -213,7 +219,7 @@ class Config:
                     return value
             raise AttributeError(f"No such option: {option}")
 
-        def __setattr__(self, option, value):
+        def __setattr__(self, option: str, value: str):
             """
             Set the value of an option in the section and save the configuration.
 

@@ -13,19 +13,19 @@ class Tile:
         self._tainted = True
 
     @property
-    def width(self):
+    def width(self) -> int:
         return self._index_image.shape[1]
 
     @property
-    def height(self):
+    def height(self) -> int:
         return self._index_image.shape[0]
 
     @property
-    def image(self):
+    def image(self) -> ndarray:
         return self._index_image
 
     @property
-    def palette(self):
+    def palette(self) -> Palette:
         return self._palette
 
     @palette.setter
@@ -33,8 +33,7 @@ class Tile:
         self._palette = palette
         self._tainted = True
 
-    def _untaint(self):
-        # remap the rgba image to the new palette
+    def _untaint(self) -> None:
         self._rgba_image = self._palette[self._index_image]
         self._tainted = False
 

@@ -1,13 +1,14 @@
 # lets update ImageMap and Images
 
 import numpy as np
+from typing import Tuple
 from PIL import Image
 from .palette import Palette
 from .tile import Tile
 
 
-class ImageMap:
-    def __init__(self, file, tilesize=None):
+class ImageMap(object):
+    def __init__(self, file: str, tilesize=None):
         try:
             image = Image.open(file)
         except FileNotFoundError:
@@ -24,27 +25,27 @@ class ImageMap:
         self.tilesize = tilesize or (self._image.width, self._image.height)
 
     @property
-    def palette(self):
+    def palette(self) -> Palette:
         return self._palette
 
     @property
-    def tilesize(self):
+    def tilesize(self) -> int:
         return self._tilesize
 
     @tilesize.setter
-    def tilesize(self, size):
+    def tilesize(self, size: Tuple[int, int]) -> None:
         if not (
-            isinstance(size, (tuple, list))
+            isinstance(size, tuple)
             and len(size) == 2
-            and all(s > 0 for s in size)
+            and all(isinstance(s, int) and s > 0 for s in size)
         ):
-            raise ValueError("Tile size must be a tuple/list of two positive integers.")
+            raise ValueError("Tile size must be a tuple of two positive integers.")
         if size[0] > self._image.width or size[1] > self._image.height:
             raise ValueError("Tile size is too large for the image dimensions.")
         self._index = 0
         self._tilesize = size
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> Tile:
         tiles_per_row = self._image.width // self._tilesize[0]
         row = index // tiles_per_row
         col = index % tiles_per_row
@@ -57,7 +58,7 @@ class ImageMap:
         ]
         return Tile(index_image, self._palette)
 
-    def __len__(self):
+    def __len__(self) -> int:
         tiles_per_row = self._image.width // self._tilesize[0]
         tiles_per_col = self._image.height // self._tilesize[1]
         return tiles_per_row * tiles_per_col
@@ -66,7 +67,7 @@ class ImageMap:
         self._index = 0
         return self
 
-    def __next__(self):
+    def __next__(self) -> Tile:
         if self._index >= len(self):
             raise StopIteration
         tile = self[self._index]

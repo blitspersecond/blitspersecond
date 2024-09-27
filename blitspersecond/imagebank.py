@@ -11,7 +11,7 @@ class ImageBank(object):
         # Dictionary to store ImageMap instances, keyed by filename
         self._imagemaps = {}
 
-    def get(self, file, tilesize=None):
+    def get(self, file: str, tilesize=None) -> ImageMap:
         """
         Loads an ImageMap from the given file and caches it by its filename.
         If the ImageMap has already been loaded, it returns the cached version.
@@ -24,7 +24,7 @@ class ImageBank(object):
             self._imagemaps[file] = ImageMap(file, tilesize)
         return self._imagemaps[file]
 
-    def unset(self, file):
+    def unset(self, file: str) -> None:
         """
         Unloads the ImageMap associated with the given file by removing it from the cache.
 
@@ -36,7 +36,7 @@ class ImageBank(object):
         else:
             raise KeyError(f"ImageMap for file '{file}' is not loaded.")
 
-    def __getitem__(self, file):
+    def __getitem__(self, file: str) -> ImageMap:
         """
         Allows access to the cached ImageMap by file name.
         Raises a KeyError if the file is not loaded.
@@ -49,7 +49,7 @@ class ImageBank(object):
         else:
             raise KeyError(f"ImageMap for file '{file}' is not loaded.")
 
-    def __setitem__(self, file, value):
+    def __setitem__(self, file: str, value: None):
         """
         Allows assignment via indexing. Setting a value of `None` is equivalent to calling `unset`.
         If a non-`None` value is passed, a ValueError will be raised, as only unloading is supported through this method.
@@ -63,7 +63,7 @@ class ImageBank(object):
         else:
             raise ValueError("Only 'None' is allowed when unsetting an image map.")
 
-    def __len__(self):
+    def __len__(self) -> int:
         """
         Returns the number of loaded ImageMap instances.
 
