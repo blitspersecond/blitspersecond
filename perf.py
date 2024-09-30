@@ -9,7 +9,7 @@ def loop(bps: BlitsPerSecond):
     blits = 400
     frames = 1000
     layer = bps.framebuffer[7]
-    ansi = bps.imagebank.get("img/ansi.png", (32, 32))
+    ansi = bps.imagebank.get("blitspersecond/resources/ascii12x8.png", (32, 32))
     tile = ansi[0]
     last_deltatime = bps._metrics.last_dt  # last frame delta time
     loop.elapsed_time += last_deltatime

@@ -1,6 +1,6 @@
 from numpy import array, uint8
 
-BPS_DEFAULT_COLORS = array(
+BPS_DEFAULT_PALETTE = array(
     [
         (0x00, 0x00, 0x00, 0x00),
         (0x00, 0x00, 0x00, 0xFF),
