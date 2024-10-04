@@ -21,8 +21,19 @@ class Tile(object):
         return self._index_image.shape[0]
 
     @property
-    def image(self) -> ndarray:
+    def index_image(self) -> ndarray:
         return self._index_image
+
+    @property
+    def rgba_image(self) -> ndarray:
+        """
+        Returns the RGBA image, converting from index_image and palette if necessary.
+        The RGBA image is cached and only recomputed if the tile is tainted.
+        """
+        if self._tainted or self._rgba_image is None:
+            self._rgba_image = self._palette[self._index_image]
+            self._tainted = False  # Cache is now up-to-date
+        return self._rgba_image
 
     @property
     def palette(self) -> Palette:
