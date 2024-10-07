@@ -80,6 +80,18 @@ class PlatformSupport(object):
         macOS handles DPI scaling automatically, particularly on Retina displays.
         Additional platform-specific settings can be added here if needed.
         """
+        #        import pyglet
+        # from AppKit import NSApplication, NSApp, NSWindow
+
+        # # Initialize the Pyglet window
+        # window = pyglet.window.Window()
+
+        # # Access the Cocoa window via pyglet
+        # ns_window = window._nswindow  # _nswindow is an internal property to access the Cocoa window
+
+        # # Set the content scale factor to 1.0 for 1:1 pixel mapping
+        # ns_window.setContentScaleFactor_(1.0)
+
         Logger().info("macOS pixel scaling is typically automatic (Retina displays).")
 
     @staticmethod

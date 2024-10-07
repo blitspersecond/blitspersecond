@@ -1,15 +1,16 @@
-from numpy import ndarray, zeros, uint8, flip
+import numpy as np
 import pyglet
 from .layer import Layer
+from .config import Config
 
 
 class FrameBuffer(object):
     _DEPTH = 8
 
     def __init__(self) -> None:
-        self.height = 360
-        self.width = 640
-        self._rgba_framebuffer = zeros((self.height, self.width, 4), dtype=uint8)
+        self.height = Config().window.height
+        self.width = Config().window.width
+        self._rgba_framebuffer = np.zeros((self.height, self.width, 4), dtype=np.uint8)
         self._layers = [Layer() for _ in range(self._DEPTH)]
 
     def _compose(self) -> None:
@@ -24,9 +25,6 @@ class FrameBuffer(object):
             alpha_mask = layer_data[..., 3] > 0
             self._rgba_framebuffer[alpha_mask] = layer_data[alpha_mask]
 
-    def layer(self, idx: int) -> Layer:
-        return self._layers[idx]
-
     @property
     def texture(self) -> pyglet.image.Texture:
         self._compose()
@@ -40,12 +38,16 @@ class FrameBuffer(object):
             self.width,
             self.height,
             "RGBA",
-            flip(self._rgba_framebuffer, axis=0).tobytes(),
+            np.flip(self._rgba_framebuffer, axis=0).tobytes(),
         ).get_texture()
 
     @property
     def depth(self) -> int:
         return self._DEPTH
+
+    @property
+    def layer(self, idx: int) -> Layer:
+        return self._layers[idx]
 
     def __getitem__(self, index: int) -> Layer:
         if 0 <= index < len(self._layers):
@@ -63,3 +65,12 @@ class FrameBuffer(object):
         layer = self._layers[self._current_layer]
         self._current_layer += 1
         return layer
+
+
+# # Example for more complex blending (alpha compositing):
+# alpha_layer = layer_data[..., 3] / 255.0  # Normalize alpha to range [0, 1]
+# for c in range(3):  # For each color channel (R, G, B)
+#     self._rgba_framebuffer[..., c] = (
+#         alpha_layer * layer_data[..., c] +
+#         (1 - alpha_layer) * self._rgba_framebuffer[..., c]
+#    )

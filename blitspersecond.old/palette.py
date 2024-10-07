@@ -1,6 +1,5 @@
-from numpy import ndarray, zeros, uint8
-
-PALETTE_SIZE = 16
+from numpy import copyto, ndarray, uint8
+from .constants import BPS_DEFAULT_PALETTE
 
 
 class Palette(ndarray):
@@ -11,8 +10,8 @@ class Palette(ndarray):
     """
 
     def __new__(cls) -> "Palette":
-        obj = super().__new__(cls, (PALETTE_SIZE, 4), dtype=uint8)
-        obj._version = 0
+        obj = super().__new__(cls, (32, 4), dtype=uint8)
+        copyto(obj, BPS_DEFAULT_PALETTE)
         return obj
 
     def __setitem__(self, index, value) -> None:
@@ -26,24 +25,13 @@ class Palette(ndarray):
                 self._clamp(r),
                 self._clamp(g),
                 self._clamp(b),
-                self._clamp(a),
+                self._clamp_alpha(
+                    a
+                ),  # TODO: Think about whether we want to use _clamp_alpha or use the _clamp method
             ]
             super().__setitem__(index, clamped_color)
-            if hasattr(self, "_version"):
-                self._version += 1
-            else:
-                self._version = 1
         else:
             raise ValueError("Expected a 4-element sequence for RGBA values.")
-
-    @property
-    def version(self) -> int:
-        """
-        Returns the current version number of the palette.
-        """
-        if not hasattr(self, "_version"):
-            self._version = 0
-        return self._version
 
     def _clamp(self, value: uint8) -> uint8:
         """
@@ -55,3 +43,9 @@ class Palette(ndarray):
             value = uint8(0xFF)
         nibble = value & 0xF0
         return uint8(nibble + (nibble >> 4))
+
+    def _clamp_alpha(self, value: uint8) -> uint8:
+        """
+        Clamps the alpha value to either fully transparent (0x00) or fully opaque (0xFF).
+        """
+        return uint8(0x00) if value <= 0 else uint8(0xFF)
