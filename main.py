@@ -1,4 +1,6 @@
 from blitspersecond import BlitsPerSecond
+from blitspersecond.resourcemanager import ResourceManager
+from blitspersecond.tileset import TileSet
 
 
 def color_transition(step):
@@ -33,20 +35,25 @@ def color_transition(step):
     return (r, g, b, 255)
 
 
+rm = ResourceManager()
+ansi = rm.get_image("blitspersecond/resources/ascii12x8.png")
+tileset = TileSet(ansi, (8, 12))
+
+
 def loop(bps: BlitsPerSecond):
-    ansi = bps.imagebank.get("blitspersecond/resources/ascii12x8.png", (8, 12))
     if not hasattr(loop, "step"):
         loop.step = 0
     x = 0
     y = 180
     layer = bps.framebuffer[7]
-    for tile in ansi:
+    for tile in tileset:
+        height, width = tile.size
         layer.palette[2] = color_transition(loop.step)
-        x += tile.width
-        if x >= layer.width:
+        x += width
+        if x >= width:
             x = 0
-            y += tile.height
-            if y > layer.height:
+            y += height
+            if y > height:
                 y = 0
         layer.blit(tile, x, y)
     loop.step += 1

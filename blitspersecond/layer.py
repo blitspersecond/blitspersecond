@@ -1,68 +1,8 @@
 from numpy import ndarray, clip, ones, zeros, uint8, array_equal
 from .tile import Tile
 from .palette import Palette
+from .numba import numba_blit
 from typing import Tuple
-from numba import njit, prange
-
-
-@njit(parallel=True)
-def _numba_blit(layer, tile_rgba, tile_mask, x, y, layer_h, layer_w, tile_h, tile_w):
-    # Check if the tile is fully within bounds
-    if 0 <= x <= layer_w - tile_w and 0 <= y <= layer_h - tile_h:
-        # Directly overlay the tile without bounds checking
-        for i in range(tile_h):
-            for j in range(tile_w):
-                if tile_mask[i, j]:  # Check the boolean mask for transparency
-                    layer[y + i, x + j] = tile_rgba[i, j]
-    else:
-        # Tile is partially out of bounds, so perform bounds checking
-        x_end = min(x + tile_w, layer_w)
-        y_end = min(y + tile_h, layer_h)
-        x_start = max(0, x)
-        y_start = max(0, y)
-
-        tile_x_start = max(0, -x)
-        tile_y_start = max(0, -y)
-
-        for i in prange(y_start, y_end):
-            for j in range(x_start, x_end):
-                tile_i = i - y_start + tile_y_start
-                tile_j = j - x_start + tile_x_start
-                if tile_mask[tile_i, tile_j]:  # Check the boolean mask for transparency
-                    layer[i, j] = tile_rgba[tile_i, tile_j]
-
-
-@njit(parallel=True)
-def _experimental_numba_blit(
-    layer, tile_rgba, tile_mask, x, y, layer_h, layer_w, tile_h, tile_w
-):
-    if 0 <= x <= layer_w - tile_w and 0 <= y <= layer_h - tile_h:
-        # When tile is fully within bounds, flatten and apply the mask directly
-        flat_layer = layer[y : y + tile_h, x : x + tile_w].reshape(-1, 4)
-        flat_rgba = tile_rgba.reshape(-1, 4)
-        flat_mask = tile_mask.flatten()
-
-        for idx in range(flat_mask.size):
-            if flat_mask[idx]:
-                flat_layer[idx] = flat_rgba[idx]
-
-        layer[y : y + tile_h, x : x + tile_w] = flat_layer.reshape(tile_h, tile_w, 4)
-    else:
-        # Bounds checking for out-of-bounds tiles
-        x_end = min(x + tile_w, layer_w)
-        y_end = min(y + tile_h, layer_h)
-        x_start = max(0, x)
-        y_start = max(0, y)
-
-        tile_x_start = max(0, -x)
-        tile_y_start = max(0, -y)
-
-        for i in prange(y_start, y_end):
-            for j in range(x_start, x_end):
-                tile_i = i - y_start + tile_y_start
-                tile_j = j - x_start + tile_x_start
-                if tile_mask[tile_i, tile_j]:  # Check the boolean mask for transparency
-                    layer[i, j] = tile_rgba[tile_i, tile_j]
 
 
 class Layer(object):
@@ -112,11 +52,7 @@ class Layer(object):
             raise ValueError("Tile mask data could not be generated.")
 
         # Now that tile._rgba and tile._mask are prepared, call the Numba function
-        self._call_numba_blit(tile, x, y)
-
-    def _call_numba_blit(self, tile, x, y):
-        # Isolate the Numba call to ensure the inputs are validated
-        _numba_blit(
+        numba_blit(
             self._layer,
             tile._rgba,
             tile._mask,
@@ -172,7 +108,7 @@ class Layer(object):
 
     @property
     def palette(self) -> Palette:
-        return self._palette()
+        return self._palette
 
     @palette.setter
     def palette(self, palette: Palette) -> None:

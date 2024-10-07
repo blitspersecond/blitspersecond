@@ -88,6 +88,11 @@ class TileSet:
     def tile(self, index: int) -> Tile:
         return self._tile(index)
 
+    def __len__(self) -> int:
+        return (self._image.size[0] // self._tilesize[0]) * (
+            self._image.size[1] // self._tilesize[1]
+        )
+
     def __getitem__(self, index: int) -> Tile:
         return self._tile(index)
 
@@ -96,7 +101,7 @@ class TileSet:
         return self
 
     def __next__(self) -> Tile:
-        if self._index < self._total_tiles:
+        if self._index < len(self):
             tile = self._tile(self._index)
             self._index += 1
             return tile

@@ -1,4 +1,5 @@
 from numpy import ndarray, ones, zeros, uint8, bool_
+from typing import Tuple
 
 
 class Tile(object):
@@ -23,11 +24,15 @@ class Tile(object):
     def mask(self) -> ndarray:
         return self._mask
 
+    @property
+    def size(self) -> Tuple[int, int]:
+        return (self._tile.shape[1], self._tile.shape[0])
+
     @mask.setter
     def mask(self, mask_data: ndarray) -> None:
         if mask_data.shape != self._tile.shape:
             raise ValueError("Mask must be the same shape as the tile.")
-        if new_mask.dtype != bool_:
+        if mask_data.dtype != bool_:
             raise ValueError("Mask must be of type bool.")
         self._mask = mask_data.copy()
 
