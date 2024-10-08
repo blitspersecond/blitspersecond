@@ -1,6 +1,5 @@
 import numpy as np
 from collections import deque
-from .config import Config
 
 
 class Metrics(object):
@@ -10,7 +9,7 @@ class Metrics(object):
         self.max_records = self._MAX_RECORDS
         self.records = deque(maxlen=self.max_records)
         self._last_dt = 0.0
-        self.target_fps = Config().window.framerate
+        self.target_fps = 60.0
         self.target_dt = 1.0 / self.target_fps
 
     def __call__(self, dt: float) -> None:
@@ -31,11 +30,12 @@ class Metrics(object):
 
     @property
     def percentile_99(self) -> float:
-        """Return the 99th percentile of the recorded delta times (in FPS)."""
+        """Return the FPS corresponding to the 99th percentile of delta times."""
         if len(self.records) > 0:
-            fps_values = [1.0 / dt for dt in self.records if dt > 0]
-            if fps_values:  # Ensure there are valid FPS values
-                return np.percentile(fps_values, 99)
+            # Calculate the 99th percentile of delta times (higher dt = worse performance)
+            percentile_99_dt = np.percentile(self.records, 99)
+            # Convert to FPS (lower FPS = worse performance)
+            return 1.0 / percentile_99_dt if percentile_99_dt > 0 else 0.0
         return 0.0
 
     @property

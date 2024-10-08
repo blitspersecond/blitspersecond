@@ -2,6 +2,9 @@ from blitspersecond import BlitsPerSecond
 from blitspersecond.resourcemanager import ResourceManager
 from blitspersecond.tileset import TileSet
 
+import cProfile
+import pstats
+
 
 def color_transition(step):
     """
@@ -44,20 +47,29 @@ def loop(bps: BlitsPerSecond):
     if not hasattr(loop, "step"):
         loop.step = 0
     x = 0
-    y = 180
+    y = 0
     layer = bps.framebuffer[7]
+    layer.palette[2] = color_transition(loop.step)
     for tile in tileset:
-        height, width = tile.size
-        layer.palette[2] = color_transition(loop.step)
-        x += width
+        height, width = 360, 640
+        x += 8
         if x >= width:
             x = 0
-            y += height
+            y += 12
             if y > height:
                 y = 0
         layer.blit(tile, x, y)
+    # print(f"Step: {loop.step} Color: {layer.palette[2]}")
     loop.step += 1
 
 
-app = BlitsPerSecond()
-app.run(loop)
+profiler = cProfile.Profile()
+
+
+def main():
+    app = BlitsPerSecond()
+    app.run(loop)
+
+
+if __name__ == "__main__":
+    main()

@@ -29,18 +29,19 @@ class FrameBuffer(object):
             # Apply layer to framebuffer based on alpha values
             mask_opaque = (
                 layer_image[..., 3] > 0x00
-            )  # Fully opaque TODO: should be == 0xFF and translucent casse handled
+            )  # Fully opaque TODO: should be == 0xFF and translucent case handled
             # mask_transparent = layer_image[..., 3] == 0x00  # Fully transparent
             self._framebuffer[mask_opaque] = layer_image[mask_opaque]
 
     @property
     def texture(self) -> Texture:
         self._compose()
+        # self._framebuffer[:, ::-1, :] = self._framebuffer[:, ::-1, :]
         return ImageData(
             WIDTH,
             HEIGHT,
             "RGBA",
-            flip(self._framebuffer, axis=0).tobytes(),
+            self._framebuffer.tobytes(),
         ).get_texture()
 
     def __getitem__(self, index: int) -> Layer:

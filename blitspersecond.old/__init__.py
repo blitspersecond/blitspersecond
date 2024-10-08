@@ -14,7 +14,6 @@ class BlitsPerSecond(object):
     def __init__(self):
         PlatformSupport()
         self._eventloop = pyglet.app.EventLoop()
-        self._metrics = Metrics()
         self._framebuffer = FrameBuffer()
         self._display = Display(self._eventloop, lambda dt: None)
         self._imagebank = ImageBank()
@@ -34,7 +33,7 @@ class BlitsPerSecond(object):
     def run(self, callback: Callable[["BlitsPerSecond"], None]):
         try:
             self._callback = callback
-            pyglet.clock.schedule_interval(self._run, 1.0 / Config().window.framerate)
+            pyglet.clock.schedule_interval(self._run, 1.0 / 60)
             if Config().window.vsync:
                 self._eventloop.run(1.0 / Config().window.framerate)
             else:
