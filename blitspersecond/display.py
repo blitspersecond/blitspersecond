@@ -1,19 +1,15 @@
 from typing import Callable
+from .config import Config
 from .render import Renderer
-
 import pyglet
-
-
-HEIGHT = 360
-WIDTH = 640
-SCALE = 1
 
 
 class Display(object):
     def __init__(self, eventloop: pyglet.app.EventLoop, callback: Callable) -> None:
+        c = Config()
         self._window = pyglet.window.Window(
-            WIDTH * SCALE,
-            HEIGHT * SCALE,
+            c.window.width * c.window.scale,
+            c.window.height * c.window.scale,
             vsync=False,
             config=pyglet.gl.Config(swap_interval=1),
         )

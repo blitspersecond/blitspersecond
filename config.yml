@@ -1,0 +1,11 @@
+core:
+  show_fps: false
+  show_metrics: false
+framebuffer:
+  depth: 8
+window:
+  framerate: 60
+  height: 360
+  scale: 2
+  vsync: false
+  width: 640

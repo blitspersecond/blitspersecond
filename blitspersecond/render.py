@@ -16,12 +16,10 @@ from pyglet.gl import (
     GL_TRIANGLES,
 )
 
+from .config import Config
 from pyglet.graphics import Batch, Group
 from pyglet.graphics.shader import Shader, ShaderProgram
 from pyglet.image import Texture
-
-
-QUAD = (0, 0, 640, 0, 640, 360, 0, 360)
 
 
 class RenderGroup(Group):
@@ -80,10 +78,6 @@ class RenderGroup(Group):
         )
 
 
-HEIGHT = 360
-WIDTH = 640
-SCALE = 1
-
 vertex_code = """
 #version 330 core
 in vec2 position;
@@ -118,11 +112,24 @@ void main()
 
 
 class Renderer:
-    _INDICES = (0, 1, 2, 0, 2, 3)
-    _VERTICES = (0, 0, WIDTH, 0, WIDTH, HEIGHT, 0, HEIGHT)
-    _TEX_COORDS = (0, 0, 1, 0, 1, 1, 0, 1)
-
     def __init__(self):
+        self._c = Config()
+        self._width = self._c.window.width
+        self._height = self._c.window.height
+        self._scale = self._c.window.scale
+        self._indices = (0, 1, 2, 0, 2, 3)
+        self._vertices = (
+            0,
+            0,
+            1 * self._width * self._scale,
+            0,
+            1 * self._width * self._scale,
+            1 * self._height * self._scale,
+            0,
+            self._height * self._scale,
+        )
+        self._coords = (0, 0, 1, 0, 1, 1, 0, 1)
+
         vertex_shader = Shader(vertex_code, "vertex")
         fragment_shader = Shader(fragment_code, "fragment")
         self._program = ShaderProgram(vertex_shader, fragment_shader)
@@ -130,8 +137,8 @@ class Renderer:
     def render(self, texture: Texture):
         batch = Batch()
 
-        texture.height = HEIGHT * SCALE
-        texture.width = WIDTH * SCALE
+        texture.height = self._height * self._scale
+        texture.width = self._width * self._scale
 
         glBindTexture(GL_TEXTURE_2D, texture.id)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
@@ -143,11 +150,11 @@ class Renderer:
         self._program.vertex_list_indexed(
             4,
             GL_TRIANGLES,
-            self._INDICES,
+            self._indices,
             batch,
             group,
-            position=("f", self._VERTICES),
-            tex_coords=("f", self._TEX_COORDS),
+            position=("f", self._vertices),
+            tex_coords=("f", self._coords),
         )
 
         batch.draw()

@@ -1,19 +1,24 @@
-from numpy import ndarray, clip, ones, zeros, uint8, array_equal
-from .tile import Tile
+from numpy import ndarray, zeros, uint8, array_equal
+from .config import Config
 from .palette import Palette
 from .numba import numba_blit
-from typing import Tuple
 
 
 class Layer(object):
+
     def __init__(
-        self, width: int = 640, height: int = 360, palette: Palette = None
+        self, width: int = None, height: int = None, palette: Palette = None
     ) -> None:
+        self._c = Config()
+        if width is None:
+            self._width = self._c.window.width
+        if height is None:
+            self._height = self._c.window.height
         if isinstance(palette, Palette):
             self._palette = palette
         else:
             self._palette = Palette()
-        self._layer = zeros([height, width, 4], dtype=uint8)
+        self._layer = zeros([self._height, self._width, 4], dtype=uint8)
         self._unique_tiles = []
         self._palette_version = -1
         self._tainted = True
