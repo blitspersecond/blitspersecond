@@ -39,7 +39,8 @@ class BlitsPerSecond(object):
     def run(self, callback: Callable[["BlitsPerSecond"], None]):
         try:
             self._callback = callback
-            pyglet.clock.schedule_interval(self._run, 1.0 / 60)
+            pyglet.clock.schedule_interval_soft(self._run, 1.0 / 60)  # TODO: experiment
+            # pyglet.clock.schedule_interval(self._run, 1.0 / 60)
             # self._eventloop.run(1.0 / 60)
             self._eventloop.run(0)  # 0 TODO: for Mac, None for PC?
         except KeyboardInterrupt:

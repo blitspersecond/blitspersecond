@@ -63,12 +63,14 @@ def loop(bps: BlitsPerSecond):
     loop.step += 1
 
 
-profiler = cProfile.Profile()
-
-
 def main():
+    profiler = cProfile.Profile()
+    profiler.enable()
     app = BlitsPerSecond()
     app.run(loop)
+    profiler.disable()
+    stats = pstats.Stats(profiler)
+    stats.strip_dirs().sort_stats("cumtime").print_stats(10)
 
 
 if __name__ == "__main__":
