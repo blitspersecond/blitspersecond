@@ -1,8 +1,9 @@
 import platform
 import ctypes
+from .logger import Logger
 
 
-class PlatformSupport:
+class PlatformSupport(object):
     """
     PlatformSupport is a Singleton class that ensures pixels are rendered one-to-one
     on different operating systems. It also provides a hook for other platform-specific
@@ -23,7 +24,7 @@ class PlatformSupport:
         return cls._instance
 
     @staticmethod
-    def configure_pixel_scaling():
+    def configure_pixel_scaling() -> None:
         """
         Configures pixel scaling for different platforms to ensure 1:1 pixel rendering.
 
@@ -43,7 +44,7 @@ class PlatformSupport:
         elif current_platform == "Linux":
             PlatformSupport._set_linux_pixel_scaling()
         else:
-            print(
+            Logger().warning(
                 f"Platform {current_platform} is not explicitly supported for pixel scaling."
             )
 
@@ -59,15 +60,18 @@ class PlatformSupport:
                 ctypes.windll.shcore.SetProcessDpiAwareness(
                     2
                 )  # Per-monitor DPI awareness
-                print("Pixel scaling set for Windows (8.1 or later).")
+                Logger().info("Pixel scaling set for Windows (8.1 or later).")
             else:
                 # Fallback for older Windows versions
                 ctypes.windll.user32.SetProcessDPIAware()  # System DPI awareness
-                print("Pixel scaling set for older Windows versions.")
+                Logger().info("Pixel scaling set for older Windows versions.")
         except AttributeError:
-            print("Failed to set DPI awareness. Unsupported Windows version.")
+            Logger().warning(
+                "Failed to set DPI awareness. Unsupported Windows version."
+            )
         except Exception as e:
-            print(f"Error while setting Windows pixel scaling: {e}")
+            print(e)
+            Logger().error(f"Error while setting Windows pixel scaling: {e}")
 
     @staticmethod
     def _set_macos_pixel_scaling():
@@ -76,7 +80,19 @@ class PlatformSupport:
         macOS handles DPI scaling automatically, particularly on Retina displays.
         Additional platform-specific settings can be added here if needed.
         """
-        print("macOS pixel scaling is typically automatic (Retina displays).")
+        #        import pyglet
+        # from AppKit import NSApplication, NSApp, NSWindow
+
+        # # Initialize the Pyglet window
+        # window = pyglet.window.Window()
+
+        # # Access the Cocoa window via pyglet
+        # ns_window = window._nswindow  # _nswindow is an internal property to access the Cocoa window
+
+        # # Set the content scale factor to 1.0 for 1:1 pixel mapping
+        # ns_window.setContentScaleFactor_(1.0)
+
+        Logger().info("macOS pixel scaling is typically automatic (Retina displays).")
 
     @staticmethod
     def _set_linux_pixel_scaling():
@@ -84,10 +100,6 @@ class PlatformSupport:
         Ensures Linux renders pixels 1:1, depending on desktop environment settings.
         Typically, the desktop environment (e.g., GNOME, KDE) manages pixel scaling.
         """
-        print(
+        Logger().info(
             "Linux pixel scaling is typically managed by the desktop environment (e.g., GNOME, KDE)."
         )
-
-
-# Usage Example (Singleton ensures only one instance is created):
-# platform_support = PlatformSupport()

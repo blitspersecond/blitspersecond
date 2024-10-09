@@ -1,25 +1,22 @@
 from typing import Callable
 from .config import Config
+from .render import Renderer
 import pyglet
-from pyglet.gl import (
-    glBindTexture,
-    glTexParameteri,
-    GL_TEXTURE_2D,
-    GL_TEXTURE_MIN_FILTER,
-    GL_NEAREST,
-    GL_TEXTURE_MAG_FILTER,
-)
 
 
-class Display:
+class Display(object):
     def __init__(self, eventloop: pyglet.app.EventLoop, callback: Callable) -> None:
+        c = Config()
         self._window = pyglet.window.Window(
-            Config().window.width * Config().window.scale,  # 640 * 3
-            Config().window.height * Config().window.scale,  # 360 * 3
-            vsync=Config().window.vsync,  # 60
+            c.window.width * c.window.scale,
+            c.window.height * c.window.scale,
+            vsync=False,
+            config=pyglet.gl.Config(swap_interval=1),
         )
         self._callback = callback
         self._eventloop = eventloop
+
+        self._renderer = Renderer()
 
         @self._window.event
         def on_close():
@@ -27,19 +24,8 @@ class Display:
             self._eventloop.exit()
             self._window.close()
 
-    def update(self, texture: pyglet.image.Texture):
+    def update(self, texture: pyglet.image.Texture) -> None:
         self._window.clear()
-        _t = texture
-        glBindTexture(GL_TEXTURE_2D, _t.id)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
-
-        _t.height = Config().window.height * Config().window.scale
-        _t.width = Config().window.width * Config().window.scale
-        _t.blit(0, 0)
+        self._renderer.render(texture)
         self._window.dispatch_events()
         self._window.dispatch_event("on_draw")
-        try:
-            self._window.flip()
-        except AttributeError:
-            print("window has been closed")
