@@ -1,5 +1,6 @@
 import PIL.Image as PillowImage
 from numpy import array
+from .logger import Logger
 from .palette import Palette
 from typing import Tuple
 
@@ -9,8 +10,10 @@ class Image:
         try:
             im = PillowImage.open(file)
         except FileNotFoundError:
+            Logger().error(f"File not found: {file}")
             raise FileNotFoundError(f"File not found: {file}")
         if im.mode != "P":
+            Logger().error(f"Image is not in palettized (P mode) format: {file}")
             raise ValueError("The image is not in palettized (P mode) format.")
 
         # Store the image as a numpy array
@@ -20,10 +23,13 @@ class Image:
         self._palette = Palette()
         _p = im.getpalette()
         if _p is None:
+            Logger().error(f"Palette is not available: {file}")
             raise ValueError("Palette is not available.")
         if len(_p) % 3 != 0:
+            Logger().error(f"Palette is not in RGB format: {file}")
             raise ValueError("Palette is not in RGB format.")
         if len(_p) > 16 * 3:
+            Logger().error(f"Palette is larger than 16 colors: {file}")
             raise ValueError("Palette is larger than 16 colors.")
 
         # Populate the palette

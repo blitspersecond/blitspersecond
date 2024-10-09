@@ -1,8 +1,8 @@
-from numpy import ndarray
+from numpy import ndarray, zeros, empty, bool_, uint8
 from numba import njit, prange
 
 
-@njit(parallel=True)
+@njit(parallel=True, fastmath=True)
 def numba_blit(layer, tile_rgba, tile_mask, x, y, layer_h, layer_w, tile_h, tile_w):
     # Check if the tile is fully within bounds
     if 0 <= x <= layer_w - tile_w and 0 <= y <= layer_h - tile_h:
@@ -29,7 +29,30 @@ def numba_blit(layer, tile_rgba, tile_mask, x, y, layer_h, layer_w, tile_h, tile
                     layer[i, j] = tile_rgba[tile_i, tile_j]
 
 
-@njit(parallel=True)
+@njit(fastmath=True)
+def numba_rgba(palette, tile_data, tile, height, width):
+    if tile is not None:
+        rgba = empty((height, width, 4), dtype=uint8)
+        for i in range(height):
+            for j in range(width):
+                rgba[i, j] = palette[tile_data[i, j]]
+        return rgba
+    return None
+
+
+@njit(fastmath=True)
+def numba_mask(rgba):
+    if rgba is not None:
+        height, width = rgba.shape[:2]
+        mask = zeros((height, width), dtype=bool_)
+        for i in range(height):
+            for j in range(width):
+                mask[i, j] = rgba[i, j, 3] != 0
+        return mask
+    return None
+
+
+@njit(parallel=True, fastmath=True)
 def numba_compose(framebuffer: ndarray, layers) -> ndarray:
     framebuffer.fill(0)  # Clear the framebuffer at the beginning
 

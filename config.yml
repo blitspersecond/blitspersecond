@@ -1,11 +1,12 @@
 core:
-  show_fps: false
-  show_metrics: false
+  debug: false
+  show_fps: true
+  show_metrics: true
 framebuffer:
   depth: 8
 window:
   framerate: 60
   height: 360
-  scale: 2
+  scale: 1
   vsync: false
   width: 640

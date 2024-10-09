@@ -8,24 +8,25 @@ class Logger:
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            # Configure the logger
-            logging.basicConfig(
-                level=logging.DEBUG,
-                format="%(asctime)s - %(levelname)s - %(message)s",
-            )
+            # # Configure the logger
+            # logging.basicConfig(
+            #     level=logging.DEBUG,
+            #     format="%(asctime)s - %(levelname)s - %(message)s",
+            # )
             cls._instance.logger = logging.getLogger(__name__)
         return cls._instance
 
     def __init__(self):
         super().__init__()
-        if Config().default.debug:
+        if Config().core.debug:
             logging.basicConfig(
-                level=logging.WARNING,
+                level=logging.DEBUG,
                 format="%(asctime)s - %(levelname)s - %(message)s",
             )
         else:
             logging.basicConfig(
-                level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
+                level=logging.WARNING,
+                format="%(asctime)s - %(levelname)s - %(message)s",
             )
         logging.getLogger("PIL").setLevel(
             logging.WARNING

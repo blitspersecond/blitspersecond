@@ -1,4 +1,5 @@
 from .image import Image
+from .logger import Logger
 from .palette import Palette
 from .tile import Tile
 from typing import Tuple
@@ -36,8 +37,10 @@ class TileSet:
             and len(tilesize) == 2
             and all(isinstance(s, int) and s > 0 for s in tilesize)
         ):
+            Logger().error("Tile size must be a tuple of two positive integers.")
             raise ValueError("Tile size must be a tuple of two positive integers.")
         elif tilesize[0] > self._image.size[0] or tilesize[1] > self._image.size[1]:
+            Logger().error("Tile size is too large for the image dimensions.")
             raise ValueError("Tile size is too large for the image dimensions.")
         self._index = 0
         self._tilesize = tilesize
@@ -69,6 +72,7 @@ class TileSet:
         y = row * self._tilesize[1]
 
         if x >= self._image.size[0] or y >= self._image.size[1]:
+            Logger().warning("Tile index out of bounds.")
             raise IndexError("Tile index out of bounds.")
 
         # Extract the tile's region from the numpy array (not transposing x, y)

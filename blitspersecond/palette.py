@@ -1,4 +1,5 @@
 from numpy import ndarray, zeros, uint8
+from .logger import Logger
 
 PALETTE_SIZE = 16
 
@@ -34,6 +35,7 @@ class Palette(ndarray):
             else:
                 self._version = 1
         else:
+            Logger().error("Expected a 4-element sequence for RGBA values.")
             raise ValueError("Expected a 4-element sequence for RGBA values.")
 
     @property

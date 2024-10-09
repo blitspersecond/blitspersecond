@@ -70,7 +70,7 @@ def main():
     app.run(loop)
     profiler.disable()
     stats = pstats.Stats(profiler)
-    # stats.strip_dirs().sort_stats("cumtime").print_stats(10)
+    stats.strip_dirs().sort_stats("cumtime").print_stats(25)
 
 
 if __name__ == "__main__":

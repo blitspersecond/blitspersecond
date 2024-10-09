@@ -1,4 +1,5 @@
 from .image import Image
+from .logger import Logger
 
 
 class ResourceManager(object):
@@ -21,18 +22,21 @@ class ResourceManager(object):
         if key in self._resources:
             del self._resources[key]
         else:
+            Logger.error(f"Resource for key '{key}' is not loaded.")
             raise KeyError(f"Resource for key '{key}' is not loaded.")
 
     def __getitem__(self, key: str) -> object:
         if key in self._resources:
             return self._resources[key]
         else:
+            Logger.error(f"Resource for key '{key}' is not loaded.")
             raise KeyError(f"Resource for key '{key}' is not loaded.")
 
     def __setitem__(self, key: str, value: None):
         if value is None:
             self.unset(key)
         else:
+            Logger
             raise ValueError("Only 'None' is allowed when unsetting a resource.")
 
     def __len__(self) -> int:

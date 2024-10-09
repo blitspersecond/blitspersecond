@@ -11,6 +11,8 @@
 
 import pyglet
 from typing import Callable
+from .logger import Logger
+from .config import Config
 from .framebuffer import FrameBuffer
 from .metrics import Metrics
 from .display import Display
@@ -21,20 +23,20 @@ class BlitsPerSecond(object):
         self._eventloop = pyglet.app.EventLoop()
         self._framebuffer = FrameBuffer()
         self._display = Display(self._eventloop, lambda dt: None)
+        self._config = Config()
+        self._logger = Logger()
         self._metrics = Metrics()
 
     def _run(self, dt: float):
         self._metrics(dt)
         self._callback(self)
         self._display.update(self._framebuffer.texture)
-        print(
+
+        if self._config.core.show_fps == True:
+            pass
+        Logger().debug(
             f"FPS: {self._metrics.last_fps:.2f} | 99th percentile: {self._metrics.percentile_99:.2f} - DT: {dt:.2f}"
         )
-        # if Config().default.show_fps == True:
-        #     pass
-        # Logger().debug(
-        #     f"FPS: {self._metrics.last_fps:.2f} | 99th percentile: {self._metrics.percentile_99:.2f} - DT: {dt:.2f}"
-        # )
 
     def run(self, callback: Callable[["BlitsPerSecond"], None]):
         try:

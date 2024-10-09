@@ -27,10 +27,7 @@ class ConfigSection:
 class Config:
     _instance = None
     _default = {
-        "core": {
-            "show_fps": False,
-            "show_metrics": False,
-        },
+        "core": {"show_fps": False, "show_metrics": False, "debug": False},
         "window": {
             "height": 360,
             "width": 640,
@@ -72,9 +69,8 @@ class Config:
         try:
             with open("config.yml", "w") as f:
                 yaml.dump(self._config_data, f)
-            print("Configuration successfully saved to config.yml")
         except Exception as e:
-            print(f"Failed to save configuration: {e}")
+            print(f"failed to save config")
 
     def __eq__(self, other):
         return isinstance(other, Config) and self._config_data == other._config_data
