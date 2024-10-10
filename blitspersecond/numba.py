@@ -2,31 +2,49 @@ from numpy import ndarray, zeros, empty, bool_, uint8
 from numba import njit, prange
 
 
-@njit(parallel=True, fastmath=True)
+@njit(parallel=False, fastmath=True)
 def numba_blit(layer, tile_rgba, tile_mask, x, y, layer_h, layer_w, tile_h, tile_w):
+    # Early exit if the tile is completely out of bounds
+    if x >= layer_w or y >= layer_h or x + tile_w <= 0 or y + tile_h <= 0:
+        return  # Do nothing since the tile is fully outside the layer
     # Check if the tile is fully within bounds
     if 0 <= x <= layer_w - tile_w and 0 <= y <= layer_h - tile_h:
         # Directly overlay the tile without bounds checking
         for i in range(tile_h):
+            layer_y = y + i  # Calculate once per row
             for j in range(tile_w):
                 if tile_mask[i, j]:  # Check the boolean mask for transparency
-                    layer[y + i, x + j] = tile_rgba[i, j]
+                    layer[layer_y, x + j] = tile_rgba[i, j]
     else:
-        # Tile is partially out of bounds, so perform bounds checking
-        x_end = min(x + tile_w, layer_w)
-        y_end = min(y + tile_h, layer_h)
+        # Tile is partially out of bounds, so perform bounds checking and make copies
         x_start = max(0, x)
         y_start = max(0, y)
+        x_end = min(x + tile_w, layer_w)
+        y_end = min(y + tile_h, layer_h)
 
         tile_x_start = max(0, -x)
         tile_y_start = max(0, -y)
 
-        for i in prange(y_start, y_end):
-            for j in range(x_start, x_end):
-                tile_i = i - y_start + tile_y_start
-                tile_j = j - x_start + tile_x_start
-                if tile_mask[tile_i, tile_j]:  # Check the boolean mask for transparency
-                    layer[i, j] = tile_rgba[tile_i, tile_j]
+        # Calculate the dimensions of the visible region
+        visible_tile_h = y_end - y_start
+        visible_tile_w = x_end - x_start
+
+        # Copy the visible portion of tile_rgba and tile_mask to ensure contiguous access
+        visible_rgba = tile_rgba[
+            tile_y_start : tile_y_start + visible_tile_h,
+            tile_x_start : tile_x_start + visible_tile_w,
+        ].copy()
+        visible_mask = tile_mask[
+            tile_y_start : tile_y_start + visible_tile_h,
+            tile_x_start : tile_x_start + visible_tile_w,
+        ].copy()
+
+        # Blit the copied region to the layer
+        for i in range(visible_tile_h):
+            layer_y = y_start + i
+            for j in range(visible_tile_w):
+                if visible_mask[i, j]:  # Check the boolean mask for transparency
+                    layer[layer_y, x_start + j] = visible_rgba[i, j]
 
 
 @njit(fastmath=True)

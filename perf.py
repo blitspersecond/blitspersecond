@@ -73,8 +73,8 @@ def loop(bps: BlitsPerSecond):
 
     # Blit tiles across the layer
     for layer in bps.framebuffer:
-        for x in range(0, 80):
-            for y in range(0, 30):
+        for x in range(-1, 81):
+            for y in range(-1, 31):
                 layer.blit(tile, x * 8, y * 12)
                 blits += 1
 

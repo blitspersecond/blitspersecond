@@ -44,7 +44,7 @@ class Renderer:
 
         width = self._c.window.width
         height = self._c.window.height
-        scale = self._c.window.scale
+        scale = self._c.window.scale * self._c.window.dpi_scale
 
         # Calculate scaled vertices based on current width, height, and scale
         # fmt: off

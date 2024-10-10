@@ -48,18 +48,20 @@ def loop(bps: BlitsPerSecond):
         loop.step = 0
     x = 0
     y = 0
+    bps.framebuffer[6].palette[0] = (0, 64, 128, 192)
     layer = bps.framebuffer[7]
-    layer.palette[2] = color_transition(loop.step)
+    bps.framebuffer[6]._layer[:] = bps.framebuffer[6].palette[0]
+
+    layer.palette[2] = color_transition(300)  # )
     for tile in tileset:
         height, width = 360, 640
-        x += 8
         if x >= width:
             x = 0
             y += 12
             if y > height:
                 y = 0
         layer.blit(tile, x, y)
-    # print(f"Step: {loop.step} Color: {layer.palette[2]}")
+        x += 8
     loop.step += 1
 
 

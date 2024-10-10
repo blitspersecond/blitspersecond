@@ -34,6 +34,7 @@ class Config:
             "scale": 1,
             "framerate": 60,
             "vsync": False,
+            "dpi_scale": 2,
         },
         "framebuffer": {
             "depth": 8,

@@ -6,6 +6,7 @@ from .numba import numba_blit, numba_rgba, numba_mask
 
 
 class Layer(object):
+    _count = 0
 
     def __init__(
         self, width: int = None, height: int = None, palette: Palette = None
