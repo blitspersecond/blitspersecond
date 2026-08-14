@@ -153,6 +153,7 @@ def loop_engine(
     swap_duration: float | Iterable[float],
     start_deadline: bool = False,
     gamescope: bool = False,
+    xwayland: bool = False,
     outputs: tuple[float, ...] | None = None,
 ) -> tuple[BlitsPerSecond, FakeClock, FakeDisplay]:
     clock = FakeClock()
@@ -178,9 +179,16 @@ def loop_engine(
         monkeypatch.setenv("XDG_CURRENT_DESKTOP", "gamescope")
         monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
         monkeypatch.setenv("BPS_GAMESCOPE_BACKEND", "wayland")
+    elif xwayland:
+        monkeypatch.delenv("GAMESCOPE_WAYLAND_DISPLAY", raising=False)
+        monkeypatch.delenv("BPS_GAMESCOPE_BACKEND", raising=False)
+        monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
+        monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
     else:
         monkeypatch.delenv("GAMESCOPE_WAYLAND_DISPLAY", raising=False)
         monkeypatch.delenv("BPS_GAMESCOPE_BACKEND", raising=False)
+        monkeypatch.setenv("XDG_CURRENT_DESKTOP", "test")
+        monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
 
     engine = BlitsPerSecond.__new__(BlitsPerSecond)
     # Deliberately replace concrete runtime collaborators on this unbooted
@@ -393,6 +401,24 @@ def test_gamescope_path_skips_flip_probe_without_diagnostic_flag(monkeypatch):
     assert any("Gamescope presentation path" in message for message in logger.messages)
 
 
+def test_xwayland_path_skips_flip_probe_without_diagnostic_flag(monkeypatch):
+    period = 1.0 / 120
+    engine, clock, display = loop_engine(
+        monkeypatch,
+        refresh_rate=120,
+        swap_duration=0.0001,
+        xwayland=True,
+    )
+
+    ticks = run_for_ticks(engine, clock, 3)
+    logger = engine._logger
+
+    assert ticks == pytest.approx([0.0, period * 2 + 0.0001, period * 4 + 0.0001])
+    assert display.prepared == [True, False, True, False]
+    assert isinstance(logger, FakeLogger)
+    assert any("Direct XWayland presentation" in message for message in logger.messages)
+
+
 def test_moving_to_a_slower_output_re_derives_the_cadence(monkeypatch):
     # Launch on 144Hz (cadence 5/12), then have presentations start arriving
     # at 60Hz, as they do when the window is dragged to a 60Hz monitor. With
@@ -468,14 +494,16 @@ def test_a_slow_game_never_re_derives_the_cadence(monkeypatch):
     )
 
 
-def test_deadline_grid_path_never_re_derives_from_its_own_timer(monkeypatch):
-    # Under Gamescope the interval between presentations is the engine's own
-    # deadline, so it is not evidence about any display.
+@pytest.mark.parametrize("path", ["gamescope", "xwayland"])
+def test_deadline_grid_path_never_re_derives_from_its_own_timer(monkeypatch, path):
+    # On an engine-owned deadline grid, the interval between presentations is
+    # our own timer and therefore is not evidence about any display.
     engine, clock, _display = loop_engine(
         monkeypatch,
         refresh_rate=120,
         swap_duration=0.0001,
-        gamescope=True,
+        gamescope=path == "gamescope",
+        xwayland=path == "xwayland",
         outputs=(120.0, 60.0),
     )
 

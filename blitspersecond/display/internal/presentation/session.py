@@ -81,6 +81,12 @@ def _log_deadline_grid_pacing(
             "from the first frame."
         )
         return
+    if initial_reason == "xwayland":
+        logger.info(
+            "Direct XWayland presentation disabled client vsync and selected "
+            "deadline-grid pacing from the first frame."
+        )
+        return
     if initial_reason == "experiment":
         logger.info(
             "Frame-pacing experiment requested deadline-grid presentation "
@@ -149,7 +155,7 @@ class PresentationSession:
             presentation_path=presentation_path.description,
         )
         self._start_deadline_reason = (
-            "gamescope"
+            presentation_path.name
             if presentation_path.starts_on_deadline_grid
             else "experiment"
             if diagnostic_deadline

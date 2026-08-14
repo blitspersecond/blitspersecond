@@ -29,7 +29,18 @@ class PresentationPath:
     @property
     def starts_on_deadline_grid(self) -> bool:
         """Whether this path has a known non-blocking client-side swap."""
-        return self.name == "gamescope"
+        return self.name in {"gamescope", "xwayland"}
+
+    @property
+    def requests_vsync(self) -> bool:
+        """Whether the client should ask its window system to pace swaps.
+
+        Mutter's XWayland GLX path charges a whole additional refresh when a
+        prepared frame narrowly misses vblank. BPS therefore owns the deadline
+        there. Gamescope keeps its existing request: its nested swap is already
+        non-blocking and the explicit marker starts the same deadline policy.
+        """
+        return self.name != "xwayland"
 
     @property
     def description(self) -> str:

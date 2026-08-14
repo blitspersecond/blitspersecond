@@ -1,5 +1,4 @@
 import csv
-from pathlib import Path
 
 import numpy as np
 
@@ -136,12 +135,24 @@ def test_slot_report_classifies_refresh_intervals_without_stutter_score():
     assert "residual p50=" in output
 
 
-def test_archived_windows_pair_remains_readable():
-    root = Path(__file__).parent.parent / "artifacts" / "framepacing"
-    internal = frame_pacing.load(root / "120hz-auto-internal.npz")
-    presentmon = frame_pacing.load(root / "120hz-auto-presentmon.csv")
+def test_loads_legacy_bps_npz_without_archived_capture_assets(tmp_path):
+    path = tmp_path / "legacy.npz"
+    frames = np.zeros(
+        3,
+        dtype=[
+            ("frame_interval_ns", "<u8"),
+            ("surface_flip_ns", "<u8"),
+            ("msc", "<u8"),
+        ],
+    )
+    frames["frame_interval_ns"] = [0, 8_300_000, 8_400_000]
+    frames["surface_flip_ns"] = [100_000, 110_000, 120_000]
+    frames["msc"] = [10, 11, 12]
+    np.savez(path, frames=frames)
 
-    assert internal.kind == "legacy BPS NPZ"
-    assert len(internal.series[0].intervals_ms) > 3_000
-    assert presentmon.kind == "PresentMon CSV"
-    assert len(presentmon.series[1].intervals_ms) > 2_000
+    capture = frame_pacing.load(path)
+
+    assert capture.kind == "legacy BPS NPZ"
+    np.testing.assert_allclose(capture.series[0].intervals_ms, [8.3, 8.4])
+    np.testing.assert_allclose(capture.columns["swap_ms"], [0.1, 0.11, 0.12])
+    np.testing.assert_allclose(capture.columns["msc_delta"], [1, 1])

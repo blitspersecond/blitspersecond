@@ -3,6 +3,7 @@ from typing import Optional
 
 from blitspersecond.system import Config, Logger, EventBus
 
+from .presentation.path import detect_presentation_path
 from .refresh_rate import get_refresh_rate
 
 
@@ -19,6 +20,7 @@ class Surface(pyglet.window.Window):
         self._width = display.width
         self._height = display.height
         self._scale = display.scale
+        presentation_path = detect_presentation_path()
 
         screen = pyglet.display.get_display().get_default_screen()
         if display.fullscreen:
@@ -43,11 +45,11 @@ class Surface(pyglet.window.Window):
             style=style,
             fullscreen=False,
             visible=visible,
-            # vsync ON is load-bearing: the engine's main loop is paced by the
-            # flip() block (display-clock pacing -- see BlitsPerSecond.run).
-            # If flips prove non-blocking, it switches to a monotonic deadline
-            # grid with optional spin-pacing for the final wake-up margin.
-            vsync=True,
+            # Native X11 asks GLX to pace swaps. Direct XWayland deliberately
+            # does not: a narrowly missed Mutter vblank otherwise costs a full
+            # extra refresh, so PresentationSession owns a monotonic deadline
+            # grid there just as it does for the validated Gamescope path.
+            vsync=presentation_path.requests_vsync,
             config=pyglet.gl.Config(double_buffer=True),
         )
         self.set_caption("BlitsPerSecond")
