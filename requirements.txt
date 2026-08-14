@@ -1,0 +1,23 @@
+# The engine's RUNTIME dependencies, pinned to the versions it is developed
+# against. Curated: every line here is imported by `blitspersecond/` itself.
+#
+# pyproject.toml is the source of truth for what a CONSUMER gets (as floors, so
+# they can move forward); this file reproduces the engine's own environment
+# exactly. Test infra lives in requirements-dev.txt -- it was never in here,
+# but it was in the venv, which is how this list drifted.
+#
+# Deliberately ABSENT, though they are installed as transitive deps:
+#   llvmlite   -- numba's backend
+#   cffi       -- sounddevice's binding layer
+#   pycparser  -- cffi's parser
+#   packaging  -- pulled in by several of the above
+# Naming a transitive here pins someone else's private business; let pip
+# resolve them.
+
+pyglet==2.1.15
+numpy==2.4.6
+pillow==12.3.0
+sounddevice==0.5.5
+scipy==1.18.0
+numba==0.66.0
+colorama==0.4.6

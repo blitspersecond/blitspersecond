@@ -1,0 +1,18 @@
+# Test and tooling infra for working ON the engine. Kept apart from
+# requirements.txt so that installing the engine does not drag pytest into a
+# consumer's environment -- the split bps-horizons wanted.
+#
+#   pip install -r requirements.txt -r requirements-dev.txt
+#
+# or, equivalently, from the repo root:  pip install -e .[dev]
+
+-r requirements.txt
+
+# Repository MIDI-score examples and their tests use Mido's pure-Python file
+# and message model. Live MIDI input and python-rtmidi are quarantined; see
+# midi.txt.
+mido==1.3.3
+
+pytest==9.1.1
+pyflakes==3.4.0
+pyright==1.1.411

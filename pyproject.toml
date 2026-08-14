@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blitspersecond"
+version = "3.0.0"
+description = "A single-purpose 640x360 palettised 2D blitter engine"
+requires-python = ">=3.14"
+
+# THE ENGINE'S RUNTIME DEPENDENCIES, and nothing else. This list is what a
+# consumer gets from `pip install -e ../blitspersecond` -- so it is curated
+# from what `blitspersecond/` actually imports, not from what happens to be in
+# the engine's own venv. Test infra (pytest, pyright, pyflakes) lives in the
+# dev extra below; transitive deps (llvmlite behind numba, cffi/pycparser
+# behind sounddevice) are deliberately absent, because pip resolves those and
+# naming them here would pin someone else's private business.
+#
+# Floors, not pins: these are the versions the engine is developed and tested
+# against, and a consumer should be free to move forward. requirements.txt
+# holds the exact pinned set for reproducing the engine's own environment.
+dependencies = [
+    "pyglet>=2.1.15",       # window, GL context, event loop
+    "numpy>=2.4.6",         # every pixel buffer and tile batch
+    "pillow>=12.3.0",       # resources/image.py: asset decode
+    "sounddevice>=0.5.5",   # audio/core: PortAudio output
+    "scipy>=1.18.0",        # audio/synth: lfilter
+    "numba>=0.66.0",        # audio/synth: stateful kernels
+    "colorama>=0.4.6",      # system/monitor/logger.py
+]
+
+[project.optional-dependencies]
+dev = [
+    # Repository MIDI-score examples and tests; not an engine dependency.
+    "mido>=1.3.3",
+    "pytest>=9.1.1",
+    "pyflakes>=3.4.0",
+    "pyright>=1.1.411",
+]
+
+[tool.pytest.ini_options]
+# Maintained contracts live in tests/.
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+# The engine package only. `tests`, `examples`, `util` and `docs` are repo
+# furniture and must never ship inside an install.
+include = ["blitspersecond*"]
+
+[tool.setuptools.package-data]
+# The GLSL sources are engine assets, not repo furniture: the framebuffer
+# post-pass and both drawable paths compile them at runtime, so an install
+# without them cannot open a window. They are not a package (no __init__.py),
+# so packages.find above does not see them and they must be named here or an
+# editable install would work while a real one silently shipped no shaders.
+blitspersecond = [
+    "assets/shaders/*.vert",
+    "assets/shaders/*.frag",
+    # The system character sets are part of GlyphEngine, not repo furniture.
+    "assets/charset/*.png",
+    "assets/charset/*.md",
+]

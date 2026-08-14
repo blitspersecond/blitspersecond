@@ -1,0 +1,541 @@
+{
+  "version": 1,
+  "tick_unit": "integer simulation tick",
+  "tilesets": {
+    "shapes": {
+      "image": "test.png",
+      "transparent_index": 0,
+      "default_palette": 0,
+      "palettes": [
+        [
+          "#00000000",
+          "#222034ff",
+          "#45283cff",
+          "#663931ff",
+          "#8f563bff",
+          "#df7126ff",
+          "#d9a066ff",
+          "#eec39aff",
+          "#fbf236ff",
+          "#99e550ff",
+          "#6abe30ff",
+          "#37946eff",
+          "#4b692fff",
+          "#524b24ff",
+          "#323c39ff",
+          "#3f3f74ff",
+          "#306082ff",
+          "#5b6ee1ff",
+          "#639bffff",
+          "#5fcde4ff",
+          "#cbdbfcff",
+          "#ffffffff",
+          "#9badb7ff",
+          "#847e87ff",
+          "#696a6aff",
+          "#595652ff",
+          "#76428aff",
+          "#ac3232ff",
+          "#d95763ff",
+          "#d77bbaff",
+          "#8f974aff",
+          "#8a6f30ff"
+        ],
+        [
+          "#00000000",
+          "#fbf236ff",
+          "#99e550ff",
+          "#6abe30ff",
+          "#37946eff",
+          "#4b692fff",
+          "#524b24ff",
+          "#323c39ff",
+          "#3f3f74ff",
+          "#306082ff",
+          "#5b6ee1ff",
+          "#639bffff",
+          "#5fcde4ff",
+          "#cbdbfcff",
+          "#ffffffff",
+          "#9badb7ff",
+          "#847e87ff",
+          "#696a6aff",
+          "#595652ff",
+          "#76428aff",
+          "#ac3232ff",
+          "#d95763ff",
+          "#d77bbaff",
+          "#8f974aff",
+          "#8a6f30ff",
+          "#222034ff",
+          "#45283cff",
+          "#663931ff",
+          "#8f563bff",
+          "#df7126ff",
+          "#d9a066ff",
+          "#eec39aff"
+        ],
+        [
+          "#00000000",
+          "#3f3f74ff",
+          "#306082ff",
+          "#5b6ee1ff",
+          "#639bffff",
+          "#5fcde4ff",
+          "#cbdbfcff",
+          "#ffffffff",
+          "#9badb7ff",
+          "#847e87ff",
+          "#696a6aff",
+          "#595652ff",
+          "#76428aff",
+          "#ac3232ff",
+          "#d95763ff",
+          "#d77bbaff",
+          "#8f974aff",
+          "#8a6f30ff",
+          "#222034ff",
+          "#45283cff",
+          "#663931ff",
+          "#8f563bff",
+          "#df7126ff",
+          "#d9a066ff",
+          "#eec39aff",
+          "#fbf236ff",
+          "#99e550ff",
+          "#6abe30ff",
+          "#37946eff",
+          "#4b692fff",
+          "#524b24ff",
+          "#323c39ff"
+        ],
+        [
+          "#00000000",
+          "#9badb7ff",
+          "#847e87ff",
+          "#696a6aff",
+          "#595652ff",
+          "#76428aff",
+          "#ac3232ff",
+          "#d95763ff",
+          "#d77bbaff",
+          "#8f974aff",
+          "#8a6f30ff",
+          "#222034ff",
+          "#45283cff",
+          "#663931ff",
+          "#8f563bff",
+          "#df7126ff",
+          "#d9a066ff",
+          "#eec39aff",
+          "#fbf236ff",
+          "#99e550ff",
+          "#6abe30ff",
+          "#37946eff",
+          "#4b692fff",
+          "#524b24ff",
+          "#323c39ff",
+          "#3f3f74ff",
+          "#306082ff",
+          "#5b6ee1ff",
+          "#639bffff",
+          "#5fcde4ff",
+          "#cbdbfcff",
+          "#ffffffff"
+        ]
+      ],
+      "tiles": {
+        "shape-0": {
+          "source": [
+            0,
+            0,
+            32,
+            32
+          ]
+        },
+        "shape-1": {
+          "source": [
+            32,
+            0,
+            32,
+            32
+          ]
+        },
+        "shape-2": {
+          "source": [
+            64,
+            0,
+            32,
+            32
+          ]
+        },
+        "shape-3": {
+          "source": [
+            96,
+            0,
+            32,
+            32
+          ]
+        },
+        "shape-4": {
+          "source": [
+            0,
+            32,
+            32,
+            32
+          ]
+        },
+        "shape-5": {
+          "source": [
+            32,
+            32,
+            32,
+            32
+          ]
+        },
+        "shape-6": {
+          "source": [
+            64,
+            32,
+            32,
+            32
+          ]
+        },
+        "shape-7": {
+          "source": [
+            96,
+            32,
+            32,
+            32
+          ]
+        }
+      }
+    },
+    "marks": {
+      "image": "test.png",
+      "transparent_index": 0,
+      "default_palette": 2,
+      "palettes": [
+        [
+          "#00000000",
+          "#222034ff",
+          "#45283cff",
+          "#663931ff",
+          "#8f563bff",
+          "#df7126ff",
+          "#d9a066ff",
+          "#eec39aff",
+          "#fbf236ff",
+          "#99e550ff",
+          "#6abe30ff",
+          "#37946eff",
+          "#4b692fff",
+          "#524b24ff",
+          "#323c39ff",
+          "#3f3f74ff",
+          "#306082ff",
+          "#5b6ee1ff",
+          "#639bffff",
+          "#5fcde4ff",
+          "#cbdbfcff",
+          "#ffffffff",
+          "#9badb7ff",
+          "#847e87ff",
+          "#696a6aff",
+          "#595652ff",
+          "#76428aff",
+          "#ac3232ff",
+          "#d95763ff",
+          "#d77bbaff",
+          "#8f974aff",
+          "#8a6f30ff"
+        ],
+        [
+          "#00000000",
+          "#fbf236ff",
+          "#99e550ff",
+          "#6abe30ff",
+          "#37946eff",
+          "#4b692fff",
+          "#524b24ff",
+          "#323c39ff",
+          "#3f3f74ff",
+          "#306082ff",
+          "#5b6ee1ff",
+          "#639bffff",
+          "#5fcde4ff",
+          "#cbdbfcff",
+          "#ffffffff",
+          "#9badb7ff",
+          "#847e87ff",
+          "#696a6aff",
+          "#595652ff",
+          "#76428aff",
+          "#ac3232ff",
+          "#d95763ff",
+          "#d77bbaff",
+          "#8f974aff",
+          "#8a6f30ff",
+          "#222034ff",
+          "#45283cff",
+          "#663931ff",
+          "#8f563bff",
+          "#df7126ff",
+          "#d9a066ff",
+          "#eec39aff"
+        ],
+        [
+          "#00000000",
+          "#3f3f74ff",
+          "#306082ff",
+          "#5b6ee1ff",
+          "#639bffff",
+          "#5fcde4ff",
+          "#cbdbfcff",
+          "#ffffffff",
+          "#9badb7ff",
+          "#847e87ff",
+          "#696a6aff",
+          "#595652ff",
+          "#76428aff",
+          "#ac3232ff",
+          "#d95763ff",
+          "#d77bbaff",
+          "#8f974aff",
+          "#8a6f30ff",
+          "#222034ff",
+          "#45283cff",
+          "#663931ff",
+          "#8f563bff",
+          "#df7126ff",
+          "#d9a066ff",
+          "#eec39aff",
+          "#fbf236ff",
+          "#99e550ff",
+          "#6abe30ff",
+          "#37946eff",
+          "#4b692fff",
+          "#524b24ff",
+          "#323c39ff"
+        ],
+        [
+          "#00000000",
+          "#9badb7ff",
+          "#847e87ff",
+          "#696a6aff",
+          "#595652ff",
+          "#76428aff",
+          "#ac3232ff",
+          "#d95763ff",
+          "#d77bbaff",
+          "#8f974aff",
+          "#8a6f30ff",
+          "#222034ff",
+          "#45283cff",
+          "#663931ff",
+          "#8f563bff",
+          "#df7126ff",
+          "#d9a066ff",
+          "#eec39aff",
+          "#fbf236ff",
+          "#99e550ff",
+          "#6abe30ff",
+          "#37946eff",
+          "#4b692fff",
+          "#524b24ff",
+          "#323c39ff",
+          "#3f3f74ff",
+          "#306082ff",
+          "#5b6ee1ff",
+          "#639bffff",
+          "#5fcde4ff",
+          "#cbdbfcff",
+          "#ffffffff"
+        ]
+      ],
+      "tiles": {
+        "mark-8": {
+          "source": [
+            0,
+            64,
+            32,
+            32
+          ]
+        },
+        "mark-9": {
+          "source": [
+            32,
+            64,
+            32,
+            32
+          ]
+        },
+        "mark-10": {
+          "source": [
+            64,
+            64,
+            32,
+            32
+          ]
+        },
+        "mark-11": {
+          "source": [
+            96,
+            64,
+            32,
+            32
+          ]
+        },
+        "mark-12": {
+          "source": [
+            0,
+            96,
+            32,
+            32
+          ]
+        },
+        "mark-13": {
+          "source": [
+            32,
+            96,
+            32,
+            32
+          ]
+        },
+        "mark-14": {
+          "source": [
+            64,
+            96,
+            32,
+            32
+          ]
+        },
+        "mark-15": {
+          "source": [
+            96,
+            96,
+            32,
+            32
+          ]
+        }
+      }
+    }
+  },
+  "assemblies": {
+    "shape-01": {
+      "parts": [
+        {
+          "tileset": "shapes",
+          "tile": "shape-0",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ],
+      "collision": {
+        "hit": [
+          [
+            0,
+            0,
+            32,
+            32
+          ]
+        ],
+        "hurt": [
+          [
+            8,
+            8,
+            16,
+            16
+          ]
+        ],
+        "push": [
+          [
+            4,
+            0,
+            24,
+            32
+          ]
+        ]
+      }
+    },
+    "shape-02": {
+      "parts": [
+        {
+          "tileset": "shapes",
+          "tile": "shape-1",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ],
+      "collision": {
+        "hurt": [
+          [
+            0,
+            0,
+            32,
+            32
+          ]
+        ]
+      }
+    },
+    "combo-01": {
+      "parts": [
+        {
+          "tileset": "shapes",
+          "tile": "shape-2",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        },
+        {
+          "tileset": "marks",
+          "tile": "mark-8",
+          "offset": [
+            8,
+            -8
+          ],
+          "order": 1
+        }
+      ],
+      "collision": {
+        "hit": [
+          [
+            0,
+            -8,
+            32,
+            40
+          ]
+        ]
+      }
+    },
+    "blank-01": {
+      "parts": []
+    }
+  },
+  "animations": {
+    "cycle": {
+      "frames": [
+        {
+          "assembly": "shape-01",
+          "duration_ticks": 3
+        },
+        {
+          "assembly": "shape-02",
+          "duration_ticks": 1
+        },
+        {
+          "assembly": "blank-01",
+          "duration_ticks": 4
+        }
+      ]
+    }
+  }
+}
