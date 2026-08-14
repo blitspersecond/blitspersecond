@@ -6,7 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "blitspersecond"
 version = "3.0.0"
 description = "A single-purpose 640x360 palettised 2D blitter engine"
+readme = "README.md"
 requires-python = ">=3.14"
+license = "MIT"
+license-files = ["LICENSE"]
 
 # THE ENGINE'S RUNTIME DEPENDENCIES, and nothing else. This list is what a
 # consumer gets from `pip install -e ../blitspersecond` -- so it is curated
