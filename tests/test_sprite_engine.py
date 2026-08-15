@@ -15,7 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from blitspersecond.common import Location
-from blitspersecond.graphics import Sprite, SpriteEngine, SpriteSheet
+from blitspersecond.graphics import Sprite, SpriteEngine, SpriteLayer, SpriteSheet
 from blitspersecond.resources import ResourceManager
 
 TEST_ASSETS = Path(__file__).resolve().parent / "assets"
@@ -24,7 +24,7 @@ BULLETS = TEST_ASSETS / "bullets.sprite.json"
 
 
 @pytest.fixture(scope="module")
-def engine() -> SpriteEngine:
+def engine() -> SpriteLayer:
     return SpriteEngine(SpriteSheet(ResourceManager().sprite_sheet(str(TEST_SHEET))))
 
 

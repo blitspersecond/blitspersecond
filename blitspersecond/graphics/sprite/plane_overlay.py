@@ -4,7 +4,7 @@ from blitspersecond.colors import ConsolePalette
 from blitspersecond.graphics.common import PixelBuffer
 from blitspersecond.resources import ImageSpec
 
-from .sprite_engine import SpriteEngine
+from .sprite_engine import SpriteLayer
 
 # RGB per plane name, the supercombo.gg reading: hurt = blues, attack = red,
 # push = green. Unlisted names draw from _EXTRA in deterministic (sorted)
@@ -57,7 +57,7 @@ class PlaneOverlay:
 
     def __init__(
         self,
-        *engines: SpriteEngine,
+        *engines: SpriteLayer,
         size: Tuple[int, int] = (640, 360),
         colours: Optional[Dict[str, Tuple[int, int, int]]] = None,
         silhouette: bool = True,
@@ -92,7 +92,7 @@ class PlaneOverlay:
         engine) above the sprite layers it watches."""
         return self._buffer
 
-    def watch(self, engine: SpriteEngine) -> None:
+    def watch(self, engine: SpriteLayer) -> None:
         self._engines.append(engine)
         for index, name in enumerate(sorted(engine.sheet.planes)):
             self._ensure_plane(name, self._colour(name, index))

@@ -98,8 +98,7 @@ class SpriteLayer(Layer):
     switches are the point here (TileEngine spends its single bind on a
     uniform-grid map; this engine spends binds on ordered composition),
     and the cost driver is material-transition count, not instance count.
-    The common case barely pays: one-part poses under one palette coalesce
-    into a single run (only 45 of Chun-Li's 3198 assemblies span tilesets).
+    One-part poses under one palette coalesce into a single run.
 
     Dense compatible swarms use SpritePool's NumPy SoA storage; rich
     multipart composition retains the scalar Sprite path. The staging arrays
