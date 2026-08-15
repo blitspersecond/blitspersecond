@@ -68,9 +68,16 @@ class AudioEngine:
 
     @output.setter
     def output(self, stage: Stage):
+        self._assert_topology_mutable()
         if stage._engine is not self:
             raise ValueError("output Stage belongs to another AudioEngine")
         self._output = stage
+
+    def _assert_topology_mutable(self) -> None:
+        if self._running:
+            raise RuntimeError(
+                "audio topology cannot change while AudioEngine is driven"
+            )
 
     def source(self, program: Program | None = None) -> SourceStage:
         return SourceStage(self, program)

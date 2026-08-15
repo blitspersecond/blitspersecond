@@ -14,6 +14,7 @@ class CompositeStage(Stage):
         self._program.declare(self)
 
     def connect(self, stage: Stage):
+        self._engine._assert_topology_mutable()
         if stage._engine is not self._engine:
             raise ValueError("cannot connect a Stage from another AudioEngine")
         for connection in self._connections:
@@ -24,6 +25,7 @@ class CompositeStage(Stage):
         self._wake()
 
     def disconnect(self, stage: Stage):
+        self._engine._assert_topology_mutable()
         for connection in self._connections:
             if connection.source is stage:
                 self._connections.remove(connection)

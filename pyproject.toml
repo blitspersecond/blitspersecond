@@ -26,9 +26,9 @@ dependencies = [
     "pyglet>=2.1.15",       # window, GL context, event loop
     "numpy>=2.4.6",         # every pixel buffer and tile batch
     "pillow>=12.3.0",       # resources/image.py: asset decode
-    "sounddevice>=0.5.5",   # audio/core: PortAudio output
-    "scipy>=1.18.0",        # audio/synth: lfilter
-    "numba>=0.66.0",        # audio/synth: stateful kernels
+    "sounddevice>=0.5.5",   # audio/driver: PortAudio output
+    "scipy>=1.18.0",        # audio/operators: biquad lfilter
+    "numba>=0.66.0",        # audio/operators: stateful kernels
     "colorama>=0.4.6",      # system/monitor/logger.py
 ]
 

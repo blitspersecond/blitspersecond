@@ -28,6 +28,8 @@ class StageEngine(Protocol):
     @property
     def _prepared_writes(self) -> tuple[RegisterWrite, ...]: ...
 
+    def _assert_topology_mutable(self) -> None: ...
+
 
 class Stage(ABC):
     """Common register, timing, caching, and compositing machinery."""
@@ -35,6 +37,7 @@ class Stage(ABC):
     channels = 1
 
     def __init__(self, engine: StageEngine):
+        engine._assert_topology_mutable()
         self._engine = engine
         self._register_specs = {}
         self._registers = {}
@@ -92,6 +95,7 @@ class Stage(ABC):
         to: str | None = None,
         lane: "Stage | None" = None,
     ):
+        self._engine._assert_topology_mutable()
         if to is None:
             raise ValueError("a register signal connection requires to=register")
         target = self if lane is None else self._connection(lane)
@@ -104,6 +108,7 @@ class Stage(ABC):
         to: str | None = None,
         lane: "Stage | None" = None,
     ):
+        self._engine._assert_topology_mutable()
         if to is None:
             raise ValueError("a register signal disconnection requires to=register")
         target = self if lane is None else self._connection(lane)
