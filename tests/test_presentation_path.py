@@ -59,3 +59,5 @@ def test_win32_path_is_not_inferred_from_linux_environment():
 
     assert path.name == "win32"
     assert path.description == "Win32/WGL -> DWM"
+    assert path.starts_on_deadline_grid
+    assert path.requests_vsync

@@ -44,6 +44,10 @@ class Display:
         """Current mode rate of every connected output (see Surface)."""
         return self._surface.output_refresh_rates()
 
+    def poll_refresh_rate(self, *, force: bool = False) -> float | None:
+        """Return a newly observed current-window refresh rate, if any."""
+        return self._surface.poll_refresh_rate(force=force)
+
     def close(self):
         self._surface.close()
 
