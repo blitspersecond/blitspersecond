@@ -18,7 +18,7 @@ class Location(NamedTuple):
     """An (x, y) position in pixels, origin top-left.
 
     The public counterpart to graphics.internal.Point: Point is the engine's
-    mutable numpy-backed state for in-place restamping; Location is the
+    mutable internal state for in-place restamping; Location is the
     immutable value users see in signatures and can use as a dict key.
     """
 

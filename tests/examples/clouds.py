@@ -29,7 +29,7 @@ import pyglet
 
 from blitspersecond import BlitsPerSecond
 from blitspersecond.input import key, keyboard
-from blitspersecond.graphics import PixelBuffer, TileEngine
+from blitspersecond.graphics import GlyphLayer, PixelBuffer, TileEngine
 from blitspersecond.graphics.glyph import GlyphEngine
 from blitspersecond.resources import ConsolePalette, ImageSpec
 
@@ -226,7 +226,7 @@ def make_palette() -> ConsolePalette:
     return palette
 
 
-def install_quadrants(glyphs: GlyphEngine) -> None:
+def install_quadrants(glyphs: GlyphLayer) -> None:
     """Define byte values 0..15 as the sixteen 2x2 quadrant combinations."""
     height, width = glyphs.glyph[0].shape
     half_h, half_w = height // 2, width // 2
@@ -257,7 +257,7 @@ def make_sky() -> np.ndarray:
     return np.clip(sky, 0, 255).astype(np.uint8)
 
 
-def paint(text: GlyphEngine, clouds: CloudField, tick: int) -> None:
+def paint(text: GlyphLayer, clouds: CloudField, tick: int) -> None:
     coverage, shade, _density = clouds.render(tick)
     lit = coverage > BAYER_FIELD
     codes = quadrant_codes(lit)

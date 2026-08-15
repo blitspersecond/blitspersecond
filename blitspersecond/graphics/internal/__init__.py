@@ -2,10 +2,10 @@
 with. The test for living here is "does user code ever import it or meet it
 in a hint?" -- if no, it's internal.
 
-Point and Vector are the mutable, numpy-backed (x, y) pairs the DOD paths
-re-stamp in place (see TileCache._alloc). They are deliberately NOT the
-public vocabulary: user-facing signatures use common.Size / common.Location
-(immutable NamedTuples that unpack and hash like the tuples they are).
+Point and Vector are the mutable integer (x, y) pairs TileCache re-stamps in
+place. They are deliberately NOT the public vocabulary: user-facing signatures
+use common.Size / common.Location (immutable NamedTuples that unpack and hash
+like the tuples they are).
 
 Shader is the compiled-program cache the engines and the framebuffer
 post-pass name their programs through (Shader.get(vert, frag)) -- GL
