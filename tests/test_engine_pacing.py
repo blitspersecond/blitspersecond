@@ -43,6 +43,7 @@ class FakeDisplay:
         refresh_rate: float,
         swap_duration: float | Iterable[float],
         outputs: tuple[float, ...] | None = None,
+        window_rates: Iterable[float | None] = (),
     ) -> None:
         self.clock = clock
         self.refresh_rate = refresh_rate
@@ -61,6 +62,8 @@ class FakeDisplay:
         self.prepared: list[bool] = []
         self.presentations: list[float] = []
         self.logger = None
+        self._window_rates = iter(window_rates)
+        self.refresh_polls: list[bool] = []
 
     @property
     def swap_duration(self) -> float:
@@ -73,6 +76,10 @@ class FakeDisplay:
         single-output machine unless a test says otherwise.
         """
         return self.outputs
+
+    def poll_refresh_rate(self, *, force: bool = False) -> float | None:
+        self.refresh_polls.append(force)
+        return next(self._window_rates, None)
 
     def dispatch_events(self) -> None:
         pass
@@ -154,10 +161,18 @@ def loop_engine(
     start_deadline: bool = False,
     gamescope: bool = False,
     xwayland: bool = False,
+    platform: str = "linux",
     outputs: tuple[float, ...] | None = None,
+    window_rates: Iterable[float | None] = (),
 ) -> tuple[BlitsPerSecond, FakeClock, FakeDisplay]:
     clock = FakeClock()
-    display = FakeDisplay(clock, refresh_rate, swap_duration, outputs)
+    display = FakeDisplay(
+        clock,
+        refresh_rate,
+        swap_duration,
+        outputs,
+        window_rates,
+    )
     config = SimpleNamespace(
         display=SimpleNamespace(fps=60, spin_pacing=False),
     )
@@ -189,6 +204,13 @@ def loop_engine(
         monkeypatch.delenv("BPS_GAMESCOPE_BACKEND", raising=False)
         monkeypatch.setenv("XDG_CURRENT_DESKTOP", "test")
         monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+
+    detect_presentation_path = presentation_module.detect_presentation_path
+    monkeypatch.setattr(
+        presentation_module,
+        "detect_presentation_path",
+        lambda: detect_presentation_path(platform=platform),
+    )
 
     engine = BlitsPerSecond.__new__(BlitsPerSecond)
     # Deliberately replace concrete runtime collaborators on this unbooted
@@ -417,6 +439,48 @@ def test_xwayland_path_skips_flip_probe_without_diagnostic_flag(monkeypatch):
     assert display.prepared == [True, False, True, False]
     assert isinstance(logger, FakeLogger)
     assert any("Direct XWayland presentation" in message for message in logger.messages)
+
+
+def test_win32_path_skips_flip_probe_from_first_frame(monkeypatch):
+    period = 1.0 / 120
+    engine, clock, display = loop_engine(
+        monkeypatch,
+        refresh_rate=120,
+        swap_duration=0.0001,
+        platform="win32",
+    )
+
+    ticks = run_for_ticks(engine, clock, 3)
+    logger = engine._logger
+
+    assert ticks == pytest.approx([0.0, period * 2 + 0.0001, period * 4 + 0.0001])
+    assert display.prepared == [True, False, True, False]
+    assert isinstance(logger, FakeLogger)
+    assert any("Win32/DWM presentation" in message for message in logger.messages)
+
+
+def test_win32_monitor_move_retargets_the_deadline_grid(monkeypatch):
+    engine, clock, display = loop_engine(
+        monkeypatch,
+        refresh_rate=144,
+        swap_duration=0.0001,
+        platform="win32",
+        window_rates=[None] * 8 + [60.0],
+    )
+
+    run_for_ticks(engine, clock, 20)
+
+    intervals = [
+        later - earlier
+        for earlier, later in zip(display.presentations, display.presentations[1:])
+    ]
+    assert intervals[-8:] == pytest.approx([1 / 60] * 8, abs=0.0002)
+    logger = engine._logger
+    assert isinstance(logger, FakeLogger)
+    assert any(
+        "144 -> 60.000Hz" in message
+        for message in logger.messages
+    )
 
 
 def test_moving_to_a_slower_output_re_derives_the_cadence(monkeypatch):

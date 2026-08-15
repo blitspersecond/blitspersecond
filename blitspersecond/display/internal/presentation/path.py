@@ -29,7 +29,7 @@ class PresentationPath:
     @property
     def starts_on_deadline_grid(self) -> bool:
         """Whether this path has a known non-blocking client-side swap."""
-        return self.name in {"gamescope", "xwayland"}
+        return self.name in {"gamescope", "xwayland", "win32"}
 
     @property
     def requests_vsync(self) -> bool:

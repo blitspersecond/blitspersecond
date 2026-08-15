@@ -1,10 +1,21 @@
 import pyglet
+import sys
 from typing import Optional
 
 from blitspersecond.system import Config, Logger, EventBus
 
 from .presentation.path import detect_presentation_path
 from .refresh_rate import get_refresh_rate
+
+
+if sys.platform == "win32":
+    from pyglet.libs.win32.constants import WM_DISPLAYCHANGE
+    from pyglet.window.win32 import Win32EventHandler
+
+    _display_change_event = Win32EventHandler(WM_DISPLAYCHANGE)
+else:
+    def _display_change_event(function):
+        return function
 
 
 class Surface(pyglet.window.Window):
@@ -21,6 +32,8 @@ class Surface(pyglet.window.Window):
         self._height = display.height
         self._scale = display.scale
         presentation_path = detect_presentation_path()
+        self._tracks_window_output = presentation_path.name == "win32"
+        self._refresh_check_needed = False
 
         screen = pyglet.display.get_display().get_default_screen()
         if display.fullscreen:
@@ -64,6 +77,7 @@ class Surface(pyglet.window.Window):
         # active display path's rational rate there. Other backends and Win32
         # query failures retain pyglet's existing mode-rate behaviour.
         self._refresh_rate = get_refresh_rate(self.screen)
+        self._refresh_check_needed = False
 
         self._closed = False
 
@@ -94,6 +108,47 @@ class Surface(pyglet.window.Window):
             return ()
         rates = (get_refresh_rate(screen) for screen in screens)
         return tuple(rate for rate in rates if rate)
+
+    def poll_refresh_rate(self, *, force: bool = False) -> float | None:
+        """Return the Win32 window's current output rate when it needs a check.
+
+        ``Window.screen`` is fixed at construction. Win32's
+        ``get_window_screen()`` instead uses ``MonitorFromWindow``, which is
+        the operating system's current monitor assignment for this HWND.
+        Ordinary moves and ``WM_DISPLAYCHANGE`` mark the cached rate dirty;
+        foreground restoration forces a check in case a change happened while
+        event delivery was unavailable.
+        """
+        if not self._tracks_window_output:
+            return None
+        if not force and not self._refresh_check_needed:
+            return None
+        self._refresh_check_needed = False
+        try:
+            get_window_screen = getattr(self, "get_window_screen", None)
+            if not callable(get_window_screen):
+                return None
+            screen = get_window_screen()
+            refresh_rate = get_refresh_rate(screen)
+        except (AttributeError, IndexError, OSError):
+            return None
+        if refresh_rate is not None:
+            self._refresh_rate = refresh_rate
+        return refresh_rate
+
+    def on_move(self, x: int, y: int) -> None:
+        """Re-query Win32's monitor assignment after the event batch."""
+        self._refresh_check_needed = True
+
+    @_display_change_event
+    def _event_display_change(
+        self,
+        _message: int,
+        _bits_per_pixel: int,
+        _size: int,
+    ) -> None:
+        """Notice Win32 mode/topology changes without owning display policy."""
+        self._refresh_check_needed = True
 
     def dispatch_event(self, *args) -> None:
         """Tee every event this Surface dispatches onto the EventBus.

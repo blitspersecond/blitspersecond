@@ -87,6 +87,12 @@ def _log_deadline_grid_pacing(
             "deadline-grid pacing from the first frame."
         )
         return
+    if initial_reason == "win32":
+        logger.info(
+            "Win32/DWM presentation selected expected deadline-grid pacing "
+            "from the first frame."
+        )
+        return
     if initial_reason == "experiment":
         logger.info(
             "Frame-pacing experiment requested deadline-grid presentation "
@@ -148,6 +154,7 @@ class PresentationSession:
 
         presentation_path = detect_presentation_path()
         logger.info(f"Presentation path: {presentation_path.description}.")
+        self._tracks_window_output = presentation_path.name == "win32"
         self._frame_pacing = frame_pacing_factory(
             target_fps=target_rate,
             refresh_hz=refresh_rate,
@@ -227,8 +234,16 @@ class PresentationSession:
         return priming
 
     def after_dispatch(self) -> None:
+        if self._tracks_window_output:
+            self._adopt_window_output_refresh()
         if self._frame_pacing is not None:
             self._frame_pacing.after_dispatch()
+
+    def _adopt_window_output_refresh(self, *, force: bool = False) -> None:
+        """Retune a deadline grid from Win32's current HWND monitor."""
+        refresh_rate = self._display.poll_refresh_rate(force=force)
+        if refresh_rate is not None:
+            self._retune(refresh_rate)
 
     def backgrounded(self) -> None:
         """Start a fresh target-rate deadline while frames are withheld."""
@@ -239,6 +254,8 @@ class PresentationSession:
 
     def foregrounded(self) -> None:
         """Restart presentation without stale cadence or health evidence."""
+        if self._tracks_window_output:
+            self._adopt_window_output_refresh(force=True)
         self._monitor.reset()
         self._flip_health = (
             FlipHealth.UNTHROTTLED
