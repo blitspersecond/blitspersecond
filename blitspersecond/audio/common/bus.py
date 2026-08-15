@@ -232,7 +232,9 @@ class Bus:
         ticks = int(ticks)
         if ticks < 0:
             raise ValueError("delay cannot be negative")
-        history = self._histories.setdefault(owner, _History(self.pool))
+        history = self._histories.get(owner)
+        if history is None:
+            history = self._histories[owner] = _History(self.pool)
         history.delay(self.current, ticks)
 
     def release(self):

@@ -3,6 +3,7 @@ from types import MappingProxyType
 from typing import cast
 
 from ..common import Bus, RegisterSpec, RegisterWrite, SAMPLE_RATE
+from ._biquad import MAXIMUM_FILTER_FREQUENCY, MINIMUM_FILTER_FREQUENCY
 from .band_pass import BandPass
 from .operator import Operator
 
@@ -15,8 +16,8 @@ class Resonator(Operator):
             {
                 "frequency": RegisterSpec(
                     float(frequency),
-                    minimum=1.0,
-                    maximum=SAMPLE_RATE / 2,
+                    minimum=MINIMUM_FILTER_FREQUENCY,
+                    maximum=MAXIMUM_FILTER_FREQUENCY,
                     unit="Hz",
                 ),
                 "resonance_decay": RegisterSpec(

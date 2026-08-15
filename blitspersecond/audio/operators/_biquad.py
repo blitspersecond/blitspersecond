@@ -8,6 +8,10 @@ from ..common import Bus, FRAME_SIZE, RegisterSpec, RegisterWrite, SAMPLE_RATE
 from .operator import Operator
 
 
+MINIMUM_FILTER_FREQUENCY = 20.0
+MAXIMUM_FILTER_FREQUENCY = 0.45 * SAMPLE_RATE
+
+
 class _Biquad(Operator):
     """Shared state and live-control mechanics for the biquad filters."""
 
@@ -16,8 +20,8 @@ class _Biquad(Operator):
             {
                 "cutoff": RegisterSpec(
                     float(cutoff),
-                    minimum=0.0,
-                    maximum=SAMPLE_RATE / 2,
+                    minimum=MINIMUM_FILTER_FREQUENCY,
+                    maximum=MAXIMUM_FILTER_FREQUENCY,
                     unit="Hz",
                 ),
                 "q": RegisterSpec(float(q), minimum=1e-6),

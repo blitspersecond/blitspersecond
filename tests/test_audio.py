@@ -6,6 +6,7 @@ from types import MappingProxyType
 import numpy as np
 import pytest
 
+import blitspersecond.audio.common.bus as bus_module
 from blitspersecond.audio.common import (
     Bus,
     FRAME_SIZE,
@@ -509,6 +510,74 @@ def test_register_constraints_reject_invalid_writes_before_rendering():
         engine.schedule([(0, echo, {"delay_ticks": 11})])
 
 
+@pytest.mark.parametrize(
+    ("factory", "register"),
+    (
+        (LowPass, "cutoff"),
+        (HighPass, "cutoff"),
+        (BandPass, "cutoff"),
+        (Resonator, "frequency"),
+    ),
+)
+def test_filter_frequency_domain_excludes_unstable_endpoints(factory, register):
+    minimum = 20.0
+    maximum = 0.45 * SAMPLE_RATE
+
+    for accepted in (minimum, maximum):
+        operator = factory(accepted)
+        assert operator.registers[register].minimum == minimum
+        assert operator.registers[register].maximum == maximum
+
+    for rejected in (0.0, SAMPLE_RATE / 2):
+        with pytest.raises(ValueError):
+            factory(rejected)
+
+    engine = AudioEngine()
+    filtered = engine.source(Program(lambda: factory(4_000.0)))
+    for accepted in (minimum, maximum):
+        engine.schedule([(0, filtered, {register: accepted})])
+    for rejected in (0.0, SAMPLE_RATE / 2):
+        with pytest.raises(ValueError):
+            engine.schedule([(0, filtered, {register: rejected})])
+
+
+@pytest.mark.parametrize(
+    ("factory", "register"),
+    (
+        (LowPass, "cutoff"),
+        (HighPass, "cutoff"),
+        (BandPass, "cutoff"),
+        (Resonator, "frequency"),
+    ),
+)
+@pytest.mark.parametrize("target", (20.0, 0.45 * SAMPLE_RATE))
+def test_filter_frequency_bounds_decay_after_pre_excitation(
+    factory,
+    register,
+    target,
+):
+    engine = AudioEngine()
+    filtered = engine.source(
+        Program(
+            Pulse,
+            lambda: factory(4_000.0),
+        )
+    )
+    engine.output = filtered
+    engine.schedule(
+        [
+            (0, filtered, {"gate": True}),
+            (37, filtered, {register: target}),
+        ]
+    )
+
+    samples = render(engine, 4 * SAMPLE_RATE // FRAME_SIZE)
+
+    assert np.all(np.isfinite(samples))
+    assert np.max(np.abs(samples[-FRAME_SIZE:])) < 1e-4
+    assert filtered.quiescent
+
+
 def test_ahdsr_follows_attack_hold_decay_sustain_and_release():
     engine = AudioEngine()
     carrier = engine.source(Program(Constant))
@@ -917,6 +986,25 @@ def test_frame_pool_ids_survive_growth_and_reuse_released_rows():
     assert replacement.id == released_id
 
 
+def test_bus_reuses_history_without_constructing_throwaway_defaults(monkeypatch):
+    constructed = []
+    history_type = bus_module._History
+
+    def history(pool):
+        instance = history_type(pool)
+        constructed.append(instance)
+        return instance
+
+    monkeypatch.setattr(bus_module, "_History", history)
+    bus = Bus(FramePool())
+    owner = object()
+
+    bus.delay(owner, 0)
+    bus.delay(owner, 0)
+
+    assert constructed == [bus._histories[owner]]
+
+
 def test_empty_source_is_silent_and_cannot_accept_connections():
     engine = AudioEngine()
     source = engine.source()
@@ -924,6 +1012,53 @@ def test_empty_source_is_silent_and_cannot_accept_connections():
 
     assert not hasattr(source, "connect")
     assert np.all(engine.advance().current.data == 0.0)
+
+
+def test_topology_is_construction_time_only_while_engine_is_driven():
+    engine = AudioEngine()
+    source = engine.source(Program(Sine))
+    other = engine.source(Program(Sine))
+    signal = engine.source(Program(Sine))
+    target = engine.source(Program(Sine))
+    target.connect_signal(signal, to="frequency")
+
+    composite = engine.composite()
+    applied = engine.apply(Program(RingMod))
+    desk = engine.mixing_desk()
+    connected = (composite, applied, desk)
+    for stage in connected:
+        stage.connect(source)
+
+    engine._running = True
+    try:
+        operations = [
+            engine.source,
+            engine.composite,
+            lambda: engine.apply(Program(RingMod)),
+            engine.mixing_desk,
+            lambda: setattr(engine, "output", source),
+            lambda: target.connect_signal(other, to="frequency"),
+            lambda: target.disconnect_signal(signal, to="frequency"),
+        ]
+        for stage in connected:
+            operations.extend(
+                (
+                    lambda stage=stage: stage.connect(other),
+                    lambda stage=stage: stage.disconnect(source),
+                )
+            )
+
+        for operation in operations:
+            with pytest.raises(RuntimeError, match="topology"):
+                operation()
+
+        engine.schedule([(0, source, {"frequency": 440.0})])
+    finally:
+        engine._running = False
+
+    assert target.register_specs["frequency"].accepts_signal
+    for stage in connected:
+        assert stage.registers_for(source)["level"] == 1.0
 
 
 def test_pcm_sound_register_changes_and_gate_edges_are_sample_accurate():
