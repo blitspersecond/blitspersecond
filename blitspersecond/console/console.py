@@ -7,7 +7,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Iterator, Optional, Tuple, TYPE_CHECKING
 
-from blitspersecond.colors import Pen
+from blitspersecond.colors import Palette, Pen
 from blitspersecond.graphics.glyph import GlyphLayer
 
 from .cursor import Cursor
@@ -64,7 +64,16 @@ class Console:
         x, y = pos
         self._cursor._move(int(x), int(y))
 
-    # -- pen (delegated to the engine) ---------------------------------------
+    # -- palette and pen (delegated to the glyph layer) ----------------------
+
+    @property
+    def palette(self) -> Palette:
+        """The console's live index-to-colour table."""
+        return self._glyphs.palette
+
+    @palette.setter
+    def palette(self, value: Palette) -> None:
+        self._glyphs.palette = value
 
     @property
     def pen(self) -> Pen:

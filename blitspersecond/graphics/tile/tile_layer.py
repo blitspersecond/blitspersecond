@@ -88,7 +88,7 @@ class TileLayer(Layer):
     collision (which reads raw palette indices as per-pixel solidity). Direct
     RGB/RGBA surfaces draw through the same quad batch with the direct shader
     instead -- full colour, but display-only: no palette, no collision mask.
-    The layer background colour (`color`) works in both modes. Independently
+    The layer background colour (`background`) works in both modes. Independently
     moving bullets and particles are sprites, not tilemap stamps.
 
     blit() needs a current GL context (shader fetch + texture-region UVs) --
@@ -118,7 +118,7 @@ class TileLayer(Layer):
         # behind the tiles. Held as the value the caller set (a named system
         # index or an RGB(A) tuple) plus its resolved draw-time floats;
         # painted by a one-quad batch built lazily on first need.
-        self._color: Union[int, Tuple[int, ...]] = TRANSPARENT
+        self._background: Union[int, Tuple[int, ...]] = TRANSPARENT
         self._bg_rgba: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
         self._bg_batch: Optional[TileBatch] = None
         # The colour registers (inherited from the retired PictureEngine,
@@ -618,7 +618,8 @@ class TileLayer(Layer):
             return
         self.prepare()
         assert self._shader is not None  # built by prepare()
-        if self._bg_rgba[3] > 0.0:
+        background = self._resolved_background()
+        if background[3] > 0.0:
             # The layer's colour: one full-surface quad drawn before the
             # state transition into the tile batch. It rides the colour
             # registers like the tiles do, so fading the layer out takes
@@ -626,7 +627,7 @@ class TileLayer(Layer):
             if self._bg_batch is None:
                 self._ensure_background()
             assert self._bg_batch is not None
-            r, g, b, a = self._bg_rgba
+            r, g, b, a = background
             tr, tg, tb, ta = self._tint
             self._bg_batch.draw(
                 _white().texture, 1, colors=(r * tr, g * tg, b * tb, a * ta)
@@ -637,7 +638,7 @@ class TileLayer(Layer):
             # mutation, so palette swaps stay free. Unit 0 is re-activated
             # for the TileBatch, which binds the atlas there.
             self._shader.program["palette_texture"] = 1
-            ptex = PaletteTexture.get(self.buffer.palette)
+            ptex = PaletteTexture.get(self.palette)
             glActiveTexture(GL_TEXTURE1)
             glBindTexture(ptex.target, ptex.id)
             glActiveTexture(GL_TEXTURE0)
@@ -647,7 +648,7 @@ class TileLayer(Layer):
                 self.buffer.texture,
                 self._ntiles,
                 translate=(-float(int(sx)), -float(int(sy))),
-                colors=tuple(self._tint),
+                colors=(self._tint[0], self._tint[1], self._tint[2], self._tint[3]),
             )
 
     # -- layer-surface metadata, delegated to the buffer ---------------------
@@ -669,30 +670,42 @@ class TileLayer(Layer):
         return self.buffer.transparency_index
 
     @property
-    def palette(self) -> Optional[Palette]:
-        return self.buffer.palette
+    def palette(self) -> Palette:
+        """The live index-to-colour table; unavailable on direct-colour layers."""
+        palette = self.buffer.palette
+        if palette is None:
+            raise ValueError("a direct-colour TileLayer has no palette")
+        return palette
+
+    @palette.setter
+    def palette(self, value: Palette) -> None:
+        """Replace an indexed layer's live palette without touching its tiles."""
+        self.buffer.palette = value
 
     # -- the layer background colour -----------------------------------------
 
     @property
-    def color(self) -> Union[int, Tuple[int, ...]]:
+    def background(self) -> Union[int, Tuple[int, ...]]:
         """The layer's background colour -- what the whole surface shows
         behind the tiles. Defaults to TRANSPARENT (no fill; layers beneath
         show through, tiles or none).
 
-            background.color = CYAN            # a named system colour
-            background.color = (36, 146, 219)  # or RGB / RGBA bytes
+            layer.background = 32               # index into layer.palette
+            direct.background = (36, 146, 219)  # RGB / RGBA bytes
 
         Drawn as one full-layer quad before the tiles, so it costs one
         trivial draw and works for indexed and direct layers alike. Where
         indexed art keys out a colour that is really part of the scene
         (Sonic's sky IS its bg tileset's transparent index), this is how the
-        scene gets it back. Reads back whatever form was assigned.
+        scene gets it back. Indexed backgrounds resolve through the live
+        layer palette at draw time, so palette cycling includes the backdrop.
+        Direct-colour layers resolve integer system-colour constants instead.
+        Reads back whatever form was assigned.
         """
-        return self._color
+        return self._background
 
-    @color.setter
-    def color(self, value: Union[int, Tuple[int, ...]]) -> None:
+    @background.setter
+    def background(self, value: Union[int, Tuple[int, ...]]) -> None:
         if isinstance(value, (tuple, list)):
             channels = [int(c) for c in value]
             if len(channels) not in (3, 4) or not all(
@@ -703,21 +716,28 @@ class TileLayer(Layer):
                 )
             r, g, b = channels[:3]
             a = channels[3] if len(channels) == 4 else 255
-            self._color = tuple(channels)
+            self._background = tuple(channels)
             self._bg_rgba = (r / 255.0, g / 255.0, b / 255.0, a / 255.0)
             return
         index = int(value)
         if not 0 <= index <= 255:
             raise ValueError(
-                f"colour must be a system palette index 0..255 or an RGB(A) "
+                f"colour must be a palette index 0..255 or an RGB(A) "
                 f"tuple, got {value!r}"
             )
-        self._color = index
-        if index == TRANSPARENT:
-            self._bg_rgba = (0.0, 0.0, 0.0, 0.0)
-            return
-        r, g, b, _ = system_palette()[index]
-        self._bg_rgba = (r / 255.0, g / 255.0, b / 255.0, 1.0)
+        self._background = index
+
+    def _resolved_background(self) -> Tuple[float, float, float, float]:
+        if not isinstance(self._background, int):
+            return self._bg_rgba
+        palette = self.palette if self.indexed else system_palette()
+        r, g, b, a = palette[self._background]
+        return (
+            float(r) / 255.0,
+            float(g) / 255.0,
+            float(b) / 255.0,
+            float(a) / 255.0,
+        )
 
     def _ensure_background(self) -> None:
         """The one-quad batch behind the tiles: a shared 1x1 white texture
@@ -777,4 +797,3 @@ class TileLayer(Layer):
     @alpha.setter
     def alpha(self, value: float) -> None:
         self._tint[3] = min(max(float(value), 0.0), 1.0)
-

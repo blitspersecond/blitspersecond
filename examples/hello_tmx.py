@@ -19,6 +19,7 @@ from blitspersecond.graphics import TileEngine, TileFlags, TileMap
 MAP = Path(__file__).resolve().parents[1] / "blitspersecond/assets/gorillaz/island.tmx"
 
 examples = ["tile", "slice", "full"]
+SKY = 255
 
 
 def main() -> None:
@@ -30,7 +31,8 @@ def main() -> None:
     tileset = island.tilesets["island"]
     plane = island.layers["blue_island"]
     layer = TileEngine(tileset)
-    layer.color = (73, 171, 212)  # the transparent pixels are open sky
+    layer.palette[SKY] = (73, 171, 212, 255)
+    layer.background = SKY  # transparent pixels are open sky
 
     map_width, map_height = island.pixel_size
     ox = (bps.config.display.width - map_width) // 2

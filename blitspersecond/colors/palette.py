@@ -1,5 +1,5 @@
 from numpy import uint8, zeros
-from typing import List, Sequence, Tuple, Optional
+from typing import List, Sequence, Tuple, Optional, Union
 
 
 def _byte(value: int) -> int:
@@ -43,18 +43,23 @@ class Palette:
                 0 if idx == 0 else 255,
             ]
 
-    def raw(self) -> List[uint8]:
+    def raw(self) -> List[int]:
         # Returns a flattened list of RGBA values suitable for creating a new palette.
         raw = []
         for i in range(256):
             color = self._palette[i][:3]  # Get RGBA components
-            raw.extend(color)
+            raw.extend(int(channel) for channel in color)
         return raw
 
-    def __getitem__(self, key: uint8) -> Tuple[uint8, uint8, uint8, uint8]:
-        return tuple(self._palette[key])
+    def __getitem__(self, key: int) -> Tuple[int, int, int, int]:
+        r, g, b, a = self._palette[key]
+        return int(r), int(g), int(b), int(a)
 
-    def __setitem__(self, key: uint8, value: Tuple[uint8, uint8, uint8, uint8]):
+    def __setitem__(
+        self,
+        key: int,
+        value: Union[Tuple[int, int, int, int], List[int]],
+    ) -> None:
         if isinstance(value, (list, tuple)) and len(value) == 4:
             r, g, b, a = value
             entry = [
@@ -66,7 +71,7 @@ class Palette:
             self._palette[key] = entry
             self._version += 1
 
-    def _alpha(self, key: uint8, requested: uint8) -> int:
+    def _alpha(self, key: int, requested: int) -> int:
         """The alpha law: a palette is an index->opaque-colour table plus the
         single transparent index 0. The requested alpha is deliberately
         ignored -- fades come from elsewhere (blend registers, dither, RGBA
@@ -101,5 +106,5 @@ class ConsolePalette(Palette):
     hole index (masks and collision solidity key off index 0, not alpha), so
     it is structural, not part of the rule being broken."""
 
-    def _alpha(self, key: uint8, requested: uint8) -> int:
+    def _alpha(self, key: int, requested: int) -> int:
         return 0 if key == 0 else _byte(requested)
