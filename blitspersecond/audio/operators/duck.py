@@ -2,10 +2,10 @@ import math
 from types import MappingProxyType
 
 from ..common import Bus, FRAME_SIZE, RegisterSpec, RegisterWrite, SAMPLE_RATE
-from .operator import Operator
+from .operator import Compositor
 
 
-class Duck(Operator):
+class Duck(Compositor):
     """Attenuate the first input from the second input's envelope."""
 
     def __init__(self, depth=1.0, attack=0.005, release=0.08):

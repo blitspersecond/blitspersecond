@@ -1,5 +1,6 @@
 from numbers import Integral
 from types import MappingProxyType
+from typing import cast
 
 from ..common import Bus, RegisterSpec, RegisterWrite, SAMPLE_RATE
 from .operator import Operator
@@ -35,13 +36,13 @@ class Delay(Operator):
         self._writes = writes
 
     def process(self, bus: Bus) -> Bus:
-        ticks = self._registers["delay_ticks"]
+        ticks = cast(int, self._registers["delay_ticks"])
         # A boundary write affects this Frame; an intra-Frame write settles
         # into the Stage bank for the following Frame.
         for write in self._writes:
             if write.timestamp == self._clock:
                 for _name, value in write.values:
-                    ticks = value
+                    ticks = cast(int, value)
         bus.delay(self, ticks)
         return bus
 

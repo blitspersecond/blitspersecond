@@ -34,7 +34,7 @@ a pyglet Batch needs no extra wiring.
 """
 
 from enum import IntFlag
-from typing import Tuple
+from typing import Callable, Tuple
 
 import numpy as np
 from pyglet.gl import (
@@ -137,7 +137,7 @@ class TileBatch:
         self._loc_tex_coords: int = attrs["tex_coords"]["location"]
         # Generic-attribute constants, resolved to locations once. Missing names
         # are skipped so a future leaner tile shader Just Works.
-        self._const_attrs: list[Tuple[object, int, Tuple[float, ...]]] = [
+        self._const_attrs: list[Tuple[Callable[..., None], int, Tuple[float, ...]]] = [
             (fn, attrs[name]["location"], vals)
             for name, fn, vals in _CONST_ATTRS
             if name in attrs
@@ -185,7 +185,13 @@ class TileBatch:
             np.array([0, 1, 2, 0, 2, 3], dtype=np.uint32)
             + (np.arange(capacity, dtype=np.uint32) * 4)[:, None]
         )
-        self._indices.set_data_region(idx.ctypes.data, 0, idx.nbytes)
+        # ctypes address; the GL binding accepts it as a raw pointer even
+        # though the stub only names Sequence[int] | CTypesPointer.
+        self._indices.set_data_region(
+            idx.ctypes.data,  # pyright: ignore[reportArgumentType]
+            0,
+            idx.nbytes,
+        )
 
         grown = np.zeros((capacity, 4, 3), dtype=np.float32)
         grown[: len(self._uv)] = self._uv
@@ -238,7 +244,11 @@ class TileBatch:
         `verts` is C-contiguous (n, 4, 3) float32 -- corner order as set_quad --
         and already expanded from each placement's origin + extent."""
         assert self._positions is not None
-        self._positions.set_data_region(verts.ctypes.data, 0, verts.nbytes)
+        self._positions.set_data_region(
+            verts.ctypes.data,  # pyright: ignore[reportArgumentType]
+            0,
+            verts.nbytes,
+        )
 
     def draw(
         self,
@@ -275,7 +285,11 @@ class TileBatch:
         if self._uv_dirty:
             assert self._texcoords is not None
             live = self._uv[:count]
-            self._texcoords.set_data_region(live.ctypes.data, 0, live.nbytes)
+            self._texcoords.set_data_region(
+                live.ctypes.data,  # pyright: ignore[reportArgumentType]
+                0,
+                live.nbytes,
+            )
             self._uv_dirty = False
         glDrawElements(GL_TRIANGLES, count * 6, GL_UNSIGNED_INT, 0)
         self._vao.unbind()

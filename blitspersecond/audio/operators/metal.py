@@ -1,4 +1,5 @@
 from types import MappingProxyType
+from typing import cast
 
 from numpy import (
     add,
@@ -59,17 +60,17 @@ class Metal(Operator):
 
     def process(self, bus: Bus) -> Bus:
         output = bus.current.data
-        tune = self._registers["tune"]
-        duty = self._registers["duty"]
+        tune = cast(float, self._registers["tune"])
+        duty = cast(float, self._registers["duty"])
         start = 0
         for write in self._writes:
             stop = write.timestamp - self._clock
             self._generate(output, start, stop, tune, duty)
             for name, value in write.values:
                 if name == "tune":
-                    tune = value
+                    tune = cast(float, value)
                 else:
-                    duty = value
+                    duty = cast(float, value)
             start = stop
         self._generate(output, start, FRAME_SIZE, tune, duty)
         return bus

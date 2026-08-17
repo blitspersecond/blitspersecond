@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
 from pyglet.gl import (
@@ -119,7 +119,7 @@ class SpriteLayer(Layer):
         # composition is this engine's interior business).
         self._primary = next(iter(sheet.tilesets.values()))
         self._sprites: List[Sprite] = []
-        self._planes: Dict[int, List[object]] = {}
+        self._planes: Dict[int, List[Union[Sprite, SpritePool]]] = {}
         self._sprite_z: Dict[Sprite, int] = {}
         self._plane_faces: Dict[int, SpritePlane] = {}
         # GL side, built lazily on first prepare()/_composite().
@@ -152,6 +152,10 @@ class SpriteLayer(Layer):
     @property
     def sheet(self) -> SpriteSheet:
         return self._sheet
+
+    @property
+    def planes(self) -> frozenset:
+        return self._sheet.planes
 
     # -- instances ---------------------------------------------------------
 
@@ -213,7 +217,7 @@ class SpriteLayer(Layer):
             if isinstance(entry, Sprite)
         )
 
-    def _entries(self):
+    def _entries(self) -> Iterator[Union[Sprite, SpritePool]]:
         for z in sorted(self._planes):
             yield from self._planes[z]
 
@@ -255,8 +259,15 @@ class SpriteLayer(Layer):
         self._positions = BufferObject(self._verts.nbytes)
         self._texcoords = BufferObject(self._uvs.nbytes)
         self._indices = BufferObject(idx.nbytes)
-        self._indices.set_data_region(idx.ctypes.data, 0, idx.nbytes)
+        # ctypes address; the GL binding accepts it as a raw pointer even
+        # though the stub only names Sequence[int] | CTypesPointer.
+        self._indices.set_data_region(
+            idx.ctypes.data,  # pyright: ignore[reportArgumentType]
+            0,
+            idx.nbytes,
+        )
 
+        assert self._shader is not None
         attrs = self._shader.program.attributes
         self._vao = VertexArray()
         self._vao.bind()
@@ -321,6 +332,7 @@ class SpriteLayer(Layer):
                 if not count:
                     continue
                 s._ensure_templates()
+                assert s._uvs is not None
                 flip = s._flip_x[indices].astype(np.intp)
                 rotation = (s._rotation[indices] & 3).astype(np.intp)
                 variant = flip * 4 + rotation
@@ -397,10 +409,18 @@ class SpriteLayer(Layer):
         self._nquads = n
         self._runs = runs
         self._dirty = False
-        if n and self._positions is not None:
+        if n and self._positions is not None and self._texcoords is not None:
             nbytes = n * 12 * 4  # quads x 4 corners x 3 floats x float32
-            self._positions.set_data_region(self._verts.ctypes.data, 0, nbytes)
-            self._texcoords.set_data_region(self._uvs.ctypes.data, 0, nbytes)
+            self._positions.set_data_region(
+                self._verts.ctypes.data,  # pyright: ignore[reportArgumentType]
+                0,
+                nbytes,
+            )
+            self._texcoords.set_data_region(
+                self._uvs.ctypes.data,  # pyright: ignore[reportArgumentType]
+                0,
+                nbytes,
+            )
 
     def prepare(self) -> None:
         """Prepare both retained projections after presentation changes:
@@ -510,7 +530,7 @@ class SpriteLayer(Layer):
             raise ValueError(f"collides_with() target {other!r} is not collidable")
         mine_t = self._selector(mine, self._sheet.planes, "mine")
         if isinstance(other, PlaneCollidable):
-            theirs_t = self._selector(theirs, other.sheet.planes, "theirs")
+            theirs_t = self._selector(theirs, other.planes, "theirs")
         elif theirs is not None:
             raise ValueError(
                 f"theirs={theirs!r}: {other!r} is a mask layer -- the "

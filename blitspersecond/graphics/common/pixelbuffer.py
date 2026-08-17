@@ -187,4 +187,5 @@ class PixelBuffer:
         if self._mask is None or self._mask_dirty:
             self._mask = self._pixels != 0
             self._mask_dirty = False
+        assert self._mask is not None
         return self._mask

@@ -1,4 +1,5 @@
 from types import MappingProxyType
+from typing import cast
 
 from numpy import clip
 
@@ -23,13 +24,13 @@ class Clip(Operator):
         self._writes = writes
 
     def process(self, bus: Bus) -> Bus:
-        level = self._registers["clip_level"]
+        level = cast(float, self._registers["clip_level"])
         start = 0
         for write in self._writes:
             stop = write.timestamp - self._clock
             self._apply(bus, start, stop, level)
             for _name, value in write.values:
-                level = value
+                level = cast(float, value)
             start = stop
         self._apply(bus, start, FRAME_SIZE, level)
         return bus

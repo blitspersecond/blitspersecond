@@ -71,7 +71,9 @@ class _GlyphAccess:
     @staticmethod
     def _index(value: object) -> int:
         try:
-            byte = index(value)
+            # The TypeError catch below is the validation; there's no way to
+            # narrow `object` to SupportsIndex before making the attempt.
+            byte = index(value)  # pyright: ignore[reportArgumentType]
         except TypeError as error:
             raise TypeError(f"glyph id must be a byte, got {value!r}") from error
         if not 0 <= byte <= 0xFF:

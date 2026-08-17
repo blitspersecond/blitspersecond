@@ -7,5 +7,5 @@ class BandPass(_Biquad):
     def __init__(self, cutoff: float, q: float = 1.0):
         super().__init__(cutoff, q)
 
-    def _numerator(self, _cosine: float, alpha: float):
+    def _numerator(self, cosine: float, alpha: float):
         return alpha, 0.0, -alpha

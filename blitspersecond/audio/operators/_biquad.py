@@ -1,5 +1,6 @@
 import math
 from types import MappingProxyType
+from typing import cast
 
 from numpy import array, zeros
 from scipy.signal import lfilter
@@ -41,17 +42,17 @@ class _Biquad(Operator):
         self._writes = writes
 
     def process(self, bus: Bus) -> Bus:
-        cutoff = self._registers["cutoff"]
-        q = self._registers["q"]
+        cutoff = cast(float, self._registers["cutoff"])
+        q = cast(float, self._registers["q"])
         start = 0
         for write in self._writes:
             stop = write.timestamp - self._clock
             self._apply(bus, start, stop, cutoff, q)
             for name, value in write.values:
                 if name == "cutoff":
-                    cutoff = value
+                    cutoff = cast(float, value)
                 else:
-                    q = value
+                    q = cast(float, value)
             start = stop
         self._apply(bus, start, FRAME_SIZE, cutoff, q)
         return bus

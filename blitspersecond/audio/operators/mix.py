@@ -1,7 +1,8 @@
-from .operator import Operator
+from ..common import Bus
+from .operator import Compositor
 
 
-class Mix(Operator):
+class Mix(Compositor):
     """Destructively composite consumable lane Frames into the Stage output.
 
     The first lane's current Frame becomes the accumulator. No caller may read
@@ -11,7 +12,7 @@ class Mix(Operator):
     def __init__(self, output):
         self.output = output
 
-    def process(self, *inputs):
+    def process(self, *inputs: Bus) -> Bus:
         if not inputs:
             self.output.clear()
             return self.output

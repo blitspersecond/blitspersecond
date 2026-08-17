@@ -1,5 +1,6 @@
 from numbers import Integral
 from types import MappingProxyType
+from typing import cast
 
 from numpy import divide, multiply, rint
 
@@ -37,17 +38,17 @@ class Crush(Operator):
         self._writes = writes
 
     def process(self, bus: Bus) -> Bus:
-        bits = self._registers["bits"]
-        rate = self._registers["rate"]
+        bits = cast(int, self._registers["bits"])
+        rate = cast(float, self._registers["rate"])
         start = 0
         for write in self._writes:
             stop = write.timestamp - self._clock
             self._apply(bus, start, stop, bits, rate)
             for name, value in write.values:
                 if name == "bits":
-                    bits = value
+                    bits = cast(int, value)
                 else:
-                    rate = value
+                    rate = cast(float, value)
             start = stop
         self._apply(bus, start, FRAME_SIZE, bits, rate)
         return bus

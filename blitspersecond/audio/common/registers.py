@@ -17,6 +17,10 @@ class RegisterSpec:
     accepts_signal: bool = False
 
     def __post_init__(self):
+        # minimum/maximum/default are `object` because a register can carry a
+        # structured value (e.g. SoundSpec); when they're set at all, callers
+        # only ever pass values of the same mutually-comparable/reconstructible
+        # type, an invariant pyright can't see through the `object` typing.
         if not isinstance(self.accepts_signal, bool):
             raise TypeError("accepts_signal must be a boolean")
         if self.accepts_signal and (
@@ -27,7 +31,7 @@ class RegisterSpec:
         if (
             self.minimum is not None
             and self.maximum is not None
-            and self.minimum > self.maximum
+            and self.minimum > self.maximum  # pyright: ignore[reportOperatorIssue]
         ):
             raise ValueError("register minimum cannot exceed maximum")
         self._validate("default", self.default)
@@ -39,10 +43,18 @@ class RegisterSpec:
             normalized = value
         elif isinstance(initial, Integral):
             compatible = isinstance(value, Integral) and not isinstance(value, bool)
-            normalized = type(initial)(value) if compatible else value
+            normalized = (
+                type(initial)(value)  # pyright: ignore[reportCallIssue]
+                if compatible
+                else value
+            )
         elif isinstance(initial, Real):
             compatible = isinstance(value, Real) and not isinstance(value, bool)
-            normalized = type(initial)(value) if compatible else value
+            normalized = (
+                type(initial)(value)  # pyright: ignore[reportCallIssue]
+                if compatible
+                else value
+            )
         else:
             compatible = isinstance(value, type(initial))
             # Structured register values already carry their own type and
@@ -59,9 +71,15 @@ class RegisterSpec:
         return normalized
 
     def _validate(self, name: str, value: object):
-        if self.minimum is not None and not value >= self.minimum:
+        if (
+            self.minimum is not None
+            and not value >= self.minimum  # pyright: ignore[reportOperatorIssue]
+        ):
             raise ValueError(f"register {name!r} must be at least {self.minimum}")
-        if self.maximum is not None and not value <= self.maximum:
+        if (
+            self.maximum is not None
+            and not value <= self.maximum  # pyright: ignore[reportOperatorIssue]
+        ):
             raise ValueError(f"register {name!r} must be at most {self.maximum}")
 
 

@@ -1,4 +1,5 @@
 from types import MappingProxyType
+from typing import cast
 
 from numpy import add, empty, multiply
 
@@ -69,7 +70,9 @@ class Envelope(Operator):
             for name, value in write.values:
                 if registers[name] != value:
                     changed.add(name)
-                    registers[name] = value
+                    # self._writes is non-empty here (we're inside its loop),
+                    # so `registers` was built as a plain dict above.
+                    cast(dict, registers)[name] = value
             gate = registers["gate"]
             if gate != previous_gate:
                 self._synchronize(gate, registers)

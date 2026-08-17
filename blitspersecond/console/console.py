@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Iterator, Optional, Tuple, TYPE_CHECKING
+from typing import cast, Iterator, Optional, Tuple, TYPE_CHECKING
 
 from blitspersecond.colors import Palette, Pen
 from blitspersecond.graphics.glyph import GlyphLayer
@@ -80,7 +80,7 @@ class Console:
         """The console's pen -- the four palette indices written into each cell.
         Mutable: `console.pen.foreground = RED`, `console.pen[2] = LIME`. Assign
         a whole `Pen` to replace it."""
-        return self._glyphs.pen
+        return self._pen()
 
     @pen.setter
     def pen(self, value: Pen) -> None:
@@ -89,20 +89,28 @@ class Console:
     @property
     def foreground(self) -> int:
         """Shortcut for `pen.foreground` (slot 1)."""
-        return self._glyphs.pen.foreground
+        return self._pen().foreground
 
     @foreground.setter
     def foreground(self, value: int) -> None:
-        self._glyphs.pen.foreground = value
+        self._pen().foreground = value
 
     @property
     def background(self) -> int:
         """Shortcut for `pen.background` (slot 0)."""
-        return self._glyphs.pen.background
+        return self._pen().background
 
     @background.setter
     def background(self, value: int) -> None:
-        self._glyphs.pen.background = value
+        self._pen().background = value
+
+    def _pen(self) -> Pen:
+        """The glyph layer's current pen, narrowed to `Pen`.
+
+        `GlyphLayer.pen` also accepts `MagicPen`, but `_set_pen` is Console's
+        only writer and it rejects anything that isn't a `Pen` -- so the
+        console's own pen is always a `Pen`."""
+        return cast(Pen, self._glyphs.pen)
 
     # -- writing --------------------------------------------------------------
 
@@ -173,15 +181,17 @@ class Console:
     def _set_pen(self, value: Pen) -> None:
         if not isinstance(value, Pen):
             raise TypeError(f"pen must be a Pen, got {type(value)}")
+        pen = self._pen()
         for slot, colour in enumerate(value):
-            self._glyphs.pen[slot] = colour
+            pen[slot] = colour
 
     @contextmanager
     def _using_pen(self, value: Pen) -> Iterator[None]:
-        previous = tuple(self._glyphs.pen)
+        previous = tuple(self._pen())
         self._set_pen(value)
         try:
             yield
         finally:
+            pen = self._pen()
             for slot, colour in enumerate(previous):
-                self._glyphs.pen[slot] = colour
+                pen[slot] = colour

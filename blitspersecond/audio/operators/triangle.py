@@ -34,10 +34,7 @@ class Triangle(Operator):
         self._registers = registers
         self._writes = writes
 
-    def process(self, *inputs: Bus) -> Bus:
-        if len(inputs) != 1:
-            raise ValueError(f"Triangle requires one input, got {len(inputs)}")
-        bus = inputs[0]
+    def process(self, bus: Bus) -> Bus:
         output = bus.current.data
         frequency = cast(float, self._registers["frequency"])
         start = 0

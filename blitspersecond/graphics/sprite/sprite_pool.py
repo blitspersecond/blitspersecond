@@ -61,6 +61,7 @@ class SpritePool:
             (name_to_id[name] for name in names), dtype=np.intp, count=len(names)
         )
         self._parts = tuple(parts)
+        assert material is not None  # unique_names is non-empty, so the loop ran
         self._buffer, self._palette = material
         count = len(names)
         self._positions = np.zeros((count, 2), dtype=np.float32)
@@ -138,9 +139,8 @@ class SpritePool:
     def color(self, value) -> None:
         if len(value) != 4:
             raise ValueError("color must contain red, green, blue and alpha")
-        self._color = tuple(
-            min(max(float(channel), 0.0), 1.0) for channel in value
-        )
+        r, g, b, a = (min(max(float(channel), 0.0), 1.0) for channel in value)
+        self._color = (r, g, b, a)
         self._engine._touch()
 
     @property

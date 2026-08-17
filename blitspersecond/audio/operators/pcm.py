@@ -1,4 +1,5 @@
 from types import MappingProxyType
+from typing import cast
 
 from numpy import (
     add,
@@ -59,9 +60,9 @@ class PCM(Operator):
 
     def process(self, bus: Bus) -> Bus:
         self._active_this_frame = False
-        sound = self._registers["sound"]
-        speed = self._registers["speed"]
-        gate = self._registers["gate"]
+        sound = cast(SoundSpec, self._registers["sound"])
+        speed = cast(float, self._registers["speed"])
+        gate = cast(bool, self._registers["gate"])
         self._synchronize(sound, gate)
 
         output = bus.current.data
@@ -71,11 +72,11 @@ class PCM(Operator):
             self._generate(output, start, stop, sound, speed)
             for name, value in write.values:
                 if name == "sound":
-                    sound = value
+                    sound = cast(SoundSpec, value)
                 elif name == "speed":
-                    speed = value
+                    speed = cast(float, value)
                 else:
-                    gate = value
+                    gate = cast(bool, value)
             self._synchronize(sound, gate)
             start = stop
 

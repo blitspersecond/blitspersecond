@@ -44,6 +44,9 @@ class PlaneCollidable(Protocol):
     @property
     def collidable(self) -> bool: ...
 
+    @property
+    def planes(self) -> frozenset: ...
+
     def collision_mask_for(
         self, planes: Optional[Tuple[str, ...]] = None
     ) -> np.ndarray: ...

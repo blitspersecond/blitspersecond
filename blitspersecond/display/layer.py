@@ -94,7 +94,7 @@ class Layer:
         return f"id: {self._id} [{self._tag}]"
 
 
-def attach_to_display(layer: Layer) -> Layer:
+def attach_to_display[T: Layer](layer: T) -> T:
     """Add a layer to the existing engine's display without booting one."""
     from blitspersecond.blitspersecond import BlitsPerSecond
 

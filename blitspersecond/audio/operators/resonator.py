@@ -66,10 +66,8 @@ class Resonator(Operator):
             tuple(mapped_writes),
         )
 
-    def process(self, *inputs: Bus) -> Bus:
-        if len(inputs) != 1:
-            raise ValueError(f"Resonator requires one input, got {len(inputs)}")
-        return self._filter.process(inputs[0])
+    def process(self, bus: Bus) -> Bus:
+        return self._filter.process(bus)
 
     def _output_quiescent(self, output: Bus, input_quiescent: bool) -> bool:
         return self._filter._output_quiescent(output, input_quiescent)

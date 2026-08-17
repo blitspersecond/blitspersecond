@@ -1,4 +1,5 @@
 from types import MappingProxyType
+from typing import cast
 
 from numpy import add, multiply, remainder, subtract
 
@@ -35,13 +36,13 @@ class Saw(Operator):
 
     def process(self, bus: Bus) -> Bus:
         output = bus.current.data
-        frequency = self._registers["frequency"]
+        frequency = cast(float, self._registers["frequency"])
         start = 0
         for write in self._writes:
             stop = write.timestamp - self._clock
             self._generate(output, start, stop, frequency)
             for _name, value in write.values:
-                frequency = value
+                frequency = cast(float, value)
             start = stop
         self._generate(output, start, FRAME_SIZE, frequency)
         return bus

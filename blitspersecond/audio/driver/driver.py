@@ -2,6 +2,7 @@
 
 from threading import Condition, Event, Thread
 from time import perf_counter, sleep
+from typing import cast
 
 from numpy import clip, empty, float32
 
@@ -122,7 +123,10 @@ class Driver:
             stream.start()
             stream_active = True
             self._epoch = perf_counter()
-            self._latency = float(stream.latency)
+            # This is always a one-directional OutputStream: `.latency` is a
+            # plain float. The stub's tuple branch only applies to duplex
+            # streams.
+            self._latency = float(cast(float, stream.latency))
             self._stream_blocksize = int(stream.blocksize)
             self._stream_samplerate = float(stream.samplerate)
             self._write(stream, first)

@@ -1,5 +1,6 @@
 import math
 from types import MappingProxyType
+from typing import cast
 
 from numpy import multiply, tanh as numpy_tanh
 
@@ -24,13 +25,13 @@ class Tanh(Operator):
         self._writes = writes
 
     def process(self, bus: Bus) -> Bus:
-        drive = self._registers["drive"]
+        drive = cast(float, self._registers["drive"])
         start = 0
         for write in self._writes:
             stop = write.timestamp - self._clock
             self._apply(bus, start, stop, drive)
             for _name, value in write.values:
-                drive = value
+                drive = cast(float, value)
             start = stop
         self._apply(bus, start, FRAME_SIZE, drive)
         return bus

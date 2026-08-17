@@ -349,7 +349,9 @@ class GameInput:
             return {}
 
         try:
-            dll = ctypes.WinDLL("GameInput.dll")
+            # Guarded by _IS_WINDOWS above; WinDLL just isn't in the
+            # Linux typeshed stub this checks against.
+            dll = ctypes.WinDLL("GameInput.dll")  # pyright: ignore[reportAttributeAccessIssue]
             create = dll.GameInputCreate
             create.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
             create.restype = _HRESULT
