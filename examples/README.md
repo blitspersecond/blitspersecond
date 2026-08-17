@@ -6,6 +6,8 @@ being a large program that happens to exercise the engine.
 
 - `hello_console.py` — the smallest complete console-input program
 - `hello_gamepad.py` — move a cursor through the direct gamepad surface
+- `hello_tmx.py` — load a compatible TMX map and stamp its island onto a
+  tile layer
 
 On Linux, run an example through the normal launcher:
 

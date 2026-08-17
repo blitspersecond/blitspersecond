@@ -1,4 +1,4 @@
-from typing import Iterator, Optional, Tuple, Union
+from typing import Iterator, Optional, Tuple, Union, overload
 
 from pyglet.image import TextureRegion
 
@@ -110,7 +110,23 @@ class TileAtlas:
     def __len__(self) -> int:
         return self.columns * self.rows
 
-    def __getitem__(self, index: TileIndex) -> Tile:
+    @overload
+    def __getitem__(self, index: TileIndex) -> Tile: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> Tuple[Tile, ...]: ...
+
+    def __getitem__(
+        self, index: Union[TileIndex, slice]
+    ) -> Union[Tile, Tuple[Tile, ...]]:
+        """Read one tile or a Python slice of pooled tiles.
+
+        Slices use the atlas's flat row-major order and ordinary sequence
+        start/stop/step rules. The returned tuple is immutable; its Tile
+        objects are the same interned source references single indexing uses.
+        """
+        if isinstance(index, slice):
+            return tuple(self.tile(i) for i in range(*index.indices(len(self))))
         return self.tile(index)
 
     def __iter__(self) -> Iterator[Tile]:

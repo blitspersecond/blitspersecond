@@ -12,7 +12,7 @@ from blitspersecond.graphics.tile.collision import (
     _patterns,
 )
 from blitspersecond.graphics.tile.batch import TileBatch
-from blitspersecond.graphics.tile.tile_engine import _TILE_DTYPE
+from blitspersecond.graphics.tile.tile_layer import _TILE_DTYPE
 from blitspersecond.resources import ImageSpec
 
 

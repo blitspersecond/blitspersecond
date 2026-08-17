@@ -92,3 +92,13 @@ class Layer:
 
     def __str__(self) -> str:
         return f"id: {self._id} [{self._tag}]"
+
+
+def attach_to_display(layer: Layer) -> Layer:
+    """Add a layer to the existing engine's display without booting one."""
+    from blitspersecond.blitspersecond import BlitsPerSecond
+
+    bps = BlitsPerSecond.current()
+    if bps is not None:
+        bps.layers.add(layer)
+    return layer

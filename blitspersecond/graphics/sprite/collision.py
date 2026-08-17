@@ -235,7 +235,7 @@ class SpriteCollision:
     def _stamp_pose(
         self, assembly, px, py, flip, rotation, masks
     ) -> None:
-        from .sprite_engine import _local_rect
+        from .sprite_layer import _local_rect
 
         for part in assembly.parts:
             tileset = self._engine.sheet.tilesets[part.tileset]
@@ -265,7 +265,7 @@ class SpriteCollision:
                 )
 
     def _stamp_pool(self, pool, masks) -> None:
-        from .sprite_engine import _local_rect
+        from .sprite_layer import _local_rect
 
         active = np.flatnonzero(pool._visible & pool._collide)
         if not len(active):

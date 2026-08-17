@@ -1,13 +1,13 @@
 """The tile system: everything that addresses an image as a grid and draws
 retained placements from it.
 
-The engine itself is TileEngine (tile_engine.py, ne Blitter) -- retained
-tile placements over one TileAtlas, drawn as a single TileBatch, with
-screen-space collision when asked. Around it live the addressing types the
-next tile-consuming engine (sprite/BOB reading anim frames off a sheet)
-would reuse: Tile (a cheap interned pointer into an atlas), TileAtlas (the
-grid reading over a PixelBuffer) and TileCache (the global interning pool
-behind Tile()).
+TileEngine is the auto-attaching factory; TileLayer is the retained tile
+implementation it returns -- placements over one TileAtlas, drawn as a single
+TileBatch, with screen-space collision when asked. Around them live the
+addressing types the next tile-consuming engine (sprite/BOB reading anim
+frames off a sheet) would reuse: Tile (a cheap interned pointer into an atlas),
+TileAtlas (the grid reading over a PixelBuffer) and TileCache (the global
+interning pool behind Tile()).
 
 Everything else here is THIS engine's path: the TileBatch GPU backend
 (axis-aligned quads, destructive compaction) and its CollisionMask (masks
@@ -22,7 +22,9 @@ blitspersecond.graphics -- the user's toolbox import.
 from .tile import Tile
 from .tile_atlas import TileAtlas, TileIndex
 from .tile_cache import TileCache
-from .tile_engine import TileEngine, TileLayer
+from .tile_engine import TileEngine
+from .tile_layer import TileLayer
+from .tile_map import TileMap
 from .batch import TileBatch, TileFlags
 from .collision import CollisionMask, CollisionQuery
 
@@ -33,6 +35,7 @@ __all__ = [
     "TileCache",
     "TileEngine",
     "TileLayer",
+    "TileMap",
     "TileBatch",
     "TileFlags",
     "CollisionMask",

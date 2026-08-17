@@ -48,6 +48,11 @@ class BlitsPerSecond(metaclass=SingletonMeta):
     time guarantees.
     """
 
+    @classmethod
+    def current(cls) -> Optional["BlitsPerSecond"]:
+        """Return the existing engine, or ``None`` without constructing one."""
+        return SingletonMeta._instances.get(cls)
+
     def __init__(self):
         self._config = Config()
         self._logger = Logger()

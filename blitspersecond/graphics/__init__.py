@@ -9,7 +9,8 @@ position) and SpriteEngine (graphics.sprite, rich named instances over a
 SpriteSheet -- one sheet per layer, `layer.sprite("stance-01")` for an
 instance). PixelBuffer is the pixel-data primitive they all draw from;
 Tile / TileAtlas / TileFlags address and orient tiles; CollisionQuery is
-what collision questions return.
+what collision questions return. TileMap is the non-rendering TMX resource:
+loaded TileAtlases plus ordinary tile/flags arrays, never compositor Layers.
 
 Engine packages are where things LIVE (each with its own machinery --
 TileBatch, TileCache, CollisionMask -- plus specialist faces like
@@ -32,7 +33,14 @@ from .sprite import (
     SpritePool,
     SpriteSheet,
 )
-from .tile import Tile, TileAtlas, TileEngine, TileFlags, TileLayer
+from .tile import (
+    Tile,
+    TileAtlas,
+    TileEngine,
+    TileFlags,
+    TileLayer,
+    TileMap,
+)
 
 __all__ = [
     "PixelBuffer",
@@ -41,6 +49,7 @@ __all__ = [
     "TileEngine",
     "TileLayer",
     "TileFlags",
+    "TileMap",
     "Animation",
     "Sprite",
     "SpriteEngine",

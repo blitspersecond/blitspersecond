@@ -6,9 +6,10 @@ indexed PixelBuffers, with the package's authoritative palette tables as
 sheet-owned mutable copies), assemblies (timeless poses: ordered parts +
 named collision planes in one anchor-local frame) and animation data
 (carried, not played). Load one with SpriteSheet.load(path). SpriteEngine
-binds one sheet, lives one-per-Layer (the layer is the collision identity
-and the depth position), and draws its instances as material-coalesced
-runs -- the cost driver is material transitions, never instance count.
+creates and attaches one SpriteLayer; that layer binds one sheet, is the
+collision identity and depth position, and draws its instances as
+material-coalesced runs -- the cost driver is material transitions, never
+instance count.
 Sprite is the instance, constructed against the engine
 (`engine.sprite("stance-01")`): assembly, position, flip_x, rotation
 (quarter-turns about the anchor -- the tile flip bits' D-move made
@@ -37,7 +38,7 @@ settable frame, `done` for one-shots. `anim.update(); sprite.assembly =
 anim.assembly` is the whole per-tick contract; play(name) is the cancel
 primitive; hitstop is not calling update(). Everything smarter -- state
 machines, branching, predicates -- is game code, per docs/SPRITES.md. The
-engine itself still never reads animation data.
+layer itself still never reads animation data.
 
 The interchange format and its loader live in resources.sprite_sheet
 (resources load, graphics draw); the public faces re-export from
@@ -47,7 +48,8 @@ blitspersecond.graphics -- the user's toolbox import.
 from .animation import Animation
 from .plane_overlay import PlaneOverlay
 from .sprite import PaletteRegisters, Sprite
-from .sprite_engine import SpriteEngine, SpriteLayer
+from .sprite_engine import SpriteEngine
+from .sprite_layer import SpriteLayer
 from .sprite_pool import SpritePlane, SpritePool
 from .sprite_sheet import SpriteSheet, SpriteTileset
 

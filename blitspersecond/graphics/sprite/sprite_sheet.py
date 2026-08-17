@@ -30,7 +30,7 @@ class SpriteTileset(NamedTuple):
 
 
 class SpriteSheet:
-    """The immutable bundle a SpriteEngine binds: tilesets + assemblies +
+    """The immutable bundle a SpriteLayer binds: tilesets + assemblies +
     animation data, built from a validated SpriteSheetSpec.
 
     Construction is GL-free and creates NO playback state -- no clock, no

@@ -4,7 +4,7 @@ from blitspersecond.colors import ConsolePalette
 from blitspersecond.graphics.common import PixelBuffer
 from blitspersecond.resources import ImageSpec
 
-from .sprite_engine import SpriteLayer
+from .sprite_layer import SpriteLayer
 
 # RGB per plane name, the supercombo.gg reading: hurt = blues, attack = red,
 # push = green. Unlisted names draw from _EXTRA in deterministic (sorted)

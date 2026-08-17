@@ -4,6 +4,7 @@
 
 `ResourceManager` is the memo-cache singleton: `.image(path)` -> `ImageSpec`,
 `.sound(path)` -> `SoundSpec`, `.sprite_sheet(path)` -> `SpriteSheetSpec`,
+`.tile_map(path)` -> `TileMapSpec`,
 each loaded and validated exactly once and shared read-only from then on
 (PixelBuffer copies image data out; the audio `PCM` operator reads sound data in
 place). This is the bottom of the dependency stack -- display -> graphics ->
@@ -15,6 +16,8 @@ mode P/RGB/RGBA, pixels; indexed transparency must sit at palette index 0),
 `SoundSpec` (decoded samples at native rate) and `SpriteSheetSpec` (a whole
 sprite package -- tilesets, assemblies, animations -- loaded from the
 interchange JSON with every format invariant checked; see sprite_sheet.py).
+`TileMapSpec` is the corresponding GL-free BPS-compatible TMX reading: sheet
+descriptions plus structured NumPy planes of local tile indices and orientation.
 `Palette` now lives in `blitspersecond.colors` (colour vocabulary, not loading)
 and is re-exported here for the specs that carry it. `load_image_spec(path)`
 / `load_sprite_sheet_spec(path)` are the direct loaders when you want a spec
@@ -32,6 +35,12 @@ from blitspersecond.colors import ConsolePalette, Palette
 from .image import ImageSpec, load_image_spec
 from .sound import SoundSpec
 from .sprite_sheet import SpriteSheetSpec, load_sprite_sheet_spec
+from .tile_map import (
+    TILE_MAP_DTYPE,
+    TileMapSpec,
+    TileSetSpec,
+    load_tile_map_spec,
+)
 
 __all__ = [
     "ResourceManager",
@@ -42,4 +51,8 @@ __all__ = [
     "SoundSpec",
     "SpriteSheetSpec",
     "load_sprite_sheet_spec",
+    "TileSetSpec",
+    "TILE_MAP_DTYPE",
+    "TileMapSpec",
+    "load_tile_map_spec",
 ]
