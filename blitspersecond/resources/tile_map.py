@@ -41,9 +41,12 @@ class TileSetSpec:
     name: str
     firstgid: int
     image: str
-    tilewidth: int
-    tileheight: int
-    columns: int
+    # One tile in PIXELS, and the sheet's grid in cells. BPS vocabulary --
+    # the loader below reads TMX's own attribute names into locals, but what
+    # it parses INTO is the engine's.
+    w: int
+    h: int
+    cols: int
     tilecount: int
 
 
@@ -51,10 +54,11 @@ class TileSetSpec:
 class TileMapSpec:
     """A complete, cached, GL-free reading of one compatible TMX file."""
 
-    width: int
-    height: int
-    tilewidth: int
-    tileheight: int
+    # The map in cells, then one tile in pixels.
+    cols: int
+    rows: int
+    w: int
+    h: int
     tilesets: Tuple[TileSetSpec, ...]
     # Authored back-to-front order. Each plane is a plain structured NumPy
     # array of local tile indices plus orientation; tile -1 is empty.
@@ -165,9 +169,9 @@ def _load_tileset(
         name=name,
         firstgid=firstgid,
         image=image_path,
-        tilewidth=tilewidth,
-        tileheight=tileheight,
-        columns=columns,
+        w=tilewidth,
+        h=tileheight,
+        cols=columns,
         tilecount=tilecount,
     )
 
@@ -341,10 +345,10 @@ def load_tile_map_spec(filename: str) -> TileMapSpec:
     if len({name for name, _ in layers}) != len(layers):
         raise ValueError("TMX map: tile layer names must be unique")
     return TileMapSpec(
-        width=width,
-        height=height,
-        tilewidth=tilewidth,
-        tileheight=tileheight,
+        cols=width,
+        rows=height,
+        w=tilewidth,
+        h=tileheight,
         tilesets=tilesets,
         layers=layers,
     )

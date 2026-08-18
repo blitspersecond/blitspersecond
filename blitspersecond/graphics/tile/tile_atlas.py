@@ -1,8 +1,9 @@
-from typing import Iterator, Optional, Tuple, Union, overload
+from typing import Iterator, Optional, Tuple, Union
 
-from pyglet.image import TextureRegion
+import numpy as np
 
 from blitspersecond.common import Size
+from blitspersecond.resources import TILE_MAP_DTYPE
 
 from blitspersecond.graphics.internal import Point, Vector
 from blitspersecond.graphics.common import PixelBuffer
@@ -18,38 +19,53 @@ class TileAtlas:
     a sprite/BOB engine reading anim frames from a sheet is the same shape).
 
     HAS-A PixelBuffer (the buffer owns the pixel/texture lifecycle); the
-    atlas owns only the grid: tile_size, columns x rows, and index -> Tile /
-    TextureRegion resolution. It carries no GL state of its own -- region()
-    resolves against the buffer's texture, everything else is arithmetic --
-    so one atlas can serve any number of consumers, all sampling the
-    buffer's single texture.
+    atlas owns only the grid: tile_size, cols x rows, and index -> Tile
+    resolution. It carries no GL state of its own -- it is pure arithmetic
+    over the buffer -- so one atlas can serve any number of consumers, all
+    sampling the buffer's single texture.
+
+    Two ways to read it. `atlas[i]` / `atlas[col, row]` is one Tile.
+    `atlas.region(x, y, w, h)` is a rectangular block of tiles as a
+    blittable plane -- the same array type TileMap hands out, so a brush cut
+    from a tileset and a layer loaded from a TMX go through one blit path.
+    There is deliberately no slice form: `[...]` means exactly one tile.
 
     Build a PixelBuffer first (directly, or via the image factory) and wrap
     it; an atlas does NOT accept an ImageSpec -- size/depth are the buffer's
     creation-time concern, tiling is a view concern.
 
-    tile_size defaults to the full buffer size (one tile). Larger sheets
-    divide by floor: a 320x200 buffer at 128x128 has 2 columns x 1 row = 2
-    tiles; the leftover strips are simply not addressable.
+    One tile's size is given as `w`, `h` in pixels and defaults to the full
+    buffer (one tile). Larger sheets divide by floor: a 320x200 buffer at
+    128x128 has 2 columns x 1 row = 2 tiles; the leftover strips are simply
+    not addressable. It reads back as the `tile_size` property, a `(w, h)`
+    pair -- arguments are separate ints, returns stay tuples.
 
-    Flat indices are row-major from 0 (col = i % columns, row = i // columns),
-    matching Tiled's tile IDs.
+    Flat indices are row-major from 0 (col = i % cols, row = i // cols),
+    matching Tiled's tile IDs. The grid reads back as `cols` / `rows`, the
+    same words Console, GlyphLayer and TileMap use for a cell count.
 
-    Width and height are independent, matching Tiled's rectangular grid
-    vocabulary; TileEngine preserves that shape.
+    Tile width and height are independent, so rectangular grids work.
     """
 
     def __init__(
         self,
         buffer: PixelBuffer,
-        tile_size: Optional[Tuple[int, int]] = None,
+        w: Optional[int] = None,
+        h: Optional[int] = None,
     ) -> None:
+        """`w` and `h` are one tile's size in PIXELS. Omit both to treat the
+        whole buffer as a single tile."""
         if not isinstance(buffer, PixelBuffer):
             raise TypeError(f"expected PixelBuffer, got {type(buffer)}")
+        if (w is None) != (h is None):
+            raise TypeError(
+                "pass both w and h (pixels per tile), or neither for one "
+                "whole-buffer tile"
+            )
         self._buffer = buffer
         self._tile_size: Size = Size(*buffer.size)
-        if tile_size is not None:
-            self.tile_size = tile_size
+        if w is not None and h is not None:
+            self.tile_size = (w, h)
 
     @property
     def buffer(self) -> PixelBuffer:
@@ -57,7 +73,7 @@ class TileAtlas:
 
     @property
     def tile_size(self) -> Size:
-        """(width, height) of one tile. Defaults to the full buffer size (one tile)."""
+        """One tile as a `(w, h)` pair. Defaults to the whole buffer."""
         return self._tile_size
 
     @tile_size.setter
@@ -71,7 +87,7 @@ class TileAtlas:
         self._tile_size = Size(w, h)
 
     @property
-    def columns(self) -> int:
+    def cols(self) -> int:
         return self._buffer.size[0] // self._tile_size[0]
 
     @property
@@ -80,7 +96,7 @@ class TileAtlas:
 
     def _to_indices(self, index: TileIndex) -> Tuple[int, int]:
         """Resolve a flat (row-major, from 0) or (col, row) index to (col, row)."""
-        cols, rows = self.columns, self.rows
+        cols, rows = self.cols, self.rows
         if isinstance(index, int):
             if not 0 <= index < cols * rows:
                 raise IndexError(
@@ -100,33 +116,62 @@ class TileAtlas:
         # Point/Vector on a fresh tile and discards them on a hit.
         return Tile(Point(col * tw, row * th), Vector(tw, th), self._buffer)
 
-    def region(self, index: TileIndex) -> TextureRegion:
-        """Resolve a tile to a GPU sub-rect (needs a current GL context)."""
-        t = self.tile(index)
-        return self._buffer.texture.get_region(
-            t.source.x, t.source.y, t.size.x, t.size.y
+    def region(self, x: int, y: int, w: int, h: int) -> np.ndarray:
+        """A `w` x `h` block of tiles starting at column `x`, row `y`, as a
+        blittable plane.
+
+            brush = tileset.region(0, 0, 10, 5)
+            layer.blit(brush, x, y)
+
+        Returns the same structured array TileMap layers are made of
+        (TILE_MAP_DTYPE, shape `(h, w)`), so one blit stamps the whole block
+        and a brush cut from a tileset travels the same path as a plane
+        loaded from a TMX. `flags` is all zero -- an atlas rectangle carries
+        no orientation -- and the array is a fresh writable copy, so callers
+        may set per-cell flags before blitting.
+
+        Arguments are in TILES, not pixels, and read x, y, w, h throughout.
+        Note the returned array is indexed `[row, col]` like every other
+        plane: it is numpy-shaped, while the arguments are geometry.
+
+        Out of bounds is an IndexError rather than a silent clamp. A brush is
+        asked for at a definite size; quietly returning a smaller one because
+        it ran off the edge would be a bug the caller could not see.
+        """
+        x, y, w, h = int(x), int(y), int(w), int(h)
+        if w <= 0 or h <= 0:
+            raise ValueError(f"region size must be positive, got {(w, h)}")
+        cols, rows = self.cols, self.rows
+        if x < 0 or y < 0 or x + w > cols or y + h > rows:
+            raise IndexError(
+                f"region ({x}, {y}, {w}, {h}) does not fit an atlas of "
+                f"{cols}x{rows} tiles"
+            )
+        plane = np.zeros((h, w), dtype=TILE_MAP_DTYPE)
+        # Flat row-major indices, matching _to_indices and Tiled's tile IDs.
+        plane["tile"] = (
+            np.arange(y, y + h, dtype=np.int32)[:, None] * cols
+            + np.arange(x, x + w, dtype=np.int32)[None, :]
         )
+        return plane
 
     def __len__(self) -> int:
-        return self.columns * self.rows
+        return self.cols * self.rows
 
-    @overload
-    def __getitem__(self, index: TileIndex) -> Tile: ...
+    def __getitem__(self, index: TileIndex) -> Tile:
+        """Read exactly one tile, by flat index or `(col, row)`.
 
-    @overload
-    def __getitem__(self, index: slice) -> Tuple[Tile, ...]: ...
-
-    def __getitem__(
-        self, index: Union[TileIndex, slice]
-    ) -> Union[Tile, Tuple[Tile, ...]]:
-        """Read one tile or a Python slice of pooled tiles.
-
-        Slices use the atlas's flat row-major order and ordinary sequence
-        start/stop/step rules. The returned tuple is immutable; its Tile
-        objects are the same interned source references single indexing uses.
+        There is no slice form. It used to return a flat tuple of the same
+        interned Tiles single indexing hands back, so it bought nothing over
+        `atlas[i]` and made `[...]` mean two things. Walk every tile with
+        iteration; take a rectangle with region().
         """
         if isinstance(index, slice):
-            return tuple(self.tile(i) for i in range(*index.indices(len(self))))
+            raise TypeError(
+                "TileAtlas does not slice -- atlas[i] / atlas[col, row] for "
+                "one tile, atlas.region(x, y, w, h) for a rectangular block, "
+                "iteration for every tile"
+            )
         return self.tile(index)
 
     def __iter__(self) -> Iterator[Tile]:

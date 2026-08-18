@@ -25,14 +25,15 @@ class TileMap:
         if not isinstance(spec, TileMapSpec):
             raise TypeError(f"expected TileMapSpec, got {type(spec)}")
         manager = ResourceManager()
-        self._width = spec.width
-        self._height = spec.height
-        self._tile_size = (spec.tilewidth, spec.tileheight)
+        self._cols = spec.cols
+        self._rows = spec.rows
+        self._tile_size = (spec.w, spec.h)
         self._tilesets: Dict[str, TileAtlas] = {}
         for tileset in spec.tilesets:
             self._tilesets[tileset.name] = TileAtlas(
                 PixelBuffer(manager.image(tileset.image)),
-                tile_size=(tileset.tilewidth, tileset.tileheight),
+                tileset.w,
+                tileset.h,
             )
         # dict preserves the authored back-to-front order validated by the
         # spec loader. Like PixelBuffer copying a cached ImageSpec, each map
@@ -47,25 +48,26 @@ class TileMap:
         return cls(ResourceManager().tile_map(filename))
 
     @property
-    def width(self) -> int:
-        """Map width in cells."""
-        return self._width
+    def cols(self) -> int:
+        """Map width in cells -- `cols`/`rows` as everywhere else in BPS
+        (Console, GlyphLayer, TileAtlas), not TMX's width/height."""
+        return self._cols
 
     @property
-    def height(self) -> int:
+    def rows(self) -> int:
         """Map height in cells."""
-        return self._height
+        return self._rows
 
     @property
     def size(self) -> Tuple[int, int]:
-        """Map size in cells, `(width, height)`."""
-        return self._width, self._height
+        """Map size in cells, `(cols, rows)`."""
+        return self._cols, self._rows
 
     @property
     def pixel_size(self) -> Tuple[int, int]:
         """Map size in pixels."""
         tw, th = self._tile_size
-        return self._width * tw, self._height * th
+        return self._cols * tw, self._rows * th
 
     @property
     def tile_size(self) -> Tuple[int, int]:

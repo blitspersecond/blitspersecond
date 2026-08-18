@@ -16,7 +16,7 @@ from pyglet import clock
 from blitspersecond.lifecycle import EngineState
 
 if TYPE_CHECKING:
-    from blitspersecond.blitspersecond import BlitsPerSecond
+    from .blitspersecond import BlitsPerSecond
 
 
 class Loop:
@@ -54,9 +54,7 @@ class Loop:
             self._audio_driver.start()
             presentation = self._display._presentation_session()
         except BaseException as error:
-            self._shutdown(
-                f"engine startup failed: {type(error).__name__}"
-            )
+            self._shutdown(f"engine startup failed: {type(error).__name__}")
             self._set_state(EngineState.STOPPED)
             raise
 
@@ -146,9 +144,7 @@ class Loop:
                     clock.tick()
                 except Exception as error:
                     self._logger.error(f"Error during main loop: {error}")
-                    self._shutdown(
-                        f"main loop exception: {type(error).__name__}"
-                    )
+                    self._shutdown(f"main loop exception: {type(error).__name__}")
                     break
         except KeyboardInterrupt:
             self._shutdown("KeyboardInterrupt")

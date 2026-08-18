@@ -21,7 +21,7 @@ class PixelBuffer:
 
     A blank canvas or a text console is just a PixelBuffer -- no file. To draw
     one, hand it to layers.add (auto-wrapped: one whole-buffer tile) or make a
-    layer yourself: TileEngine(buffer, tilewidth, tileheight).
+    layer yourself: bps.layers.tile(buffer, w, h).
 
     The numpy buffer is the source of truth; the texture is a lazy, dirty-gated
     projection of it (created on first .texture access, re-uploaded only when

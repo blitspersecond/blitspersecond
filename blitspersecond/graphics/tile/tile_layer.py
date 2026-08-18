@@ -68,9 +68,9 @@ class TileLayer(Layer):
     as it is in Tiled. Transpose and quarter-turn flags swap the placement's
     displayed width/height; flips preserve them.
 
-    tilewidth/tileheight are Tiled's vocabulary for pixels per tile, and are
-    required unless you pass a ready-made TileAtlas. A PixelBuffer is accepted
-    too, for when the pixels came from somewhere other than a file.
+    w/h are one tile's size in PIXELS, and are required unless you pass a
+    ready-made TileAtlas. A PixelBuffer is accepted too, for when the pixels
+    came from somewhere other than a file.
 
     HAS-A TileAtlas: the atlas answers "what is tile i"; TileEngine is a finite
     local tilemap around the 640x360 viewport. Games stamp the visible cells
@@ -104,11 +104,11 @@ class TileLayer(Layer):
     def __init__(
         self,
         source: Union[str, PixelBuffer, TileAtlas],
-        tilewidth: Optional[int] = None,
-        tileheight: Optional[int] = None,
+        w: Optional[int] = None,
+        h: Optional[int] = None,
         collidable: bool = False,
     ) -> None:
-        atlas = self._as_atlas(source, tilewidth, tileheight)
+        atlas = self._as_atlas(source, w, h)
         self._buffer: Optional[PixelBuffer] = None
         self._atlas: Optional[TileAtlas] = None
         # The shared per-mode program, fetched lazily on first blit/draw. A
@@ -159,24 +159,23 @@ class TileLayer(Layer):
     @staticmethod
     def _as_atlas(
         source: Union[str, PixelBuffer, TileAtlas],
-        tilewidth: Optional[int],
-        tileheight: Optional[int],
+        w: Optional[int],
+        h: Optional[int],
     ) -> TileAtlas:
         """Accept the thing the caller actually has: a path, a buffer, or a
         ready-made atlas. Loading and grid-wrapping are ceremony the engine
         can perform itself -- nothing outside this package consumes a
         TileAtlas, so building one was never the caller's errand.
 
-        tilewidth/tileheight are Tiled's own vocabulary and mean pixels per
-        tile (Tiled's map-level width/height count cells; these do not). They
-        are REQUIRED for a path or a buffer: the atlas's own default is the
-        whole image as a single tile, which is silently wrong for every real
+        w/h are one tile's size in PIXELS (not a count of cells). They are
+        REQUIRED for a path or a buffer: the atlas's own default is the whole
+        image as a single tile, which is silently wrong for every real
         tileset, so omitting them here is an error rather than one giant tile.
         """
         if isinstance(source, TileAtlas):
-            if tilewidth is not None or tileheight is not None:
+            if w is not None or h is not None:
                 raise TypeError(
-                    "tilewidth/tileheight do not apply to a ready-made "
+                    "w/h do not apply to a ready-made "
                     "TileAtlas -- it already carries its grid"
                 )
             return source
@@ -187,12 +186,12 @@ class TileLayer(Layer):
             raise TypeError(
                 f"expected an image path, PixelBuffer or TileAtlas, got {type(source)}"
             )
-        if tilewidth is None or tileheight is None:
+        if w is None or h is None:
             raise TypeError(
-                "tilewidth and tileheight are required (pixels per tile) -- "
+                "w and h are required (pixels per tile) -- "
                 "pass a ready-made TileAtlas if you want its grid instead"
             )
-        return TileAtlas(source, (int(tilewidth), int(tileheight)))
+        return TileAtlas(source, int(w), int(h))
 
     @property
     def atlas(self) -> TileAtlas:

@@ -190,8 +190,8 @@ class GlyphLayer(Layer):
         # needs a current GL context, construction must not.
         self._renderer = TileLayer(
             self._image,
-            tilewidth=self._image.width,
-            tileheight=self._image.height,
+            self._image.width,
+            self._image.height,
         )
         self._stamped = False
         self._collision_mask = np.zeros(

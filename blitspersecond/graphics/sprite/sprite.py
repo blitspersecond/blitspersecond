@@ -41,7 +41,7 @@ class Sprite:
     later) selects what it presents and where:
 
         sprite.assembly = "jump-02"
-        sprite.present_at(fighter.position, flip_x=fighter.facing_left)
+        sprite.present_at(*fighter.position, flip_x=fighter.facing_left)
 
     What lives here, and why here (docs/SPRITES.md pins each): `assembly`
     (which pose the sheet presents), `position` (pixel-space, caller
@@ -154,12 +154,17 @@ class Sprite:
 
     def present_at(
         self,
-        position: Union[Tuple[float, float], Location],
+        x: float,
+        y: float,
         flip_x: Optional[bool] = None,
     ) -> None:
         """Position (and optionally face) this sprite in one call -- the
-        per-tick line game code writes under an animation."""
-        self.position = position
+        per-tick line game code writes under an animation.
+
+        Takes x and y separately; `position` reads back as a pair, so pass
+        another sprite's straight through with `present_at(*other.position)`.
+        """
+        self.position = (x, y)
         if flip_x is not None:
             self.flip_x = flip_x
 

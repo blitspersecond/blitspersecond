@@ -37,8 +37,8 @@ class PlaneOverlay:
 
         overlay = PlaneOverlay(p1_engine, p2_engine)
         boxes = bps.layers.tile(overlay.buffer,          # above the sprites
-                                tilewidth=overlay.buffer.width,
-                                tileheight=overlay.buffer.height)
+                                w=overlay.buffer.width,
+                                h=overlay.buffer.height)
         boxes.blit(0, 0, 0)
         ...
         overlay.update()        # each tick (skip it, or disable the Layer,
@@ -58,7 +58,8 @@ class PlaneOverlay:
     def __init__(
         self,
         *engines: SpriteLayer,
-        size: Tuple[int, int] = (640, 360),
+        w: int = 640,
+        h: int = 360,
         colours: Optional[Dict[str, Tuple[int, int, int]]] = None,
         silhouette: bool = True,
     ) -> None:
@@ -79,7 +80,7 @@ class PlaneOverlay:
                 self._ensure_plane(name, self._colour(name, index))
         self._buffer = PixelBuffer(
             ImageSpec(
-                size,
+                (w, h),
                 "P",
                 palette=self._palette,
                 transparency_index=0,

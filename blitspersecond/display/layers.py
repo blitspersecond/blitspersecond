@@ -22,7 +22,7 @@ class Layers:
     """Ordered collection of layers, background (index 0) to foreground --
     and the place layers come from:
 
-        background = bps.layers.tile("tiles/bg.png", tilewidth=8, tileheight=8)
+        background = bps.layers.tile("tiles/bg.png", w=8, h=8)
         actors = bps.layers.sprite(sheet)
         actors.after(background)
 
@@ -69,29 +69,27 @@ class Layers:
     def tile(
         self,
         source: Union[str, "PixelBuffer", "TileAtlas"],
-        tilewidth: Optional[int] = None,
-        tileheight: Optional[int] = None,
+        w: Optional[int] = None,
+        h: Optional[int] = None,
         collidable: bool = False,
         *,
         tag: Optional[str] = None,
     ) -> "TileLayer":
         """Make a TileLayer over `source` and put it at the front.
 
-            background = bps.layers.tile("tiles/bg.png",
-                                         tilewidth=8, tileheight=8)
+            background = bps.layers.tile("tiles/bg.png", w=8, h=8)
             background.blit(1, x, y)
             background.before(foreground)
 
         Retained tile placements over one atlas. `source` is an image path, a
         PixelBuffer (the whole-file path -- one buffer as one giant tile) or a
-        TileAtlas you already built; tilewidth/tileheight are pixels per tile
-        and are required unless `source` is an atlas that carries its own
-        grid. `collidable` opts the layer into screen-space collision masks,
+        TileAtlas you already built; w/h are one tile's size in pixels and
+        are required unless `source` is an atlas that carries its own grid. `collidable` opts the layer into screen-space collision masks,
         which only an indexed (palette) surface can supply.
         """
         from blitspersecond.graphics.tile import TileLayer
 
-        layer = TileLayer(source, tilewidth, tileheight, collidable)
+        layer = TileLayer(source, w, h, collidable)
         if tag is not None:
             layer.tag = tag
         return self.add(layer)
