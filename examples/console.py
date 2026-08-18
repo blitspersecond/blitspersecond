@@ -2,7 +2,7 @@
 
 Run from the repository root:
 
-    venv/bin/python examples/hello_console.py
+    venv/bin/python examples/console.py
 
 Close the window to quit.
 """

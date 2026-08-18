@@ -6,7 +6,7 @@ tileset first, and ``full`` blits the complete map plane. Change ``mode`` in
 
 Run from the repository root:
 
-    venv/bin/python examples/hello_tmx.py
+    venv/bin/python examples/tmx.py
 
 Close the window to quit.
 """

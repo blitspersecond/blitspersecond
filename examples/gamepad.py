@@ -6,7 +6,7 @@ up do not need to manage Ports.
 
 Run from the repository root:
 
-    venv/bin/python examples/hello_gamepad.py
+    venv/bin/python examples/gamepad.py
 
 Close the window to quit.
 """
