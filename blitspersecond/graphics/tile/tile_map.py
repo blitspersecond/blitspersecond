@@ -65,7 +65,11 @@ class TileMap:
         self._tiled = tiled
         self._scroll: Tuple[float, float] = (0.0, 0.0)
         self._coarse: Tuple[int, int] = (0, 0)
-        self._stamp()
+        self._origin: Tuple[int, int] = (0, 0)
+        # The cell window currently stamped, so a camera step only pays for
+        # what actually came into view. Empty until the first fill.
+        self._window: Tuple[int, int, int, int] = (0, 0, 0, 0)
+        self._refill()
 
     @classmethod
     def open(cls, filename: str, layers) -> Dict[str, "TileMap"]:
@@ -156,35 +160,99 @@ class TileMap:
         tw, th = self.tile_size
         coarse = (floor(sx / tw), floor(sy / th))
         self._scroll = (sx, sy)
+        # The layer bakes the coarse step into its local origins and culls the
+        # stamps that left, so afterwards it holds exactly the intersection of
+        # the old and new windows. Only the difference needs painting.
         self._layer.scroll = (sx, sy)
         if coarse != self._coarse:
             self._coarse = coarse
-            self._stamp()
+            self._refill()
 
-    def _stamp(self) -> None:
-        """Refill the layer with the cells the camera can currently see.
+    @property
+    def origin(self) -> Tuple[int, int]:
+        """Where the world's top-left cell sits, in pixels, before the camera.
 
-        A full restamp of the window rather than a border-only refill: the
-        layer has just culled, and one blit of a plane slice is simple and
-        obviously correct. Incremental refill is an optimisation to make when
-        a profile asks for it, and it changes nothing outside this method.
+        A map smaller than the screen is centred with this rather than by
+        parking the camera at a negative offset -- the camera is where you are
+        looking, the origin is where the world is.
         """
+        return self._origin
+
+    @origin.setter
+    def origin(self, value: Tuple[int, int]) -> None:
+        origin = (int(value[0]), int(value[1]))
+        if origin != self._origin:
+            self._origin = origin
+            self._window = (0, 0, 0, 0)
+            self._layer.clear()
+            self._refill()
+
+    def _visible(self) -> Tuple[int, int, int, int]:
+        """The cell window the layer can currently hold: the tile-aligned
+        viewport plus its one-tile border, in world cells, clamped to the
+        plane."""
         from blitspersecond.system.config import Config
 
         tw, th = self.tile_size
         disp = Config().display
         ccol, crow = self._coarse
-        # The layer draws a tile-aligned viewport plus a one-tile border.
-        x0, y0 = max(0, ccol - 1), max(0, crow - 1)
-        x1 = min(self.cols, ccol + ceil(disp.width / tw) + 1)
-        y1 = min(self.rows, crow + ceil(disp.height / th) + 1)
-        self._layer.clear()
+        ox, oy = self._origin
+        x0 = ccol + floor((-tw - ox) / tw)
+        y0 = crow + floor((-th - oy) / th)
+        x1 = ccol + ceil((ceil(disp.width / tw) * tw + tw - ox) / tw)
+        y1 = ceil((ceil(disp.height / th) * th + th - oy) / th) + crow
+        return (
+            max(0, x0),
+            max(0, y0),
+            min(self.cols, x1),
+            min(self.rows, y1),
+        )
+
+    def _refill(self) -> None:
+        """Paint the cells that just came into view, and only those.
+
+        The layer culls what left; this stamps what arrived. Scrolling along
+        one axis therefore costs one column or row of blits, not a whole
+        screen of them -- which is the difference between a 3840px level
+        streaming and repainting ~2,800 cells every eight pixels.
+        """
+        new = self._visible()
+        old = self._window
+        self._window = new
+        nx0, ny0, nx1, ny1 = new
+        if nx1 <= nx0 or ny1 <= ny0:
+            return
+        ox0, oy0, ox1, oy1 = old
+        if ox1 <= ox0 or oy1 <= oy0:  # nothing held: paint it all
+            self._blit_cells(nx0, ny0, nx1, ny1)
+            return
+        # Rect difference: the columns that entered, then the rows that
+        # entered over the columns that were already there (so the corner is
+        # not stamped twice -- a doubled stamp is invisible but not free).
+        if nx0 < ox0:
+            self._blit_cells(nx0, ny0, min(ox0, nx1), ny1)
+        if nx1 > ox1:
+            self._blit_cells(max(ox1, nx0), ny0, nx1, ny1)
+        cx0, cx1 = max(nx0, ox0), min(nx1, ox1)
+        if cx0 < cx1:
+            if ny0 < oy0:
+                self._blit_cells(cx0, ny0, cx1, min(oy0, ny1))
+            if ny1 > oy1:
+                self._blit_cells(cx0, max(oy1, ny0), cx1, ny1)
+
+    def _blit_cells(self, x0: int, y0: int, x1: int, y1: int) -> None:
+        """Stamp one world-cell rectangle at its place in the layer's local
+        space: world cell c sits at (c - coarse) * tile + origin, and the
+        layer applies the sub-cell remainder itself at draw time."""
         if x1 <= x0 or y1 <= y0:
             return
-        # Local space: world cell c sits at (c - coarse) * tile, and the layer
-        # applies the sub-cell remainder itself at draw time.
+        tw, th = self.tile_size
+        ccol, crow = self._coarse
+        ox, oy = self._origin
         self._layer.blit(
-            self._plane[y0:y1, x0:x1], (x0 - ccol) * tw, (y0 - crow) * th
+            self._plane[y0:y1, x0:x1],
+            (x0 - ccol) * tw + ox,
+            (y0 - crow) * th + oy,
         )
 
     # -- reading the world --------------------------------------------------

@@ -644,3 +644,105 @@ def test_direct_colour_layer_still_has_no_palette():
 
     with pytest.raises(ValueError, match="no palette"):
         direct.palette
+
+
+# -- TileMap refills only what came into view -------------------------------
+
+
+class _StubLayer:
+    """Just enough TileLayer for TileMap's window arithmetic: no GL."""
+
+    def __init__(self, tile):
+        self.tile_size = tile
+        self.scroll = (0.0, 0.0)
+
+    def clear(self):
+        pass
+
+
+class _RecordingMap:
+    """TileMap with _blit_cells replaced by a recorder, so the cell rectangles
+    it decides to paint can be asserted without a context."""
+
+    def __init__(self, cols=480, rows=34, tile=(8, 8)):
+        from blitspersecond.graphics.tile.tile_map import TileMap
+
+        self.painted = []
+        self.tile = tile
+        self.map = TileMap.__new__(TileMap)
+        self.map._plane = np.zeros((rows, cols), dtype=PLANE_DTYPE)
+        self.map._layer = _StubLayer(tile)
+        self.map._tiled = None
+        self.map._scroll = (0.0, 0.0)
+        self.map._coarse = (0, 0)
+        self.map._origin = (0, 0)
+        self.map._window = (0, 0, 0, 0)
+        self.map._blit_cells = self._record
+        self.map._refill()
+
+    def _record(self, x0, y0, x1, y1):
+        if x1 > x0 and y1 > y0:
+            self.painted.append((x0, y0, x1, y1))
+
+    def cells(self):
+        return sum((x1 - x0) * (y1 - y0) for x0, y0, x1, y1 in self.painted)
+
+    def step(self, sx, sy=0.0):
+        tw, th = self.tile
+        self.painted.clear()
+        coarse = (int(sx // tw), int(sy // th))
+        if coarse != self.map._coarse:
+            self.map._coarse = coarse
+            self.map._refill()
+
+
+def test_first_fill_paints_the_whole_window():
+    m = _RecordingMap()
+
+    assert m.cells() > 34, "a whole window, not one column"
+
+
+def test_one_cell_step_paints_exactly_one_column():
+    m = _RecordingMap()
+
+    m.step(8.0)
+
+    assert m.cells() == 34, f"one column of 34 rows, got {m.cells()}"
+
+
+def test_sub_cell_step_paints_nothing():
+    m = _RecordingMap()
+
+    m.step(4.0)
+
+    assert m.painted == []
+
+
+def test_stepping_back_paints_the_other_edge():
+    m = _RecordingMap()
+    m.step(80.0)
+    m.step(72.0)
+
+    assert m.cells() == 34
+
+
+def test_diagonal_step_never_stamps_a_cell_twice():
+    m = _RecordingMap(rows=60)
+
+    m.step(8.0, 8.0)
+
+    seen = set()
+    for x0, y0, x1, y1 in m.painted:
+        for x in range(x0, x1):
+            for y in range(y0, y1):
+                assert (x, y) not in seen, f"cell {(x, y)} stamped twice"
+                seen.add((x, y))
+    assert seen, "a diagonal step should paint an L of new cells"
+
+
+def test_window_is_clamped_to_the_plane():
+    m = _RecordingMap(cols=4, rows=4)
+
+    for x0, y0, x1, y1 in m.painted:
+        assert 0 <= x0 < x1 <= 4
+        assert 0 <= y0 < y1 <= 4
