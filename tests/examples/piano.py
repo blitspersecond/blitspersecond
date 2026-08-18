@@ -257,8 +257,8 @@ def main() -> None:
     view = PianoView()
     board = bps.layers.tile(
         view.buffer,
-        tilewidth=view.buffer.width,
-        tileheight=view.buffer.height,
+        w=view.buffer.width,
+        h=view.buffer.height,
     )
     board.blit(0, 0, 0)
     # the glyph layer lands above the board

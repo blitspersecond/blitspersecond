@@ -13,7 +13,7 @@ from blitspersecond.graphics.tile.collision import (
 )
 from blitspersecond.graphics.tile.batch import TileBatch
 from blitspersecond.graphics.tile.tile_layer import _TILE_DTYPE
-from blitspersecond.resources import ImageSpec
+from blitspersecond.resources import ImageSpec, PLANE_DTYPE
 
 
 def _buffer(size=(32, 32)) -> PixelBuffer:
@@ -21,7 +21,7 @@ def _buffer(size=(32, 32)) -> PixelBuffer:
 
 
 def test_accepts_rectangular_atlas_tiles():
-    atlas = TileAtlas(_buffer(), tile_size=(8, 4))
+    atlas = TileAtlas(_buffer(), 8, 4)
 
     engine = TileEngine(atlas)
 
@@ -30,8 +30,8 @@ def test_accepts_rectangular_atlas_tiles():
 
 def test_direct_tile_must_match_engine_atlas_size():
     buffer = _buffer()
-    engine = TileEngine(TileAtlas(buffer, tile_size=(8, 8)))
-    tile_from_another_grid = TileAtlas(buffer, tile_size=(4, 4))[0]
+    engine = TileEngine(TileAtlas(buffer, 8, 8))
+    tile_from_another_grid = TileAtlas(buffer, 4, 4)[0]
 
     with pytest.raises(ValueError, match="must match its atlas tile_size"):
         engine._resolve(tile_from_another_grid)
@@ -45,7 +45,7 @@ def _asymmetric_atlas() -> TileAtlas:
     pixels[7, 0] = 1
     return TileAtlas(
         PixelBuffer(ImageSpec(size=(8, 8), mode="P", data=pixels)),
-        tile_size=(8, 8),
+        8, 8,
     )
 
 
@@ -95,7 +95,7 @@ def _asymmetric_rectangular_atlas() -> TileAtlas:
     pixels[3, 2:5] = 1
     return TileAtlas(
         PixelBuffer(ImageSpec(size=(8, 4), mode="P", data=pixels)),
-        tile_size=(8, 4),
+        8, 4,
     )
 
 
@@ -310,7 +310,7 @@ def test_blit_retains_orientation_for_collision(monkeypatch):
     buffer = _buffer((16, 8))
     engine = _headless_engine(
         monkeypatch,
-        TileAtlas(buffer, tile_size=(8, 8)),
+        TileAtlas(buffer, 8, 8),
     )
 
     engine.blit(0, 4, 5, TileFlags.ROT_90)
@@ -322,7 +322,7 @@ def test_rectangular_transpose_swaps_displayed_placement_size(monkeypatch):
     buffer = _buffer((16, 8))
     engine = _headless_engine(
         monkeypatch,
-        TileAtlas(buffer, tile_size=(8, 4)),
+        TileAtlas(buffer, 8, 4),
     )
 
     engine.blit(0, 0, 0, TileFlags.FLIP_H | TileFlags.FLIP_V)
@@ -335,7 +335,7 @@ def test_rectangular_transpose_swaps_displayed_placement_size(monkeypatch):
 def test_stamp_is_bounded_to_viewport_plus_one_tile(monkeypatch):
     engine = _headless_engine(
         monkeypatch,
-        TileAtlas(_buffer((8, 8)), tile_size=(8, 8)),
+        TileAtlas(_buffer((8, 8)), 8, 8),
     )
 
     engine.blit(0, -8, -8)
@@ -350,7 +350,7 @@ def test_stamp_is_bounded_to_viewport_plus_one_tile(monkeypatch):
 def test_360_pixel_tiles_expose_four_by_three_cell_origins(monkeypatch):
     engine = _headless_engine(
         monkeypatch,
-        TileAtlas(_buffer((360, 360)), tile_size=(360, 360)),
+        TileAtlas(_buffer((360, 360)), 360, 360),
     )
 
     left, top, right, bottom = engine._drawable_bounds()
@@ -362,7 +362,7 @@ def test_360_pixel_tiles_expose_four_by_three_cell_origins(monkeypatch):
 def test_fine_camera_motion_only_changes_gpu_offset(monkeypatch):
     engine = _headless_engine(
         monkeypatch,
-        TileAtlas(_buffer((8, 8)), tile_size=(8, 8)),
+        TileAtlas(_buffer((8, 8)), 8, 8),
     )
     engine.blit(0, 0, 0)
     before = engine._tiles["target"][: engine._ntiles].copy()
@@ -379,7 +379,7 @@ def test_fine_camera_motion_only_changes_gpu_offset(monkeypatch):
 def test_tile_boundary_broadcasts_translation_and_compacts(monkeypatch):
     engine = _headless_engine(
         monkeypatch,
-        TileAtlas(_buffer((8, 8)), tile_size=(8, 8)),
+        TileAtlas(_buffer((8, 8)), 8, 8),
     )
     engine.blit(0, -8, 0)  # departing left border
     engine.blit(0, 0, 0)  # survives as the new left border
@@ -395,7 +395,7 @@ def test_tile_boundary_broadcasts_translation_and_compacts(monkeypatch):
 def test_vertical_tile_boundary_culls_top_border(monkeypatch):
     engine = _headless_engine(
         monkeypatch,
-        TileAtlas(_buffer((8, 8)), tile_size=(8, 8)),
+        TileAtlas(_buffer((8, 8)), 8, 8),
     )
     engine.blit(0, 0, -8)
     engine.blit(0, 0, 0)
@@ -420,3 +420,227 @@ def test_collidable_border_stamp_enters_with_camera(monkeypatch):
         engine.collision_mask_unpacked[10:18, 632:640],
         expected,
     )
+
+
+# -- atlas.region: a rectangular block of tiles as a blittable plane --------
+
+
+def _region_atlas() -> TileAtlas:
+    """10 x 5 tiles of 8x8."""
+    return TileAtlas(_buffer(size=(80, 40)), 8, 8)
+
+
+def test_region_returns_a_blittable_plane():
+    plane = _region_atlas().region(0, 0, 10, 5)
+
+    assert plane.dtype == PLANE_DTYPE
+    assert plane.shape == (5, 10)  # numpy order: (rows, cols)
+
+
+def test_region_carries_flat_row_major_tile_ids():
+    plane = _region_atlas().region(0, 0, 10, 5)
+
+    assert plane["tile"][0].tolist() == list(range(10))
+    assert plane["tile"][1].tolist() == list(range(10, 20))
+
+
+def test_region_offset_is_x_y_in_tiles():
+    plane = _region_atlas().region(2, 1, 3, 2)
+
+    assert plane["tile"].tolist() == [[12, 13, 14], [22, 23, 24]]
+
+
+def test_region_has_no_orientation_and_is_writable():
+    plane = _region_atlas().region(0, 0, 4, 2)
+
+    assert not plane["flags"].any()
+    assert plane.flags.writeable  # callers may set flags before blitting
+
+
+@pytest.mark.parametrize(
+    "rect", [(0, 0, 11, 5), (0, 0, 10, 6), (-1, 0, 2, 2), (9, 4, 2, 1)]
+)
+def test_region_out_of_bounds_raises_rather_than_clamping(rect):
+    with pytest.raises(IndexError, match="does not fit an atlas"):
+        _region_atlas().region(*rect)
+
+
+@pytest.mark.parametrize("rect", [(0, 0, 0, 1), (0, 0, 1, 0), (0, 0, -1, 1)])
+def test_region_rejects_a_non_positive_size(rect):
+    with pytest.raises(ValueError, match="must be positive"):
+        _region_atlas().region(*rect)
+
+
+def test_atlas_does_not_slice():
+    # Statically a type error too, which is the point -- the runtime raise is
+    # the backstop for callers who aren't type-checked.
+    with pytest.raises(TypeError, match="does not slice"):
+        _region_atlas()[0:5]  # type: ignore[index]
+
+
+def test_single_tile_access_still_interns():
+    atlas = _region_atlas()
+
+    assert atlas[3, 1] is atlas[13]
+
+
+# -- TiledLayer carries the tileset the loader already proved ---------------
+
+
+def _island() -> str:
+    from pathlib import Path
+
+    return str(
+        Path(__file__).resolve().parents[1]
+        / "blitspersecond/assets/gorillaz/island.tmx"
+    )
+
+
+def test_tiled_layer_names_its_tileset():
+    """The loader rejects a layer spanning two tilesets, so the pairing is
+    established at parse time -- it must not be re-derived downstream."""
+    from blitspersecond.resources import load_tiled_file
+
+    tiled = load_tiled_file(_island())
+
+    assert tiled.layers, "island.tmx should have at least one layer"
+    names = {ts.name for ts in tiled.tilesets}
+    for entry in tiled.layers:
+        assert entry.tileset in names
+        assert entry.plane.shape == (tiled.rows, tiled.cols)
+
+
+def test_tiled_file_speaks_bps_not_tmx():
+    """cols/rows for cells, w/h for one tile in pixels -- Tiled's own
+    attribute names stop at the parser."""
+    from blitspersecond.resources import load_tiled_file
+
+    tiled = load_tiled_file(_island())
+
+    assert tiled.cols > 0 and tiled.rows > 0
+    assert tiled.w > 0 and tiled.h > 0
+    assert not hasattr(tiled, "tilewidth")
+    assert not hasattr(tiled, "width")
+
+
+def test_planes_are_read_only_and_maps_get_their_own_copy():
+    from blitspersecond.resources import load_tiled_file
+
+    a = load_tiled_file(_island())
+    b = load_tiled_file(_island())
+
+    # The cached spec stays pristine; TileMap copies before handing it on.
+    assert not a.layers[0].plane.flags.writeable
+    assert np.array_equal(a.layers[0].plane, b.layers[0].plane)
+
+
+# -- TileLayer.clear: empties stamps, keeps the binding ---------------------
+
+
+def test_clear_empties_stamps_but_keeps_the_atlas(monkeypatch):
+    buffer = _buffer((16, 8))
+    engine = _headless_engine(monkeypatch, TileAtlas(buffer, 8, 8))
+    engine.blit(0, 0, 0)
+    engine.blit(1, 8, 0)
+    assert engine._ntiles == 2
+
+    engine.clear()
+
+    assert engine._ntiles == 0
+    assert engine.atlas is not None  # binding survives, unlike unbind()
+    engine.blit(0, 0, 0)
+    assert engine._ntiles == 1  # refills from index 0
+
+
+def test_clear_on_an_unbound_layer_raises():
+    from blitspersecond.graphics import TileLayer
+
+    layer = TileLayer(TileAtlas(_buffer(), 8, 8))
+    layer.unbind()
+
+    with pytest.raises(RuntimeError, match="unbound"):
+        layer.clear()
+
+
+# -- per-layer palette: recolour by swapping the table, not the pixels ------
+
+
+def _indexed_pair():
+    """Two layers over ONE shared atlas -- the red/blue island case."""
+    from blitspersecond.colors import Palette
+    from blitspersecond.graphics import PixelBuffer, TileLayer
+
+    buffer = PixelBuffer(
+        ImageSpec(size=(32, 32), mode="P", palette=Palette())
+    )
+    atlas = TileAtlas(buffer, 8, 8)
+    return TileLayer(atlas), TileLayer(atlas), atlas
+
+
+def test_layers_share_the_buffer_palette_until_one_is_assigned():
+    blue, red, atlas = _indexed_pair()
+
+    assert blue.palette is atlas.buffer.palette
+    assert red.palette is atlas.buffer.palette
+
+
+def test_assigning_a_palette_is_layer_local():
+    from blitspersecond.colors import Palette
+
+    blue, red, atlas = _indexed_pair()
+    own = Palette(atlas.buffer.palette.raw())
+    own[3] = (200, 40, 40, 255)
+
+    red.palette = own
+
+    assert red.palette is own
+    assert red.palette[3] == (200, 40, 40, 255)
+    # the shared atlas and the other layer are untouched -- one copy of the
+    # index data, two tables
+    assert blue.palette is atlas.buffer.palette
+    assert atlas.buffer.palette[3] != (200, 40, 40, 255)
+
+
+def test_assigned_palette_drives_the_background_too():
+    from blitspersecond.colors import Palette
+
+    _blue, red, atlas = _indexed_pair()
+    own = Palette(atlas.buffer.palette.raw())
+    own[7] = (1, 2, 3, 255)
+    red.palette = own
+    red.background = 7
+
+    assert red._resolved_background() == pytest.approx(
+        (1 / 255.0, 2 / 255.0, 3 / 255.0, 1.0)
+    )
+
+
+def test_palette_must_be_a_palette():
+    _blue, red, _atlas = _indexed_pair()
+
+    with pytest.raises(TypeError, match="expected Palette"):
+        red.palette = object()  # type: ignore[assignment]
+
+
+def test_unbind_clears_the_layer_palette():
+    from blitspersecond.colors import Palette
+
+    _blue, red, atlas = _indexed_pair()
+    red.palette = Palette(atlas.buffer.palette.raw())
+
+    red.unbind()
+    red.bind(atlas)
+
+    # a palette only means anything against the indices it was chosen for
+    assert red.palette is atlas.buffer.palette
+
+
+def test_direct_colour_layer_still_has_no_palette():
+    from blitspersecond.graphics import PixelBuffer, TileLayer
+
+    direct = TileLayer(
+        TileAtlas(PixelBuffer(ImageSpec(size=(16, 16), mode="RGBA")), 8, 8)
+    )
+
+    with pytest.raises(ValueError, match="no palette"):
+        direct.palette

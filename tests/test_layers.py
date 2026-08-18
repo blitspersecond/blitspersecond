@@ -34,7 +34,7 @@ from sprite_fixtures import build_known_sheet
 @pytest.fixture()
 def atlas() -> TileAtlas:
     return TileAtlas(
-        PixelBuffer(ImageSpec(size=(32, 32), mode="P")), tile_size=(8, 8)
+        PixelBuffer(ImageSpec(size=(32, 32), mode="P")), 8, 8
     )
 
 
@@ -87,7 +87,7 @@ def test_mint_accepts_a_tag(layers, atlas):
 def test_tile_forwards_its_arguments(layers):
     buffer = PixelBuffer(ImageSpec(size=(32, 32), mode="P"))
 
-    layer = layers.tile(buffer, tilewidth=8, tileheight=4, collidable=True)
+    layer = layers.tile(buffer, w=8, h=4, collidable=True)
 
     assert layer.tile_size == (8, 4)
     assert layer.collidable is True

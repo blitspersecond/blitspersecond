@@ -31,7 +31,7 @@ def alpha(overlay, row, column):
 def test_silhouette_tint(engine):
     dot = engine.sprite("dot-off")  # pixel at anchor+4: clear of the cross
     dot.position = (40, 40)
-    overlay = PlaneOverlay(engine, size=(64, 64))
+    overlay = PlaneOverlay(engine, w=64, h=64)
     overlay.update()
     px = overlay.buffer.pixels
     assert px[40, 44] != 0  # the lone pixel, tinted
@@ -42,7 +42,7 @@ def test_silhouette_tint(engine):
 def test_named_planes_fill_and_edge(engine):
     s = engine.sprite("solid")
     s.position = (20, 20)
-    overlay = PlaneOverlay(engine, size=(64, 64))
+    overlay = PlaneOverlay(engine, w=64, h=64)
     overlay.update()
     px = overlay.buffer.pixels
     # hit box spans 20..28: top edge solid, interior translucent fill
@@ -61,7 +61,7 @@ def test_flip_mirrors_the_painting(engine):
     dot.position = (48, 40)
     # Unflipped the pixel sits at 48+4=52; flipped, local [4, 12) mirrors to
     # [-12, -4) and the pixel to column 43 -- clear of the cross both ways.
-    overlay = PlaneOverlay(engine, size=(64, 64))
+    overlay = PlaneOverlay(engine, w=64, h=64)
     overlay.update()
     px = overlay.buffer.pixels
     assert 0 < alpha(overlay, 40, 52) < 255
@@ -75,7 +75,7 @@ def test_collide_false_paints_no_geometry(engine):
     s = engine.sprite("solid")
     s.position = (20, 20)
     s.collide = False  # a ghost: invisible to collision, and to the overlay
-    overlay = PlaneOverlay(engine, size=(64, 64))
+    overlay = PlaneOverlay(engine, w=64, h=64)
     overlay.update()
     px = overlay.buffer.pixels
     assert not px[21:28, 21:28].any()  # no fill, no tint
@@ -85,7 +85,7 @@ def test_collide_false_paints_no_geometry(engine):
 def test_update_repaints_from_scratch(engine):
     s = engine.sprite("solid")
     s.position = (20, 20)
-    overlay = PlaneOverlay(engine, size=(64, 64))
+    overlay = PlaneOverlay(engine, w=64, h=64)
     overlay.update()
     s.position = (40, 40)
     overlay.update()
@@ -97,7 +97,7 @@ def test_update_repaints_from_scratch(engine):
 def test_offscreen_clipping(engine):
     s = engine.sprite("solid")
     s.position = (-4, -4)  # box straddles the canvas corner
-    overlay = PlaneOverlay(engine, size=(64, 64))
+    overlay = PlaneOverlay(engine, w=64, h=64)
     overlay.update()  # must not raise
     px = overlay.buffer.pixels
     assert px[0:4, 0:4].any()  # the surviving quadrant painted
@@ -109,7 +109,7 @@ def test_offscreen_clipping(engine):
 
 def test_marks_buffer_dirty(engine):
     engine.sprite("solid").position = (10, 10)
-    overlay = PlaneOverlay(engine, size=(64, 64))
+    overlay = PlaneOverlay(engine, w=64, h=64)
     overlay.buffer.dirty = False
     overlay.update()
     assert overlay.buffer.dirty  # the edit() context flagged the re-upload

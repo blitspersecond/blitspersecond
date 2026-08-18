@@ -31,7 +31,7 @@ def main() -> None:
     # The cursor: one whole-buffer tile on its own layer.
     # scroll is a camera register, so content sits at MINUS scroll.
     cursor = bps.layers.tile(
-        pixels, tilewidth=CURSOR_SIZE, tileheight=CURSOR_SIZE
+        pixels, w=CURSOR_SIZE, h=CURSOR_SIZE
     )
     cursor.blit(0, 0, 0)
     x = (bps.config.display.width - CURSOR_SIZE) / 2

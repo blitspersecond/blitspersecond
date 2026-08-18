@@ -108,7 +108,7 @@ def main():
     # (toward 0 = to black); it starts black and fades in with the music.
     image = PixelBuffer(rm.image(args.image))
     cover = bps.layers.tile(
-        image, tilewidth=image.width, tileheight=image.height
+        image, w=image.width, h=image.height
     )
     cover.blit(0, 0, 0)
     cover.red = cover.green = cover.blue = 0.0

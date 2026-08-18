@@ -31,11 +31,11 @@ _TMX_FLAGS = _TMX_FLIP_H | _TMX_FLIP_V | _TMX_TRANSPOSE | _TMX_HEX_ROTATE
 # One ordinary NumPy map plane: -1 is empty, otherwise `tile` is the local,
 # zero-based index into the layer's one tileset. `flags` uses TileFlags' 0..7
 # bit layout without importing graphics into the resource layer.
-TILE_MAP_DTYPE = np.dtype([("tile", np.int32), ("flags", np.uint8)])
+PLANE_DTYPE = np.dtype([("tile", np.int32), ("flags", np.uint8)])
 
 
 @dataclass(frozen=True)
-class TileSetSpec:
+class TiledTileset:
     """One BPS-compatible grid tileset referenced by a TMX map."""
 
     name: str
@@ -51,7 +51,23 @@ class TileSetSpec:
 
 
 @dataclass(frozen=True)
-class TileMapSpec:
+class TiledLayer:
+    """One tile layer: its plane, and which tileset the plane's indices mean.
+
+    The pairing is not a convenience -- the loader PROVES it, rejecting any
+    layer whose tiles span more than one tileset, because one texture per
+    layer is what the batch depends on. Carrying the tileset name here is what
+    stops every consumer re-deriving a fact already established at parse time.
+    """
+
+    name: str
+    tileset: str
+    # Structured PLANE_DTYPE, indexed [row, col]; tile -1 is empty.
+    plane: np.ndarray
+
+
+@dataclass(frozen=True)
+class TiledFile:
     """A complete, cached, GL-free reading of one compatible TMX file."""
 
     # The map in cells, then one tile in pixels.
@@ -59,10 +75,9 @@ class TileMapSpec:
     rows: int
     w: int
     h: int
-    tilesets: Tuple[TileSetSpec, ...]
-    # Authored back-to-front order. Each plane is a plain structured NumPy
-    # array of local tile indices plus orientation; tile -1 is empty.
-    layers: Tuple[Tuple[str, np.ndarray], ...]
+    tilesets: Tuple[TiledTileset, ...]
+    # Authored back-to-front order.
+    layers: Tuple[TiledLayer, ...]
 
 
 def _positive_int(element, attribute: str, where: str) -> int:
@@ -92,7 +107,7 @@ def _load_tileset(
     reference,
     map_dir: str,
     map_tile_size: Tuple[int, int],
-) -> TileSetSpec:
+) -> TiledTileset:
     where = "tileset"
     firstgid = _positive_int(reference, "firstgid", where)
     source = reference.get("source")
@@ -165,7 +180,7 @@ def _load_tileset(
             f"{declared_count} tiles does not match image grid "
             f"{columns} columns / {tilecount} tiles"
         )
-    return TileSetSpec(
+    return TiledTileset(
         name=name,
         firstgid=firstgid,
         image=image_path,
@@ -220,7 +235,7 @@ def _decode_data(data, count: int, where: str) -> np.ndarray:
     return gids
 
 
-def _owner(gid: int, tilesets: Tuple[TileSetSpec, ...], where: str) -> TileSetSpec:
+def _owner(gid: int, tilesets: Tuple[TiledTileset, ...], where: str) -> TiledTileset:
     for tileset in reversed(tilesets):
         if gid >= tileset.firstgid:
             local = gid - tileset.firstgid
@@ -234,8 +249,8 @@ def _load_layer(
     element,
     width: int,
     height: int,
-    tilesets: Tuple[TileSetSpec, ...],
-) -> Tuple[str, np.ndarray]:
+    tilesets: Tuple[TiledTileset, ...],
+) -> TiledLayer:
     name = element.get("name", "")
     where = f"layer {name!r}"
     if not name:
@@ -274,11 +289,13 @@ def _load_layer(
             f"{where}: uses multiple tilesets ({names}); BPS-compatible TMX "
             "uses one tileset per tile layer"
         )
-    plane = np.zeros((height, width), dtype=TILE_MAP_DTYPE)
+    plane = np.zeros((height, width), dtype=PLANE_DTYPE)
     plane["tile"] = -1
     occupied = raw != 0
+    # An empty layer names no tileset of its own; it takes the map's first so
+    # that every layer answers the question, drawing nothing either way.
+    tileset_name = next(iter(owners)) if owners else tilesets[0].name
     if owners:
-        tileset_name = next(iter(owners))
         tileset = next(ts for ts in tilesets if ts.name == tileset_name)
         plane["tile"][occupied] = (
             raw[occupied].astype(np.int64) - tileset.firstgid
@@ -289,10 +306,10 @@ def _load_layer(
         | (((gids & _TMX_FLIP_V) != 0).astype(np.uint8) << 2)
     )
     plane.setflags(write=False)
-    return name, plane
+    return TiledLayer(name=name, tileset=tileset_name, plane=plane)
 
 
-def load_tile_map_spec(filename: str) -> TileMapSpec:
+def load_tiled_file(filename: str) -> TiledFile:
     """Load and validate one BPS-compatible finite orthogonal TMX map."""
 
     filename = abspath(filename)
@@ -342,9 +359,9 @@ def load_tile_map_spec(filename: str) -> TileMapSpec:
         _load_layer(element, width, height, tilesets)
         for element in layer_elements
     )
-    if len({name for name, _ in layers}) != len(layers):
+    if len({layer.name for layer in layers}) != len(layers):
         raise ValueError("TMX map: tile layer names must be unique")
-    return TileMapSpec(
+    return TiledFile(
         cols=width,
         rows=height,
         w=tilewidth,

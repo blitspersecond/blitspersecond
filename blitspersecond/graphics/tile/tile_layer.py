@@ -12,7 +12,7 @@ from blitspersecond.core import Shader
 from blitspersecond.graphics.internal import PaletteTexture
 from blitspersecond.colors import TRANSPARENT, system_palette
 from blitspersecond.resources import (
-    TILE_MAP_DTYPE,
+    PLANE_DTYPE,
     ImageSpec,
     Palette,
     ResourceManager,
@@ -129,6 +129,10 @@ class TileLayer(Layer):
         # whole layer writes no buffers. Works in both modes: both frag
         # shaders multiply by vertex_colors.
         self._tint = [1.0, 1.0, 1.0, 1.0]
+        # This layer's own index-to-colour table, or None to use the buffer's.
+        # Per-layer so two layers over ONE atlas can differ in colour without
+        # duplicating the index data -- see the palette property.
+        self._palette: Optional[Palette] = None
         self._collidable: bool = False
         # Collision is an indexed-surface capability: solidity IS the palette
         # index. A direct (RGB/RGBA) layer has no index to read, so it gets
@@ -247,6 +251,23 @@ class TileLayer(Layer):
         self._buffer = None
         self._collision = None
 
+    def clear(self) -> None:
+        """Drop every stamp but keep the binding, the camera and the layer's
+        colour state.
+
+        `unbind()` is the destructive lifetime change; this is the cheap one a
+        driver uses between frames -- TileMap restamps its visible window
+        through here when the camera crosses a cell boundary. The GPU buffers
+        and the atlas survive; only the placement count resets, so the next
+        blit refills from index 0.
+        """
+        if self._atlas is None:
+            raise RuntimeError("TileLayer is unbound; call bind(tileset) first")
+        self._ntiles = 0
+        self._dirty_sync = True
+        if self._collision is not None:
+            self._collision.clear()
+
     def _reset_binding_state(self) -> None:
         """Discard every tileset-dependent trace, including partial frame work."""
         # A caller can retain the collision_mask array it was handed. Clear
@@ -259,6 +280,7 @@ class TileLayer(Layer):
             # the actual GL buffers now; a new binding must never inherit them.
             self._tilebatch.delete()
         self._shader = None
+        self._palette = None
         self._tiles = np.zeros(0, dtype=_TILE_DTYPE)
         self._tiles_scratch = np.zeros(0, dtype=_TILE_DTYPE)
         self._ntiles = 0
@@ -378,7 +400,7 @@ class TileLayer(Layer):
         self._blit_tile(tile, int(x), int(y), flags)
 
     def _blit_plane(self, plane: np.ndarray, x: int, y: int) -> None:
-        if plane.ndim != 2 or plane.dtype != TILE_MAP_DTYPE:
+        if plane.ndim != 2 or plane.dtype != PLANE_DTYPE:
             raise TypeError(
                 "expected a two-dimensional TileMap tile/flags array, got "
                 f"shape {plane.shape} dtype {plane.dtype}"
@@ -671,7 +693,16 @@ class TileLayer(Layer):
 
     @property
     def palette(self) -> Palette:
-        """The live index-to-colour table; unavailable on direct-colour layers."""
+        """The live index-to-colour table; unavailable on direct-colour layers.
+
+        The layer's own if one was assigned, otherwise the buffer's. Reading
+        gives you whichever is in force, so `layer.palette[i] = colour` edits
+        the right table either way -- but note that with no layer palette set
+        that table is the BUFFER's, and every layer sharing the atlas sees the
+        edit. Assign a palette first if you want the change to itself.
+        """
+        if self._palette is not None:
+            return self._palette
         palette = self.buffer.palette
         if palette is None:
             raise ValueError("a direct-colour TileLayer has no palette")
@@ -679,8 +710,28 @@ class TileLayer(Layer):
 
     @palette.setter
     def palette(self, value: Palette) -> None:
-        """Replace an indexed layer's live palette without touching its tiles."""
-        self.buffer.palette = value
+        """Give this layer its own index-to-colour table.
+
+        Per-layer, not per-buffer: the atlas keeps its pixels and its own
+        palette untouched, so two layers over ONE shared atlas can show the
+        same art in different colours --
+
+            red = bps.layers.tile(atlas)
+            red.palette = Palette(blue.palette.raw())
+            red.palette[3] = (200, 40, 40, 255)
+
+        -- which costs one 256x1 palette texture rather than a second copy of
+        the index data. Recolouring by swapping the table instead of the
+        pixels is the whole point of an indexed surface.
+
+        Cleared by unbind(), because a palette only means anything against the
+        indices it was chosen for.
+        """
+        if not isinstance(value, Palette):
+            raise TypeError(f"expected Palette, got {type(value)}")
+        if not self.buffer.indexed:
+            raise ValueError("a direct-colour TileLayer has no palette")
+        self._palette = value
 
     # -- the layer background colour -----------------------------------------
 

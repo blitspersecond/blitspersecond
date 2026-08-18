@@ -53,18 +53,19 @@ class ResourceManager(metaclass=SingletonMeta):
             self._cache[f_id] = load_sprite_sheet_spec(filename)
         return self._cache[f_id]
 
-    def tile_map(self, filename: str):
-        """Memo-cached TileMapSpec for a BPS-compatible TMX file.
+    def tmx(self, filename: str):
+        """Memo-cached TiledFile for a BPS-compatible TMX file.
 
         Parsing, TSX validation and referenced image decoding happen once.
-        TileMap turns the cached paths into its own PixelBuffers/TileAtlases;
-        loading a map never creates display layers.
+        Tiled is an external authoring tool: what comes back is a TiledFile,
+        the BPS reading of it, which TileMap then turns into its own
+        PixelBuffers/TileAtlases.
         """
         f_id = self._filename_to_id(filename)
         if f_id not in self._cache:
-            from .tile_map import load_tile_map_spec
+            from .tmx import load_tiled_file
 
-            self._cache[f_id] = load_tile_map_spec(filename)
+            self._cache[f_id] = load_tiled_file(filename)
         return self._cache[f_id]
 
     def fetch(self, filename: str) -> Resource:

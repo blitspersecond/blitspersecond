@@ -3,7 +3,7 @@ from typing import Iterator, Optional, Tuple, Union
 import numpy as np
 
 from blitspersecond.common import Size
-from blitspersecond.resources import TILE_MAP_DTYPE
+from blitspersecond.resources import PLANE_DTYPE
 
 from blitspersecond.graphics.internal import Point, Vector
 from blitspersecond.graphics.common import PixelBuffer
@@ -124,7 +124,7 @@ class TileAtlas:
             layer.blit(brush, x, y)
 
         Returns the same structured array TileMap layers are made of
-        (TILE_MAP_DTYPE, shape `(h, w)`), so one blit stamps the whole block
+        (PLANE_DTYPE, shape `(h, w)`), so one blit stamps the whole block
         and a brush cut from a tileset travels the same path as a plane
         loaded from a TMX. `flags` is all zero -- an atlas rectangle carries
         no orientation -- and the array is a fresh writable copy, so callers
@@ -147,7 +147,7 @@ class TileAtlas:
                 f"region ({x}, {y}, {w}, {h}) does not fit an atlas of "
                 f"{cols}x{rows} tiles"
             )
-        plane = np.zeros((h, w), dtype=TILE_MAP_DTYPE)
+        plane = np.zeros((h, w), dtype=PLANE_DTYPE)
         # Flat row-major indices, matching _to_indices and Tiled's tile IDs.
         plane["tile"] = (
             np.arange(y, y + h, dtype=np.int32)[:, None] * cols

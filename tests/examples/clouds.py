@@ -283,7 +283,7 @@ def main() -> None:
         ImageSpec(size=(SCREEN_W, SCREEN_H), mode="RGB", data=make_sky())
     )
     sunset = bps.layers.tile(
-        sky, tilewidth=SCREEN_W, tileheight=SCREEN_H, tag="sunset"
+        sky, w=SCREEN_W, h=SCREEN_H, tag="sunset"
     )
     sunset.blit(0, 0, 0)
     cloud_text = bps.layers.glyph((8, 8), tag="clouds")
