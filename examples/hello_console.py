@@ -10,12 +10,12 @@ Close the window to quit.
 from blitspersecond import BlitsPerSecond, key
 from blitspersecond.colors import WHITE, YELLOW
 from blitspersecond.console import Console
-from blitspersecond.graphics.glyph import CharSet, GlyphEngine
+from blitspersecond.graphics.glyph import CharSet
 
 
 def main() -> None:
     bps = BlitsPerSecond()
-    console = Console(GlyphEngine(CharSet.ASCII8X12))
+    console = Console(bps.layers.glyph(CharSet.ASCII8X12))
 
     console.pen[1] = WHITE
     console.pen[2] = YELLOW

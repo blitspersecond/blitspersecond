@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 import pyglet
 import pyglet.image.buffer
 
-from blitspersecond.graphics.internal import Shader
+from blitspersecond.core import Shader
 from blitspersecond.system import Config
 
 from .presentation import integer_viewport

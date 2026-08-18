@@ -36,9 +36,9 @@ class PlaneOverlay:
     supercombo.gg's hitbox view for any watched sprite layers.
 
         overlay = PlaneOverlay(p1_engine, p2_engine)
-        boxes = TileEngine(overlay.buffer,               # above the sprites
-                           tilewidth=overlay.buffer.width,
-                           tileheight=overlay.buffer.height)
+        boxes = bps.layers.tile(overlay.buffer,          # above the sprites
+                                tilewidth=overlay.buffer.width,
+                                tileheight=overlay.buffer.height)
         boxes.blit(0, 0, 0)
         ...
         overlay.update()        # each tick (skip it, or disable the Layer,

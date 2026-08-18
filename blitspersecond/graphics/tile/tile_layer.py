@@ -8,7 +8,8 @@ from pyglet.image import Texture
 from blitspersecond.common import Size
 from blitspersecond.display.layer import Layer
 from blitspersecond.graphics.common import Collidable, CollisionQuery, PixelBuffer
-from blitspersecond.graphics.internal import PaletteTexture, Shader
+from blitspersecond.core import Shader
+from blitspersecond.graphics.internal import PaletteTexture
 from blitspersecond.colors import TRANSPARENT, system_palette
 from blitspersecond.resources import (
     TILE_MAP_DTYPE,

@@ -5,9 +5,10 @@ SpriteSheet is the immutable bundle: tilesets (arbitrary named rects over
 indexed PixelBuffers, with the package's authoritative palette tables as
 sheet-owned mutable copies), assemblies (timeless poses: ordered parts +
 named collision planes in one anchor-local frame) and animation data
-(carried, not played). Load one with SpriteSheet.load(path). SpriteEngine
-creates and attaches one SpriteLayer; that layer binds one sheet, is the
-collision identity and depth position, and draws its instances as
+(carried, not played). Load one with SpriteSheet.load(path).
+`bps.layers.sprite(sheet)` creates and attaches one SpriteLayer; that layer
+binds one sheet, is the collision identity and depth position, and draws its
+instances as
 material-coalesced runs -- the cost driver is material transitions, never
 instance count.
 Sprite is the instance, constructed against the engine

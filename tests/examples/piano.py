@@ -30,7 +30,7 @@ from blitspersecond import BlitsPerSecond
 from blitspersecond.audio.engine import AudioEngine, Program, Stage
 from blitspersecond.audio.operators import Envelope, Gain, LowPass, Square
 from blitspersecond.colors import CYAN, GRAY, NAVY, Pen, TRANSPARENT, WHITE
-from blitspersecond.graphics import GlyphEngine, PixelBuffer, TileEngine
+from blitspersecond.graphics import GlyphLayer, PixelBuffer
 from blitspersecond.graphics.glyph import CharSet
 from blitspersecond.input import Predicate, key
 from blitspersecond.resources import ImageSpec
@@ -227,8 +227,8 @@ class PianoView:
                 self._rect(px, x0 + 3, BLACK_BOTTOM - 7, x1 - 3, BLACK_BOTTOM, (10, 12, 18))
 
 
-def make_labels() -> Console:
-    console = Console(GlyphEngine(CharSet.ASCII8X12))
+def make_labels(glyphs: GlyphLayer) -> Console:
+    console = Console(glyphs)
     console.pen = Pen(TRANSPARENT, CYAN, NAVY)
     title = "BLITS PER SECOND  /  POLYPHONIC PIANO"
     help_text = "hold computer keys together for a chord"
@@ -255,13 +255,14 @@ def make_labels() -> Console:
 def main() -> None:
     bps = BlitsPerSecond()
     view = PianoView()
-    board = TileEngine(
+    board = bps.layers.tile(
         view.buffer,
         tilewidth=view.buffer.width,
         tileheight=view.buffer.height,
     )
     board.blit(0, 0, 0)
-    labels = make_labels()  # the glyph layer lands above the board
+    # the glyph layer lands above the board
+    labels = make_labels(bps.layers.glyph(CharSet.ASCII8X12))
     labels.glyphs.after(board)
 
     piano = Piano(bps.audio, view)

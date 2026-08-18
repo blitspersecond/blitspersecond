@@ -9,9 +9,13 @@ class Layer:
     sits. The base class owns only the compositing concerns -- enabled, tag,
     stack position; blend/opacity/offset later.
 
-    You don't construct these directly -- the engine factories hand them out,
-    already in the order. Reorder fluently: `layer.after(hud)`,
-    `layer.first()`, `a.swap_with(b)`.
+    You don't usually construct these directly -- `bps.layers` mints them
+    (`bps.layers.tile(...)`, `.sprite(...)`, `.glyph(...)`), already in the
+    order. Reorder fluently: `layer.after(hud)`, `layer.first()`,
+    `a.swap_with(b)`. Building one by hand instead (TileLayer(...) and
+    friends) leaves it unattached and off-screen until `bps.layers.add(layer)`
+    places it -- and reordering an unattached layer raises, because a draw
+    order it isn't in cannot be changed.
     """
 
     def __init__(self, tag: Optional[str] = None) -> None:
@@ -54,34 +58,44 @@ class Layer:
 
     # -- fluent ordering (delegates to the bound collection) -------------
 
+    def _bound(self):
+        """The collection this layer sits in, or raise saying it sits in none.
+
+        Reordering used to no-op silently when unbound, which made an
+        off-screen layer look like a draw-order bug. There is no sensible
+        quiet answer -- a position in an order you are not in is undefined --
+        so asking is an error."""
+        if self._layers is None:
+            raise RuntimeError(
+                f"{type(self).__name__} is not in a draw order, so it cannot "
+                f"be reordered -- mint it with bps.layers.tile/sprite/glyph, "
+                f"or place one you built yourself with bps.layers.add(layer)"
+            )
+        return self._layers
+
     def before(self, other: "Layer") -> "Layer":
         """Draw just before `other` (one step toward the background)."""
-        if self._layers is not None:
-            self._layers._move_before(self, other)
+        self._bound()._move_before(self, other)
         return self
 
     def after(self, other: "Layer") -> "Layer":
         """Draw just after `other` (one step toward the foreground)."""
-        if self._layers is not None:
-            self._layers._move_after(self, other)
+        self._bound()._move_after(self, other)
         return self
 
     def swap_with(self, other: "Layer") -> "Layer":
         """Swap stack positions with `other`."""
-        if self._layers is not None:
-            self._layers._swap(self, other)
+        self._bound()._swap(self, other)
         return self
 
     def first(self) -> "Layer":
         """Move to the background (drawn first)."""
-        if self._layers is not None:
-            self._layers._to_back(self)
+        self._bound()._to_back(self)
         return self
 
     def last(self) -> "Layer":
         """Move to the foreground (drawn last)."""
-        if self._layers is not None:
-            self._layers._to_front(self)
+        self._bound()._to_front(self)
         return self
 
     def _composite(self) -> None:
@@ -92,13 +106,3 @@ class Layer:
 
     def __str__(self) -> str:
         return f"id: {self._id} [{self._tag}]"
-
-
-def attach_to_display[T: Layer](layer: T) -> T:
-    """Add a layer to the existing engine's display without booting one."""
-    from blitspersecond.blitspersecond import BlitsPerSecond
-
-    bps = BlitsPerSecond.current()
-    if bps is not None:
-        bps.layers.add(layer)
-    return layer

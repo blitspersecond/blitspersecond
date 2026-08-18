@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from blitspersecond import BlitsPerSecond
 from blitspersecond.audio.common import SAMPLE_RATE
-from blitspersecond.graphics import PixelBuffer, TileEngine
+from blitspersecond.graphics import PixelBuffer
 from blitspersecond.resources import ResourceManager
 from blitspersecond.system import Config
 from tests.examples.demo_midi import load_events, load_midi_file, schedule
@@ -104,10 +104,12 @@ def main():
     rm = ResourceManager()
 
     # The cover: the full untouched file as one whole-buffer tile on its
-    # own layer (auto-added). The fade envelope drives its rgb registers
+    # own layer. The fade envelope drives its rgb registers
     # (toward 0 = to black); it starts black and fades in with the music.
     image = PixelBuffer(rm.image(args.image))
-    cover = TileEngine(image, tilewidth=image.width, tileheight=image.height)
+    cover = bps.layers.tile(
+        image, tilewidth=image.width, tileheight=image.height
+    )
     cover.blit(0, 0, 0)
     cover.red = cover.green = cover.blue = 0.0
 

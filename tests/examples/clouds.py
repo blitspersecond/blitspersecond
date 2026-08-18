@@ -29,8 +29,7 @@ import pyglet
 
 from blitspersecond import BlitsPerSecond
 from blitspersecond.input import key, keyboard
-from blitspersecond.graphics import GlyphLayer, PixelBuffer, TileEngine
-from blitspersecond.graphics.glyph import GlyphEngine
+from blitspersecond.graphics import GlyphLayer, PixelBuffer
 from blitspersecond.resources import ConsolePalette, ImageSpec
 
 SCREEN_W, SCREEN_H = 640, 360
@@ -283,13 +282,13 @@ def main() -> None:
     sky = PixelBuffer(
         ImageSpec(size=(SCREEN_W, SCREEN_H), mode="RGB", data=make_sky())
     )
-    sunset = TileEngine(sky, tilewidth=SCREEN_W, tileheight=SCREEN_H)
+    sunset = bps.layers.tile(
+        sky, tilewidth=SCREEN_W, tileheight=SCREEN_H, tag="sunset"
+    )
     sunset.blit(0, 0, 0)
-    sunset.tag = "sunset"
-    cloud_text = GlyphEngine((8, 8))
+    cloud_text = bps.layers.glyph((8, 8), tag="clouds")
     cloud_text.palette = make_palette()
     install_quadrants(cloud_text)
-    cloud_text.tag = "clouds"
 
     clouds = CloudField()
     tick = 0

@@ -24,7 +24,7 @@ and is re-exported here for the specs that carry it. `load_image_spec(path)`
 without cache identity.
 
 The appendix, `resources.internal`, holds `Resource` -- the cached text file
-behind `ResourceManager.fetch()`, which exists so the graphics Shader can pull
+behind `ResourceManager.fetch()`, which exists so `core.Shader` can pull
 .vert/.frag source; user code never meets it.
 """
 

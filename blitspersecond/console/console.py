@@ -20,10 +20,10 @@ class Console:
     """A text console: clear / write / print with a per-cell colour pen.
     Spectrum / Amiga flavour, not a VT220.
 
-    Console controls an existing GlyphLayer, which the GlyphEngine factory
-    has already placed on screen:
+    Console controls an existing GlyphLayer, which `bps.layers.glyph` has
+    already placed on screen:
 
-        console = Console(GlyphEngine(CharSet.ASCII8X12))
+        console = Console(bps.layers.glyph(CharSet.ASCII8X12))
         console.glyphs.after(background)
 
     The console adds no rendering state of its own."""

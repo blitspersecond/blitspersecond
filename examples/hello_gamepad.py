@@ -14,8 +14,8 @@ Close the window to quit.
 from blitspersecond import BlitsPerSecond
 from blitspersecond.colors import TRANSPARENT, WHITE, Pen
 from blitspersecond.console import Console
-from blitspersecond.graphics import PixelBuffer, TileEngine
-from blitspersecond.graphics.glyph import CharSet, GlyphEngine
+from blitspersecond.graphics import PixelBuffer
+from blitspersecond.graphics.glyph import CharSet
 from blitspersecond.resources import ImageSpec
 
 CURSOR_SIZE = 8
@@ -28,15 +28,17 @@ def main() -> None:
     pixels = PixelBuffer(ImageSpec((CURSOR_SIZE, CURSOR_SIZE), "RGB"))
     with pixels.edit() as image:
         image[:] = (255, 255, 255)
-    # The cursor: one whole-buffer tile on its own layer (auto-added).
+    # The cursor: one whole-buffer tile on its own layer.
     # scroll is a camera register, so content sits at MINUS scroll.
-    cursor = TileEngine(pixels, tilewidth=CURSOR_SIZE, tileheight=CURSOR_SIZE)
+    cursor = bps.layers.tile(
+        pixels, tilewidth=CURSOR_SIZE, tileheight=CURSOR_SIZE
+    )
     cursor.blit(0, 0, 0)
     x = (bps.config.display.width - CURSOR_SIZE) / 2
     y = (bps.config.display.height - CURSOR_SIZE) / 2
     cursor.scroll = (-x, -y)
 
-    status = Console(GlyphEngine(CharSet.ASCII8X12))
+    status = Console(bps.layers.glyph(CharSet.ASCII8X12))
     status.pen = Pen(TRANSPARENT, WHITE, TRANSPARENT, TRANSPARENT)
     shown_name = ""
 

@@ -14,8 +14,9 @@ from blitspersecond.resources import ResourceManager
 # ever run in-tree, and an immediate FileNotFoundError the moment a game
 # installed it (`pip install -e`) and ran from its own directory. These are
 # ENGINE assets, shipped inside the package, so the package is what they hang
-# off. (internal -> graphics -> blitspersecond)
-_SHADERS = Path(__file__).resolve().parents[2] / "assets" / "shaders"
+# off. (core -> blitspersecond; this index tracks THIS FILE's depth, so it
+# changed when the module moved out of graphics.internal.)
+_SHADERS = Path(__file__).resolve().parents[1] / "assets" / "shaders"
 
 
 class Shader:

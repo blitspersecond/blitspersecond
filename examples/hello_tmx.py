@@ -1,4 +1,4 @@
-"""Display the same TMX island using three TileEngine interfaces.
+"""Display the same TMX island using three tile-layer interfaces.
 
 ``tile`` blits concrete tiles one at a time, ``slice`` takes a range from the
 tileset first, and ``full`` blits the complete map plane. Change ``mode`` in
@@ -14,7 +14,7 @@ Close the window to quit.
 from pathlib import Path
 
 from blitspersecond import BlitsPerSecond
-from blitspersecond.graphics import TileEngine, TileFlags, TileMap
+from blitspersecond.graphics import TileFlags, TileMap
 
 MAP = Path(__file__).resolve().parents[1] / "blitspersecond/assets/gorillaz/island.tmx"
 
@@ -30,7 +30,7 @@ def main() -> None:
 
     tileset = island.tilesets["island"]
     plane = island.layers["blue_island"]
-    layer = TileEngine(tileset)
+    layer = bps.layers.tile(tileset)
     layer.palette[SKY] = (73, 171, 212, 255)
     layer.background = SKY  # transparent pixels are open sky
 

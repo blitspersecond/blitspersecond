@@ -1,24 +1,12 @@
-"""The auto-attaching SpriteLayer factory."""
-
-from blitspersecond.display.layer import attach_to_display
+"""The legacy SpriteEngine name, now an alias for SpriteLayer."""
 
 from .sprite_layer import SpriteLayer
-from .sprite_sheet import SpriteSheet
 
-
-class SpriteEngine:
-    """The static factory: make a SpriteLayer and put it on screen.
-
-        chun_layer = SpriteEngine(sheet)
-        chun = chun_layer.sprite("stance-01")
-
-    Calling it returns a SpriteLayer (__new__ hands back the layer; no
-    SpriteEngine instance ever exists), appended at the front of the running
-    engine's draw order. Placement and layer.enabled are the caller's
-    business from there. If no BlitsPerSecond engine exists yet (GL-free
-    tests, offline tools), the layer is returned unattached, exactly as
-    SpriteLayer(sheet) would build it.
-    """
-
-    def __new__(cls, sheet: SpriteSheet) -> SpriteLayer:
-        return attach_to_display(SpriteLayer(sheet))
+#: Legacy name, kept so existing code keeps working. See TileEngine for the
+#: full note: the engines used to attach through a global lookup, layers are
+#: now minted by ``bps.layers.sprite(sheet)``, and what remained of the
+#: factory was the layer itself.
+#:
+#: Calling it directly builds an UNATTACHED layer -- nothing draws it until
+#: ``bps.layers.add(layer)`` places it in a draw order.
+SpriteEngine = SpriteLayer

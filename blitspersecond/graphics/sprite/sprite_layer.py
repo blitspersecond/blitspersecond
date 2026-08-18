@@ -35,7 +35,8 @@ from blitspersecond.graphics.common import (
     PixelBuffer,
     PlaneCollidable,
 )
-from blitspersecond.graphics.internal import PaletteTexture, Shader
+from blitspersecond.core import Shader
+from blitspersecond.graphics.internal import PaletteTexture
 from blitspersecond.resources import Palette
 
 from .collision import SpriteCollision

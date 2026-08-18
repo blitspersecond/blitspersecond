@@ -11,10 +11,12 @@ presents through the CRT post-pass, timing how long the swap blocked
 (`swap_duration`, the display's presentation-health signal). Game code never
 holds one -- its contact point is `bps.layers`.
 
-`Layers` is the ordered stack, background to foreground; a `Layer` is one slot
-in it -- a single drawable (any graphics engine, or a bare PixelBuffer that gets
-auto-wrapped) plus its compositing position, reordered through a fluent
-interface (`layer.after(hud)`, `layer.first()`, `a.swap_with(b)`).
+`Layers` is the ordered stack, background to foreground, and the place layers
+come from: `bps.layers.tile(...)`, `.sprite(sheet)` and `.glyph(charset)` build
+one and put it in the order, so making a layer IS showing it. A `Layer` is one
+slot in that stack -- a single drawable plus its compositing position,
+reordered through a fluent interface (`layer.after(hud)`, `layer.first()`,
+`a.swap_with(b)`).
 
 The engine-only machinery users never name lives in the appendix,
 `display.internal` (`Surface`, `Framebuffer`, `PresentationCadence`) --
