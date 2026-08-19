@@ -22,7 +22,7 @@ from math import sin
 from pathlib import Path
 
 from blitspersecond import BlitsPerSecond
-from blitspersecond.graphics import TileMap
+from blitspersecond.graphics import TileFlags, TileMap
 
 MAP = Path(__file__).resolve().parents[1] / "blitspersecond/assets/gorillaz/island.tmx"
 
@@ -43,6 +43,8 @@ def main() -> None:
     island.layer.palette[SKY] = (73, 171, 212, 255)
     island.layer.background = SKY
 
+    island.layer.collidable = True
+
     # Centre the world, then drift the camera. Sub-cell movement is one GPU
     # translate; crossing a cell boundary is what restamps the window.
     map_width, _ = island.pixel_size
@@ -54,7 +56,19 @@ def main() -> None:
         ticks += 1
         island.scroll = (home + sin(ticks * SPEED / 60.0) * home, 0.0)
 
-    tile = island.tmx
+    tile = island.layer.atlas[0]
+    tile = island.layer.atlas[0, 0]
+
+    island.layer.blit(tile, 0, 0, TileFlags.FLIP_H | TileFlags.FLIP_V)
+
+    # A tileset with no TMX behind it: bps.layers.tile() gives you a bound
+    # TileLayer and nothing else. There is no plane to auto-populate from, so
+    # the layer starts blank -- every tile you want on screen is a manual
+    # blit(), same as placing sprites by hand.
+    stamps = bps.layers.tile(str(MAP.parent / "island.png"), 16, 16, tag="stamps")
+    stamps.blit(0, 0, 0)
+    stamps.blit(1, 16, 0)
+    stamps.blit(2, 32, 0)
 
     bps.run(drift)
 
