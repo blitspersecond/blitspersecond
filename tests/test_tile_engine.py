@@ -672,7 +672,7 @@ class _RecordingMap:
         self.map = TileMap.__new__(TileMap)
         self.map._plane = np.zeros((rows, cols), dtype=PLANE_DTYPE)
         self.map._layer = _StubLayer(tile)
-        self.map._tiled = None
+        self.map._tmx = None
         self.map._scroll = (0.0, 0.0)
         self.map._coarse = (0, 0)
         self.map._origin = (0, 0)

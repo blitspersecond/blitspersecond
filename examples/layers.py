@@ -54,6 +54,8 @@ def main() -> None:
         ticks += 1
         island.scroll = (home + sin(ticks * SPEED / 60.0) * home, 0.0)
 
+    tile = island.tmx
+
     bps.run(drift)
 
 

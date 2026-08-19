@@ -54,7 +54,7 @@ class TileMap:
         self,
         layer: TileLayer,
         plane: np.ndarray,
-        tiled: Optional[TiledFile] = None,
+        tmx: Optional[TiledFile] = None,
     ) -> None:
         if not isinstance(layer, TileLayer):
             raise TypeError(f"expected TileLayer, got {type(layer)}")
@@ -62,7 +62,7 @@ class TileMap:
             raise TypeError(f"expected a 2-D map plane, got shape {plane.shape}")
         self._layer = layer
         self._plane = plane
-        self._tiled = tiled
+        self._tmx = tmx
         self._scroll: Tuple[float, float] = (0.0, 0.0)
         self._coarse: Tuple[int, int] = (0, 0)
         self._origin: Tuple[int, int] = (0, 0)
@@ -110,9 +110,9 @@ class TileMap:
         return self._plane
 
     @property
-    def tiled(self) -> Optional[TiledFile]:
+    def tmx(self) -> Optional[TiledFile]:
         """The file this layer came from, when it came from one."""
-        return self._tiled
+        return self._tmx
 
     # -- the world ----------------------------------------------------------
 
