@@ -45,12 +45,9 @@ class SpritePool:
                 )
             part = assembly.parts[0]
             tileset = engine.sheet.tilesets[part.tileset]
-            palette_index = (
-                part.palette
-                if part.palette is not None
-                else tileset.default_palette
+            this_material = (
+                tileset.buffer, tileset.palettes[tileset.default_palette]
             )
-            this_material = (tileset.buffer, tileset.palettes[palette_index])
             if material is None:
                 material = this_material
             elif (

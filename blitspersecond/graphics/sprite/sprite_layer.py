@@ -417,19 +417,12 @@ class SpriteLayer(Layer):
                 # because the register is per tileset (Chun-Li recolours her
                 # costume while her effects stay pinned at 25 without any
                 # override in the package -- 0 of her 3237 parts carry one).
-                # The override reaches only what the registers cannot: many
-                # parts from ONE tileset under different palettes inside ONE
-                # assembly. Nothing has needed that. The paper doll looked
-                # like the case until the obvious construction was tried --
-                # a garment is a layer, layers already restack, and each
-                # garment's instance has its own register. Kept as an
-                # optional key and one branch; see docs/SPRITES.md.
-                index = (
-                    part.palette
-                    if part.palette is not None
-                    else s._palettes[part.tileset]
+                # A part has no say in which: two parts from one tileset
+                # always share a table, and something wanting otherwise is a
+                # sprite of its own, which is a layer of its own.
+                material = (
+                    ts.buffer, ts.palettes[s._palettes[part.tileset]], colors
                 )
-                material = (ts.buffer, ts.palettes[index], colors)
                 if material == key:
                     buffer, palette, col, first, count = runs[-1]
                     runs[-1] = (buffer, palette, col, first, count + 1)

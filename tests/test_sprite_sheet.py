@@ -104,14 +104,13 @@ def test_dummy_package_loads(sheet_dir):
     assert spec.animations["idle"].frames[0].duration_ticks == 2
 
 
-def test_part_palette_override(sheet_dir):
+def test_part_palette_is_refused(sheet_dir):
+    """Removed 2026-08-20, unused. Refused rather than ignored: silently
+    dropping it would change how such a package draws."""
     data = _package()
-    data["tilesets"]["main"]["palettes"].append(
-        ["#00000000", "#0000ffff", "#ffff00ff"]
-    )
     data["assemblies"]["pose"]["parts"][0]["palette"] = 1
-    spec = _load(sheet_dir, data)
-    assert spec.assemblies["pose"].parts[0].palette == 1
+    with pytest.raises(ValueError, match="per-part 'palette' was removed"):
+        _load(sheet_dir, data)
 
 
 @pytest.mark.parametrize(
@@ -185,10 +184,6 @@ def test_part_palette_override(sheet_dir):
             lambda d: d["tilesets"]["main"].update(default_palette=5),
             "default_palette 5 out of range",
         ),
-        (
-            lambda d: d["assemblies"]["pose"]["parts"][0].update(palette=7),
-            "palette 7 out of range",
-        ),
         (lambda d: d.update(tilesets={}), "no tilesets"),
         (lambda d: d.update(assemblies={}), "no assemblies"),
     ],
@@ -209,7 +204,6 @@ def test_part_palette_override(sheet_dir):
         "opaque-index-0",
         "no-palettes",
         "default-palette-range",
-        "part-palette-range",
         "no-tilesets",
         "no-assemblies",
     ],

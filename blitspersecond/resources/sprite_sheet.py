@@ -43,14 +43,16 @@ _HEX_RGBA = re.compile(r"^#[0-9a-fA-F]{8}$")
 
 class SpritePart(NamedTuple):
     """One drawn part of an assembly: a named rect from a named tileset,
-    placed at a signed local offset, in stable draw order. `palette`
-    overrides the tileset's default_palette for this part when set."""
+    placed at a signed local offset, in stable draw order.
+
+    Which palette it draws under is the instance's business, not the part's:
+    registers are per instance, per tileset. A per-part override existed until
+    2026-08-20 and was removed unused -- see docs/SPRITES.md."""
 
     tileset: str
     tile: str
     offset: Location
     order: int
-    palette: Optional[int] = None
 
 
 class SpriteFrame(NamedTuple):
@@ -236,21 +238,23 @@ def _assembly(
                 "be stored in non-decreasing draw order"
             )
         last_order = order
-        palette = p.get("palette")
-        if palette is not None:
-            palette = int(palette)
-            if not 0 <= palette < len(tileset.palettes):
-                raise ValueError(
-                    f"{pwhere}: palette {palette} out of range "
-                    f"(tileset {tileset_name!r} has {len(tileset.palettes)})"
-                )
+        if "palette" in p:
+            # Removed 2026-08-20 after measuring 0 uses in 3237 parts and
+            # failing to find a case. Refused rather than ignored: silently
+            # dropping it would change how such a package draws, and nothing
+            # in the wild has one to break.
+            raise ValueError(
+                f"{pwhere}: per-part 'palette' was removed -- palette "
+                f"selection is per instance, per tileset "
+                f"(sprite.palettes[{tileset_name!r}]), and a part wanting its "
+                "own is a sprite of its own, which is a layer of its own"
+            )
         parts.append(
             SpritePart(
                 tileset=tileset_name,
                 tile=tile_name,
                 offset=Location(int(offset[0]), int(offset[1])),
                 order=order,
-                palette=palette,
             )
         )
     collision: Dict[str, Tuple[Rect, ...]] = {}
