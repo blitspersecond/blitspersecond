@@ -46,37 +46,17 @@ from .sprite_sheet import SpriteSheet
 
 
 def _local_rect(
-    px: int,
-    py: int,
-    flip: bool,
-    rot: int,
-    x: int,
-    y: int,
-    w: int,
-    h: int,
-    axis: int = 0,
+    px: int, py: int, flip: bool, rot: int, x: int, y: int, w: int, h: int
 ) -> Tuple[int, int, int, int]:
     """A local rect placed on screen: the ONE orientation formula, shared by
     draw staging and collision stamping so the two can never drift. Facing
-    mirrors the local frame about `axis` (local [x, x+w) lands at
-    [2*axis-x-w, 2*axis-x)); rotation then turns the mirrored frame k
-    quarter-turns clockwise about the anchor -- the same H-then-D
-    composition the tile flip bits speak. Returns (screen_x, screen_y, w, h);
-    odd turns swap the extents.
-
-    `axis` is where the mirror line sits, and it is the one place placement
-    and facing come apart. An authored package has no cell, so its anchor
-    serves as both and the axis is 0 -- Chun-Li's sits on her push box, which
-    is why turning her leaves her body exactly where it was. A grid sheet
-    DOES have a cell, so its axis is that cell's centre and flipping happens
-    strictly in place, exactly as `TileFlags.FLIP_H` does: gorillaz island
-    draws half a tree and mirrors it into the adjacent column, which only
-    works because a flipped tile stays in its own cell. Same reason the
-    Fumiko charset draws every frame from its cell's top-left whatever the
-    orientation -- the cell is the artist's coordinate system.
-    """
+    mirrors the local frame about the anchor's vertical axis (local [x, x+w)
+    lands at [-x-w, -x)); rotation then turns the mirrored frame k quarter-
+    turns clockwise about the anchor -- the same H-then-D composition the
+    tile flip bits speak. Returns (screen_x, screen_y, w, h); odd turns
+    swap the extents."""
     if flip:
-        x = 2 * axis - x - w
+        x = -x - w
     for _ in range(rot & 3):
         x, y, w, h = -y - h, x, h, w
     return px + x, py + y, w, h
@@ -344,11 +324,10 @@ class SpriteLayer(Layer):
         return uv
 
     @staticmethod
-    def _local_rect_origin(flip, rotation, part, rect, axis=0):
+    def _local_rect_origin(flip, rotation, part, rect):
         return _local_rect(
             0, 0, flip, rotation,
             part.offset.x, part.offset.y, rect.width, rect.height,
-            axis,
         )
 
     # -- the frame plan ----------------------------------------------------
@@ -363,9 +342,6 @@ class SpriteLayer(Layer):
             elif entry._visible and entry._assembly is not None:
                 total += len(entry._assembly.parts)
         self._ensure_capacity(total)
-        # Where facing mirrors: the anchor for a package, the cell's centre
-        # for a grid sheet. One value per sheet, read once per rebuild.
-        axis = self._sheet.mirror_axis
         runs: List[_Run] = []
         key = None
         n = 0
@@ -423,7 +399,6 @@ class SpriteLayer(Layer):
                 dx, dy, dw, dh = _local_rect(
                     px, py, flip, rot,
                     part.offset.x, part.offset.y, r.width, r.height,
-                    axis,
                 )
                 v = self._verts[n]
                 v[0, 0] = dx

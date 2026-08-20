@@ -67,7 +67,6 @@ class SpriteSheet:
         self._animations = spec.animations
         self._planes = spec.planes
         self._grid = spec.grid
-        self._mirror_axis = spec.mirror_axis
 
     @classmethod
     def load(cls, filename: str) -> "SpriteSheet":
@@ -115,13 +114,6 @@ class SpriteSheet:
         """The package's collision-plane vocabulary (precalculated at load).
         Query selectors validate against this so unknown names fail loudly."""
         return self._planes
-
-    @property
-    def mirror_axis(self) -> int:
-        """Where `flip_x` mirrors: 0 (the anchor) for a package, the cell's
-        own centre for a grid sheet, so a grid sprite flips in place like a
-        tile. See graphics.sprite.sprite_layer._local_rect."""
-        return self._mirror_axis
 
     @property
     def grid_size(self) -> Optional[Tuple[int, int]]:
