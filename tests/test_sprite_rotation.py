@@ -18,6 +18,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from blitspersecond.graphics import SpriteEngine
+from blitspersecond.graphics.common import Orientation
 
 from sprite_fixtures import build_known_sheet
 
@@ -64,7 +65,7 @@ def test_flip_then_rotate_composes(pair):
     a, b = pair
     dot = a.sprite("dot")
     dot.position = (100, 100)
-    dot.flip_x = True  # mirror puts the pixel at (99, 100)
+    dot.orientation = Orientation.FLIP_H  # mirror puts the pixel at (99, 100)
     assert probe(a, b, 99, 100)
     dot.rotation = 1  # ...then a quarter-turn carries it to (99, 99)
     assert probe(a, b, 99, 99)

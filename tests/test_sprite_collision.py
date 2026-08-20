@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from blitspersecond.graphics import SpriteEngine, SpriteSheet
 from blitspersecond.graphics.common import CollisionQuery
 from blitspersecond.resources import ResourceManager
+from blitspersecond.graphics.common import Orientation
 
 from sprite_fixtures import build_known_sheet
 
@@ -147,7 +148,7 @@ def test_flip_mirrors_silhouette(pair):
     dot.position = (8, 0)
     assert a.collides_with(b).at() is False
     # Flipped: quad spans [0, 8), pixel mirrors to column 7 -> (7, 0): hit.
-    dot.flip_x = True
+    dot.orientation = Orientation.FLIP_H
     assert a.collides_with(b).at() is True
 
 
@@ -172,7 +173,7 @@ def test_named_plane_flip_mirrors_rects(pair):
     # screen 4..8 -- meets A's hit box; unflipped it is 12..16 -- clear.
     pb.position = (10, 0)
     assert a.collides_with(b, mine="hit", theirs="hurt").at() is False
-    pb.flip_x = True
+    pb.orientation = Orientation.FLIP_H
     assert a.collides_with(b, mine="hit", theirs="hurt").at() is True
 
 

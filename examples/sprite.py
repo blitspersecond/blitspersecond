@@ -6,8 +6,9 @@ game tick from there. What the game keeps is initiation and position: `play`
 is the cancel and the reissue too, and nothing needs calling per tick to keep
 a clip running.
 
-`flip_x` is facing. It mirrors the drawn parts and the collision planes
-together about the anchor, and never rewrites the asset, so one walk cycle
+`orientation` is facing, and it is the same eight axis-aligned transforms a
+tile placement uses. It mirrors the drawn parts and the collision planes
+together about the origin, and never rewrites the asset, so one walk cycle
 drawn facing right serves both directions.
 
 Run from the repository root:
@@ -20,6 +21,7 @@ Close the window to quit.
 from pathlib import Path
 
 from blitspersecond import BlitsPerSecond
+from blitspersecond.graphics import Orientation
 
 SHEET = Path(__file__).resolve().parents[1] / "assets/fumiko/fumiko.sprite.json"
 
@@ -54,7 +56,7 @@ def main() -> None:
             step = -step
             x = min(max(x, left), right)
         walker.position = (x, line)
-        walker.flip_x = step < 0
+        walker.orientation = Orientation.FLIP_H if step < 0 else Orientation.NONE
 
     bps.run(walk)
 

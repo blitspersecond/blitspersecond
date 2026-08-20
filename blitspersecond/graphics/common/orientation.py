@@ -27,6 +27,8 @@ pixels rather than stretching them.
 
 from enum import IntFlag
 
+import numpy as np
+
 
 class Orientation(IntFlag):
     """How a drawn thing is turned: a property of the PLACEMENT, never of the
@@ -75,3 +77,15 @@ def as_flip_rotation(flags: Orientation) -> tuple[bool, int]:
 def from_flip_rotation(flip_x: bool, rotation: int) -> Orientation:
     """Compose `(flip_x, quarter_turns_clockwise)` back into an orientation."""
     return _FROM_FLIP_ROT[(bool(flip_x), int(rotation) & 3)]
+
+
+#: The same decomposition as arrays, for the dense path: index by an
+#: orientation value (0-7) and get the mirror flag or the turn count. A pool
+#: stores orientations and needs both to pick a cached variant, per frame,
+#: for thousands of instances -- so the lookup is a gather, not a dict.
+FLIP_OF = np.array(
+    [_AS_FLIP_ROT[Orientation(i)][0] for i in range(8)], dtype=np.intp
+)
+ROTATION_OF = np.array(
+    [_AS_FLIP_ROT[Orientation(i)][1] for i in range(8)], dtype=np.intp
+)

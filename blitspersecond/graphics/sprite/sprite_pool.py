@@ -3,6 +3,8 @@ from typing import Iterable, Iterator, Optional, Tuple, Union
 
 import numpy as np
 
+from blitspersecond.graphics.common.orientation import FLIP_OF, ROTATION_OF
+
 
 class SpritePool:
     """A dense, ordered set of compatible one-part sprite instances.
@@ -71,8 +73,12 @@ class SpritePool:
         self._positions = np.zeros((count, 2), dtype=np.float32)
         self._visible = np.ones(count, dtype=bool)
         self._collide = np.ones(count, dtype=bool)
-        self._flip_x = np.zeros(count, dtype=bool)
-        self._rotation = np.zeros(count, dtype=np.uint8)
+        # One orientation per slot, not a bool beside a turn count: there
+        # are exactly eight, the variant tables below already have eight
+        # slots, and storing the flags themselves means `pool.orientation`
+        # can be a LIVE array like every other pool field rather than a
+        # computed copy that silently swallows writes.
+        self._orientation = np.zeros(count, dtype=np.uint8)
         self._color = (1.0, 1.0, 1.0, 1.0)
 
         # Per-assembly/per-orientation local rects and UVs are immutable. The
@@ -91,13 +97,15 @@ class SpritePool:
         if self._uvs is not None:
             return
         count = len(self._parts)
-        self._uvs = np.empty((count, 2, 4, 4, 3), dtype=np.float32)
+        self._uvs = np.empty((count, 8, 4, 3), dtype=np.float32)
         for index, (part, _rect) in enumerate(self._parts):
-            for flip in (0, 1):
-                for rotation in range(4):
-                    self._uvs[index, flip, rotation] = self._engine._uv(
-                        part.tileset, part.tile, bool(flip), rotation
-                    )
+            for orientation in range(8):
+                self._uvs[index, orientation] = self._engine._uv(
+                    part.tileset,
+                    part.tile,
+                    bool(FLIP_OF[orientation]),
+                    int(ROTATION_OF[orientation]),
+                )
 
     def __len__(self) -> int:
         return len(self._assemblies)
@@ -126,14 +134,14 @@ class SpritePool:
         return self._collide
 
     @property
-    def flip_x(self) -> np.ndarray:
-        """Writable bool ``(n,)`` horizontal-facing flags."""
-        return self._flip_x
+    def orientation(self) -> np.ndarray:
+        """Writable uint8 ``(n,)`` orientations -- `Orientation` values, the
+        same eight a tile placement or a lone Sprite uses.
 
-    @property
-    def rotation(self) -> np.ndarray:
-        """Writable uint8 ``(n,)`` clockwise quarter turns."""
-        return self._rotation
+            bullets.orientation[spinning] = Orientation.ROT_90
+            bullets.orientation[homing] = Orientation.FLIP_H
+        """
+        return self._orientation
 
     @property
     def color(self) -> Tuple[float, float, float, float]:

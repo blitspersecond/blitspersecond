@@ -353,11 +353,11 @@ class SpriteLayer(Layer):
                     continue
                 s._ensure_templates()
                 assert s._uvs is not None
-                flip = s._flip_x[indices].astype(np.intp)
-                rotation = (s._rotation[indices] & 3).astype(np.intp)
-                variant = flip * 4 + rotation
+                # The orientation IS the variant index: eight orientations,
+                # eight cached rect/UV slots, so no decomposition per frame.
+                orientation = s._orientation[indices].astype(np.intp)
                 assembly_ids = s._assembly_ids[indices]
-                rects = s._rects[assembly_ids, variant]
+                rects = s._rects[assembly_ids, orientation]
                 xy = np.floor(s._positions[indices]).astype(np.int32)
                 x0 = xy[:, 0] + rects[:, 0]
                 y0 = xy[:, 1] + rects[:, 1]
@@ -368,9 +368,7 @@ class SpriteLayer(Layer):
                 v[:, 1, 0], v[:, 1, 1] = x1, y0
                 v[:, 2, 0], v[:, 2, 1] = x1, y1
                 v[:, 3, 0], v[:, 3, 1] = x0, y1
-                self._uvs[n : n + count] = s._uvs[
-                    assembly_ids, flip, rotation
-                ]
+                self._uvs[n : n + count] = s._uvs[assembly_ids, orientation]
                 material = (s._buffer, s._palette, s._color)
                 if material == key:
                     buffer, palette, col, first, old_count = runs[-1]

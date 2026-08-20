@@ -48,7 +48,7 @@ class Sprite:
 
         sprite.play("jump")
         sprite.position = fighter.position
-        sprite.flip_x = fighter.facing_left
+        sprite.orientation = fighter.facing
 
     or, driving the pose directly, with no clip involved:
 
@@ -314,12 +314,17 @@ class Sprite:
             crate.orientation = Orientation.ROT_90
             icon.orientation = Orientation.FLIP_V
 
-        This is the state; `flip_x` and `rotation` below are views onto it,
-        not separate fields. They used to BE the state, which quietly hid two
-        of the three generators -- a vertical flip was `flip_x=True,
-        rotation=2` and a transpose was `flip_x=True, rotation=3`, both
-        reachable and neither findable. Naming all eight fixes that without
-        losing anything: the two spellings are a bijection.
+        This is the state. There used to be a `flip_x` bool beside it, and
+        it was the reason this vocabulary was needed: one axis privileged
+        into a name, with the other two generators reachable only by
+        composition -- a vertical flip was `flip_x=True, rotation=2`, a
+        transpose was `flip_x=True, rotation=3`. Both findable only if you
+        already knew. `Orientation.FLIP_V` says it instead, so the bool had
+        nothing left to offer that a named constant does not.
+
+        `rotation` below remains a view onto the turn, because a number of
+        quarter-turns is a quantity you count rather than a transform you
+        name -- and it composes: the mirror applies first, then the turn.
 
         Whatever it is set to, the mirror and the turn happen about the
         sprite's `origin`, and the collision planes turn with the art -- draw
@@ -331,23 +336,6 @@ class Sprite:
     @orientation.setter
     def orientation(self, value: Orientation) -> None:
         self._flip_x, self._rotation = as_flip_rotation(Orientation(value))
-        self._engine._touch()
-
-    @property
-    def flip_x(self) -> bool:
-        """Facing, as a bool -- the FLIP_H half of `orientation`, kept
-        because "which way is she facing" is the question game code actually
-        asks every tick, and `flip_x = velocity < 0` says it plainly.
-
-        A view, not a field: writing it leaves any turn in `orientation`
-        alone, and reading it back after `orientation = Orientation.FLIP_V`
-        gives True, because that orientation IS a mirror and a half-turn.
-        """
-        return self._flip_x
-
-    @flip_x.setter
-    def flip_x(self, value: bool) -> None:
-        self._flip_x = bool(value)
         self._engine._touch()
 
     @property

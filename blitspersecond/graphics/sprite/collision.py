@@ -10,6 +10,7 @@ from blitspersecond.graphics.common import (
     CWORD_BITS,
     CWORD_SHIFT,
 )
+from blitspersecond.graphics.common.orientation import FLIP_OF, ROTATION_OF
 
 
 def _packed_pattern(bits: np.ndarray) -> np.ndarray:
@@ -275,9 +276,7 @@ class SpriteCollision:
         if not len(active):
             return
         assembly_ids = pool._assembly_ids[active]
-        flips = pool._flip_x[active].astype(np.intp)
-        rotations = (pool._rotation[active] & 3).astype(np.intp)
-        variants = flips * 4 + rotations
+        variants = pool._orientation[active].astype(np.intp)
         positions = np.floor(pool._positions[active]).astype(np.int32)
         keys = assembly_ids * 8 + variants
 
@@ -285,7 +284,7 @@ class SpriteCollision:
             selected = np.flatnonzero(keys == key)
             assembly_id = int(key) // 8
             variant = int(key) & 7
-            flip, rotation = bool(variant >> 2), variant & 3
+            flip, rotation = bool(FLIP_OF[variant]), int(ROTATION_OF[variant])
             part, _source_rect = pool._parts[assembly_id]
             local = pool._rects[assembly_id, variant]
             xs = positions[selected, 0] + local[0]

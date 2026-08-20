@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from blitspersecond.common import Location
 from blitspersecond.graphics import Sprite, SpriteEngine, SpriteLayer, SpriteSheet
 from blitspersecond.resources import ResourceManager
+from blitspersecond.graphics.common import Orientation
 
 TEST_ASSETS = Path(__file__).resolve().parent / "assets"
 TEST_SHEET = TEST_ASSETS / "test.sprite.json"
@@ -74,8 +75,7 @@ def test_dense_pool_exposes_renderer_owned_instance_arrays():
     with pool.edit():
         pool.positions[:] = ((10, 20), (30, 40), (50, 60))
         pool.visible[1] = False
-        pool.flip_x[2] = True
-        pool.rotation[2] = 1
+        pool.orientation[2] = Orientation.ROT_90
     assert engine._dirty is True
     assert pool.count_visible == 2
     assert engine.collision_mask.any()
@@ -112,11 +112,11 @@ def test_position_and_facing(engine):
         assert s.position == Location(320, 300)  # floats held, floored out
         assert s.x == pytest.approx(320.7)
         s.position = (100, 200)
-        s.flip_x = True
+        s.orientation = Orientation.FLIP_H
         assert s.position == Location(100, 200)
-        assert s.flip_x is True
+        assert s.orientation is Orientation.FLIP_H
         s.position = (101, 200)  # flip untouched: it is its own property
-        assert s.flip_x is True
+        assert s.orientation is Orientation.FLIP_H
     finally:
         engine.remove(s)
 
@@ -175,7 +175,7 @@ def test_setters_mark_engine_dirty(engine):
         for write in (
             lambda: setattr(s, "position", (5, 5)),
             lambda: setattr(s, "x", 6),
-            lambda: setattr(s, "flip_x", True),
+            lambda: setattr(s, "orientation", Orientation.FLIP_H),
             lambda: setattr(s, "visible", False),
             lambda: setattr(s, "alpha", 0.5),
             lambda: s.palettes.__setitem__("shapes", 1),

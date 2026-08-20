@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from blitspersecond.graphics.sprite import PlaneOverlay, SpriteEngine
+from blitspersecond.graphics.common import Orientation
 
 from sprite_fixtures import build_known_sheet
 
@@ -65,7 +66,7 @@ def test_flip_mirrors_the_painting(engine):
     overlay.update()
     px = overlay.buffer.pixels
     assert 0 < alpha(overlay, 40, 52) < 255
-    dot.flip_x = True
+    dot.orientation = Orientation.FLIP_H
     overlay.update()
     assert 0 < alpha(overlay, 40, 43) < 255
     assert px[40, 52] == 0
