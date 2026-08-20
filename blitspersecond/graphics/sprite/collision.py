@@ -243,6 +243,7 @@ class SpriteCollision:
             x, y, _width, _height = _local_rect(
                 px, py, flip, rotation,
                 part.offset.x, part.offset.y, rect.width, rect.height,
+                self._engine.sheet.mirror_axis,
             )
             self._stamp_one(
                 masks[None],
@@ -256,6 +257,7 @@ class SpriteCollision:
                 x, y, width, height = _local_rect(
                     px, py, flip, rotation,
                     rect.x, rect.y, rect.width, rect.height,
+                    self._engine.sheet.mirror_axis,
                 )
                 self._stamp_one(
                     target,
@@ -301,6 +303,7 @@ class SpriteCollision:
                     x, y, width, height = _local_rect(
                         0, 0, flip, rotation,
                         rect.x, rect.y, rect.width, rect.height,
+                        self._engine.sheet.mirror_axis,
                     )
                     self._stamp(
                         target,

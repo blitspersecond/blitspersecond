@@ -104,13 +104,20 @@ class SpriteSheetSpec(NamedTuple):
     `grid` is set only by the bare-image path below -- `(cols, rows)` of the
     uniform grid the assemblies were synthesised from, so a caller may address
     them the way TileAtlas is addressed (by index, or by column and row)
-    rather than by name. A real package has no grid and is None."""
+    rather than by name. A real package has no grid and is None.
+
+    `mirror_axis` is where `flip_x` puts the mirror line, and it goes with
+    `grid`. A package has no cell, so its anchor is also its mirror axis and
+    this is 0. A grid sheet's cell IS the artist's coordinate system, so its
+    axis is that cell's centre and flipping happens in place, exactly like
+    `TileFlags.FLIP_H` -- see `_local_rect`."""
 
     tilesets: Dict[str, TilesetSpec]
     assemblies: Dict[str, AssemblySpec]
     animations: Dict[str, AnimationSpec]
     planes: frozenset
     grid: Optional[Tuple[int, int]] = None
+    mirror_axis: int = 0
 
 
 def _rect(raw, where: str, signed: bool) -> Rect:
@@ -383,6 +390,10 @@ def grid_sprite_sheet_spec(
         animations={},
         planes=frozenset(),
         grid=(cols, rows),
+        # The cell's own centre, wherever ox has put the placement origin:
+        # ox purely says where present_at lands the cell, and flipping stays
+        # in place regardless -- the tile contract.
+        mirror_axis=ox + w // 2,
     )
 
 

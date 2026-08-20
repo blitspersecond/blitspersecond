@@ -84,7 +84,8 @@ class SpritePool:
                 for rotation in range(4):
                     variant = flip * 4 + rotation
                     self._rects[index, variant] = engine._local_rect_origin(
-                        bool(flip), rotation, part, rect
+                        bool(flip), rotation, part, rect,
+                        engine.sheet.mirror_axis,
                     )
 
     def _ensure_templates(self) -> None:
