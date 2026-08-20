@@ -86,12 +86,13 @@ class SpritePool:
         self._rects = np.empty((len(unique_names), 8, 4), dtype=np.int32)
         self._uvs = None
         for index, (part, rect) in enumerate(self._parts):
-            for flip in (0, 1):
-                for rotation in range(4):
-                    variant = flip * 4 + rotation
-                    self._rects[index, variant] = engine._local_rect_origin(
-                        bool(flip), rotation, part, rect
-                    )
+            for orientation in range(8):
+                self._rects[index, orientation] = engine._local_rect_origin(
+                    bool(FLIP_OF[orientation]),
+                    int(ROTATION_OF[orientation]),
+                    part,
+                    rect,
+                )
 
     def _ensure_templates(self) -> None:
         if self._uvs is not None:
