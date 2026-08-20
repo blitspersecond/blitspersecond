@@ -18,14 +18,24 @@ which is what the three maps mean.
     frame duration      -> duration_ticks (ms x fps / 1000; 100ms @60 = 6)
     layer               -> part
     cel position        -> part offset
-    slice               -> named collision plane
     document palette    -> the tileset's one palette table
 
-WHAT IT DOES NOT DO, and why. It emits ONE palette, because a document has
-one; Fumiko's four hair colours were folded in from separate PNGs by hand and
-a second pass over `palettes` is how that is done. Untagged frames are named
-`frame-N` -- an authoring document says what a run of frames MEANS by tagging
-it, and inventing a better name from nothing is not the tool's business.
+WHAT IT DOES NOT DO, and why.
+
+Authored collision planes. Not a gap to be filled later by reading Aseprite
+slices -- a decision (2026-08-20): real hitbox authoring wants a purpose-built
+tool, and it gets built when a game actually demands one, not speculatively.
+The two plane sources that exist are enough until then: rects extracted from a
+real game (the Chun-Li package), and `--plane`, which puts one naive box over
+the drawn extent so the named-plane machinery can be exercised at all.
+
+One palette, because a document has one. Fumiko's four hair colours were
+folded in from separate PNGs by hand, and a second pass over `palettes` is how
+that is done.
+
+Untagged frames named `frame-N`. An authoring document says what a run of
+frames MEANS by tagging it; inventing a better name from nothing is not the
+tool's business.
 """
 
 from __future__ import annotations
@@ -59,6 +69,8 @@ def export(document: Path, into: Path) -> Tuple[Path, Dict[str, Any]]:
     `--sheet-type horizontal` keeps frames in authored order along a strip,
     so the source rects come out in a readable layout rather than whatever a
     bin-packer chose. Indexed mode and the transparent index survive.
+
+    Slices are deliberately not requested: planes are not authored here.
     """
     sheet = into / f"{document.stem}.png"
     data = into / f"{document.stem}.json"
@@ -70,7 +82,7 @@ def export(document: Path, into: Path) -> Tuple[Path, Dict[str, Any]]:
                 "--sheet-type", "horizontal",
                 "--data", str(data),
                 "--format", "json-array",
-                "--list-tags", "--list-layers", "--list-slices",
+                "--list-tags", "--list-layers",
             ],
             check=True,
             capture_output=True,
