@@ -417,10 +417,10 @@ class SpriteLayer(Layer):
                 # because the register is per tileset (Chun-Li recolours her
                 # costume while her effects stay pinned at 25 without any
                 # override in the package -- 0 of her 3237 parts carry one).
-                # The override exists for the narrower case the registers
-                # cannot reach: two parts from the SAME tileset under
-                # different palettes in one pose, e.g. one spark tile drawn
-                # twice in two colours.
+                # The override is for the paper doll: MANY parts from ONE
+                # tileset, each under its own palette. Recolouring the
+                # leggings without touching the shirt needs this, because one
+                # per-tileset register cannot hold a value per garment.
                 index = (
                     part.palette
                     if part.palette is not None
