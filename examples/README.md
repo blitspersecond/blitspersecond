@@ -7,6 +7,7 @@ being a large program that happens to exercise the engine.
 - `console.py` — the smallest complete console-input program
 - `gamepad.py` — move a sprite through the direct gamepad surface, off a
   bare image read as a sprite grid
+- `sprite.py` — play a clip from a sprite package, and turn around
 - `tmx.py` — load a compatible TMX map and stamp its island onto a
   tile layer
 
