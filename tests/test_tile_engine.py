@@ -492,7 +492,7 @@ def _island() -> str:
 
     return str(
         Path(__file__).resolve().parents[1]
-        / "blitspersecond/assets/gorillaz/island.tmx"
+        / "assets/gorillaz/island.tmx"
     )
 
 

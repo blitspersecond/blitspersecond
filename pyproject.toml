@@ -46,8 +46,8 @@ dev = [
 testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
-# The engine package only. `tests`, `examples`, `util` and `docs` are repo
-# furniture and must never ship inside an install.
+# The engine package only. `tests`, `examples`, `util`, `docs` and `assets`
+# are repo furniture and must never ship inside an install.
 include = ["blitspersecond*"]
 
 [tool.setuptools.package-data]
@@ -56,6 +56,12 @@ include = ["blitspersecond*"]
 # without them cannot open a window. They are not a package (no __init__.py),
 # so packages.find above does not see them and they must be named here or an
 # editable install would work while a real one silently shipped no shaders.
+#
+# This list is the whole definition of "engine asset": shaders and charsets
+# are machinery the engine cannot run without, so they live under
+# blitspersecond/assets/. Everything else -- demo maps, sprite sheets, test
+# fixtures -- lives in the repo-root assets/ directory and is reached by
+# examples and tests through repo-relative paths, never by the engine.
 blitspersecond = [
     "assets/shaders/*.vert",
     "assets/shaders/*.frag",

@@ -24,7 +24,7 @@ from pathlib import Path
 from blitspersecond import BlitsPerSecond
 from blitspersecond.graphics import TileFlags, TileMap
 
-MAP = Path(__file__).resolve().parents[1] / "blitspersecond/assets/gorillaz/island.tmx"
+MAP = Path(__file__).resolve().parents[1] / "assets/gorillaz/island.tmx"
 
 SKY = 255
 SPEED = 0.6

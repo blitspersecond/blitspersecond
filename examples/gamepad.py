@@ -28,7 +28,7 @@ from blitspersecond.colors import TRANSPARENT, WHITE, Pen
 from blitspersecond.console import Console
 from blitspersecond.graphics.glyph import CharSet
 
-BAND = Path(__file__).resolve().parents[1] / "blitspersecond/assets/gorillaz/band.png"
+BAND = Path(__file__).resolve().parents[1] / "assets/gorillaz/band.png"
 
 HEAD = 12  # one cell of band.png, in pixels
 TWO_D = 0  # 1 Noodle, 2 Murdoc, 3 Russel

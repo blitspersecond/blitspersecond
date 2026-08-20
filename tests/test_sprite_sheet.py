@@ -315,7 +315,7 @@ def test_sheet_rejects_non_spec():
 
 BAND = (
     Path(__file__).resolve().parents[1]
-    / "blitspersecond/assets/gorillaz/band.png"
+    / "assets/gorillaz/band.png"
 )
 
 

@@ -163,7 +163,7 @@ def test_remove_unbinds_and_re_add_returns_to_the_front(layers, atlas):
 def test_sprite_mints_from_a_bare_image(layers):
     band = (
         Path(__file__).resolve().parents[1]
-        / "blitspersecond/assets/gorillaz/band.png"
+        / "assets/gorillaz/band.png"
     )
     layer = layers.sprite(str(band), 12, 12)
 
@@ -177,7 +177,7 @@ def test_sprite_mints_from_a_bare_image(layers):
 def test_sprite_refuses_half_a_grid(layers):
     band = (
         Path(__file__).resolve().parents[1]
-        / "blitspersecond/assets/gorillaz/band.png"
+        / "assets/gorillaz/band.png"
     )
     with pytest.raises(TypeError, match="both w and h"):
         layers.sprite(str(band), 12)
