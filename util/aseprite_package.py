@@ -161,8 +161,10 @@ def build(
         raise SystemExit(
             f"{document.name} has {len(layers)} layers. One layer is one part, "
             "and a packed sheet flattens them -- multipart documents need a "
-            "per-layer export, which this tool does not do yet. (That is the "
-            "paper-doll path: see docs/SPRITES.md on per-part palettes.)"
+            "per-layer export, which this tool does not do yet. That is for "
+            "art STACKED IN PLACE, like Chun-Li's character and effect layers "
+            "in one frame; a wardrobe laid out side by side on one canvas is "
+            "an ordinary tileset and imports fine."
         )
 
     names = frame_names(data)
