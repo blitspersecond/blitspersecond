@@ -1,0 +1,975 @@
+{
+  "version": 1,
+  "tick_unit": "integer simulation tick",
+  "tilesets": {
+    "character": {
+      "image": "fumiko.png",
+      "transparent_index": 0,
+      "default_palette": 0,
+      "palettes": [
+        [
+          "#00000000",
+          "#0d0d0cff",
+          "#340705ff",
+          "#2c271bff",
+          "#061f22ff",
+          "#2b1624ff",
+          "#0e2a2dff",
+          "#292b2bff",
+          "#5f0c06ff",
+          "#374c24ff",
+          "#4b4a38ff",
+          "#4f2449ff",
+          "#22535aff",
+          "#525654ff",
+          "#980603ff",
+          "#cb0100ff",
+          "#a7463cff",
+          "#dd662aff",
+          "#c96447ff",
+          "#7daa65ff",
+          "#ff9b72ff",
+          "#637d82ff",
+          "#128b9bff",
+          "#4592a0ff",
+          "#0dbcd3ff",
+          "#838382ff",
+          "#ffdf87ff",
+          "#ffadeeff",
+          "#b1eaffff",
+          "#f7f7f0ff"
+        ],
+        [
+          "#00000000",
+          "#0d0d0cff",
+          "#966b3bff",
+          "#2c271bff",
+          "#061f22ff",
+          "#2b1624ff",
+          "#0e2a2dff",
+          "#292b2bff",
+          "#b29725ff",
+          "#374c24ff",
+          "#4b4a38ff",
+          "#4f2449ff",
+          "#22535aff",
+          "#525654ff",
+          "#c18c23ff",
+          "#dac914ff",
+          "#a7463cff",
+          "#dd662aff",
+          "#c96447ff",
+          "#7daa65ff",
+          "#ff9b72ff",
+          "#637d82ff",
+          "#128b9bff",
+          "#4592a0ff",
+          "#0dbcd3ff",
+          "#838382ff",
+          "#ffdf87ff",
+          "#ffadeeff",
+          "#b1eaffff",
+          "#f7f7f0ff"
+        ],
+        [
+          "#00000000",
+          "#0d0d0cff",
+          "#1a1917ff",
+          "#2c271bff",
+          "#061f22ff",
+          "#2b1624ff",
+          "#0e2a2dff",
+          "#292b2bff",
+          "#111339ff",
+          "#374c24ff",
+          "#4b4a38ff",
+          "#4f2449ff",
+          "#22535aff",
+          "#525654ff",
+          "#16125fff",
+          "#0e2f5cff",
+          "#a7463cff",
+          "#dd662aff",
+          "#c96447ff",
+          "#7daa65ff",
+          "#ff9b72ff",
+          "#637d82ff",
+          "#128b9bff",
+          "#4592a0ff",
+          "#0dbcd3ff",
+          "#838382ff",
+          "#ffdf87ff",
+          "#ffadeeff",
+          "#b1eaffff",
+          "#f7f7f0ff"
+        ],
+        [
+          "#00000000",
+          "#181818ff",
+          "#6a6a69ff",
+          "#2c271bff",
+          "#061f22ff",
+          "#2b1624ff",
+          "#0e2a2dff",
+          "#292b2bff",
+          "#9e9ea3ff",
+          "#374c24ff",
+          "#4b4a38ff",
+          "#4f2449ff",
+          "#22535aff",
+          "#525654ff",
+          "#bfbfbfff",
+          "#ffffffff",
+          "#a7463cff",
+          "#dd662aff",
+          "#c96447ff",
+          "#7daa65ff",
+          "#ff9b72ff",
+          "#637d82ff",
+          "#128b9bff",
+          "#4592a0ff",
+          "#0dbcd3ff",
+          "#838382ff",
+          "#ffdf87ff",
+          "#ffadeeff",
+          "#b1eaffff",
+          "#f7f7f0ff"
+        ]
+      ],
+      "tiles": {
+        "neutral": {
+          "source": [
+            0,
+            0,
+            24,
+            32
+          ]
+        },
+        "idle-0": {
+          "source": [
+            24,
+            0,
+            24,
+            32
+          ]
+        },
+        "idle-1": {
+          "source": [
+            48,
+            0,
+            24,
+            32
+          ]
+        },
+        "idle-2": {
+          "source": [
+            72,
+            0,
+            24,
+            32
+          ]
+        },
+        "walk-0": {
+          "source": [
+            96,
+            0,
+            24,
+            32
+          ]
+        },
+        "walk-1": {
+          "source": [
+            120,
+            0,
+            24,
+            32
+          ]
+        },
+        "walk-2": {
+          "source": [
+            144,
+            0,
+            24,
+            32
+          ]
+        },
+        "run-0": {
+          "source": [
+            168,
+            0,
+            24,
+            32
+          ]
+        },
+        "run-1": {
+          "source": [
+            192,
+            0,
+            24,
+            32
+          ]
+        },
+        "run-2": {
+          "source": [
+            216,
+            0,
+            24,
+            32
+          ]
+        },
+        "jump-0": {
+          "source": [
+            240,
+            0,
+            24,
+            32
+          ]
+        },
+        "jump-1": {
+          "source": [
+            264,
+            0,
+            24,
+            32
+          ]
+        },
+        "jump-2": {
+          "source": [
+            288,
+            0,
+            24,
+            32
+          ]
+        },
+        "jump-3": {
+          "source": [
+            312,
+            0,
+            24,
+            32
+          ]
+        },
+        "f-attack-0": {
+          "source": [
+            336,
+            0,
+            24,
+            32
+          ]
+        },
+        "f-attack-1": {
+          "source": [
+            360,
+            0,
+            24,
+            32
+          ]
+        },
+        "f-attack-2": {
+          "source": [
+            384,
+            0,
+            24,
+            32
+          ]
+        },
+        "f-attack-3": {
+          "source": [
+            408,
+            0,
+            24,
+            32
+          ]
+        },
+        "f-attack-4": {
+          "source": [
+            432,
+            0,
+            24,
+            32
+          ]
+        },
+        "attack-0": {
+          "source": [
+            456,
+            0,
+            24,
+            32
+          ]
+        },
+        "attack-1": {
+          "source": [
+            480,
+            0,
+            24,
+            32
+          ]
+        },
+        "attack-2": {
+          "source": [
+            504,
+            0,
+            24,
+            32
+          ]
+        },
+        "attack-3": {
+          "source": [
+            528,
+            0,
+            24,
+            32
+          ]
+        },
+        "attack-4": {
+          "source": [
+            552,
+            0,
+            24,
+            32
+          ]
+        },
+        "blk-0": {
+          "source": [
+            576,
+            0,
+            24,
+            32
+          ]
+        },
+        "blk-1": {
+          "source": [
+            600,
+            0,
+            24,
+            32
+          ]
+        },
+        "super-0": {
+          "source": [
+            624,
+            0,
+            24,
+            32
+          ]
+        },
+        "super-1": {
+          "source": [
+            648,
+            0,
+            24,
+            32
+          ]
+        },
+        "super-2": {
+          "source": [
+            672,
+            0,
+            24,
+            32
+          ]
+        },
+        "super-3": {
+          "source": [
+            696,
+            0,
+            24,
+            32
+          ]
+        },
+        "super-4": {
+          "source": [
+            720,
+            0,
+            24,
+            32
+          ]
+        },
+        "super-5": {
+          "source": [
+            744,
+            0,
+            24,
+            32
+          ]
+        }
+      }
+    }
+  },
+  "assemblies": {
+    "neutral": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "neutral",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "idle-0": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "idle-0",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "idle-1": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "idle-1",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "idle-2": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "idle-2",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "walk-0": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "walk-0",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "walk-1": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "walk-1",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "walk-2": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "walk-2",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "run-0": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "run-0",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "run-1": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "run-1",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "run-2": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "run-2",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "jump-0": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "jump-0",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "jump-1": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "jump-1",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "jump-2": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "jump-2",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "jump-3": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "jump-3",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "f-attack-0": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "f-attack-0",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "f-attack-1": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "f-attack-1",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "f-attack-2": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "f-attack-2",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "f-attack-3": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "f-attack-3",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "f-attack-4": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "f-attack-4",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "attack-0": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "attack-0",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "attack-1": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "attack-1",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "attack-2": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "attack-2",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "attack-3": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "attack-3",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "attack-4": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "attack-4",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "blk-0": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "blk-0",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "blk-1": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "blk-1",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "super-0": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "super-0",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "super-1": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "super-1",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "super-2": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "super-2",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "super-3": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "super-3",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "super-4": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "super-4",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    },
+    "super-5": {
+      "parts": [
+        {
+          "tileset": "character",
+          "tile": "super-5",
+          "offset": [
+            0,
+            0
+          ],
+          "order": 0
+        }
+      ]
+    }
+  },
+  "animations": {
+    "idle": {
+      "frames": [
+        {
+          "assembly": "idle-0",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "idle-1",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "idle-2",
+          "duration_ticks": 6
+        }
+      ]
+    },
+    "walk": {
+      "frames": [
+        {
+          "assembly": "walk-0",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "walk-1",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "walk-2",
+          "duration_ticks": 6
+        }
+      ]
+    },
+    "run": {
+      "frames": [
+        {
+          "assembly": "run-0",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "run-1",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "run-2",
+          "duration_ticks": 6
+        }
+      ]
+    },
+    "jump": {
+      "frames": [
+        {
+          "assembly": "jump-0",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "jump-1",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "jump-2",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "jump-3",
+          "duration_ticks": 6
+        }
+      ]
+    },
+    "f-attack": {
+      "frames": [
+        {
+          "assembly": "f-attack-0",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "f-attack-1",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "f-attack-2",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "f-attack-3",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "f-attack-4",
+          "duration_ticks": 6
+        }
+      ]
+    },
+    "attack": {
+      "frames": [
+        {
+          "assembly": "attack-0",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "attack-1",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "attack-2",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "attack-3",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "attack-4",
+          "duration_ticks": 6
+        }
+      ]
+    },
+    "blk": {
+      "frames": [
+        {
+          "assembly": "blk-0",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "blk-1",
+          "duration_ticks": 6
+        }
+      ]
+    },
+    "super": {
+      "frames": [
+        {
+          "assembly": "super-0",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "super-1",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "super-2",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "super-3",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "super-4",
+          "duration_ticks": 6
+        },
+        {
+          "assembly": "super-5",
+          "duration_ticks": 6
+        }
+      ]
+    }
+  }
+}
