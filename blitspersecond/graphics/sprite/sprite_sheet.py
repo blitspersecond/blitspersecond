@@ -1,4 +1,4 @@
-from typing import Dict, NamedTuple, Tuple
+from typing import Dict, NamedTuple, Optional, Tuple, Union
 
 from blitspersecond.common import Rect
 from blitspersecond.graphics.common import PixelBuffer
@@ -66,6 +66,7 @@ class SpriteSheet:
         self._assemblies = spec.assemblies
         self._animations = spec.animations
         self._planes = spec.planes
+        self._grid = spec.grid
 
     @classmethod
     def load(cls, filename: str) -> "SpriteSheet":
@@ -73,6 +74,28 @@ class SpriteSheet:
         Spec parse + validation ride the ResourceManager memo, so loading
         the same package twice costs one parse and two sheets."""
         return cls(ResourceManager().sprite_sheet(filename))
+
+    @classmethod
+    def grid(
+        cls, filename: str, w: int, h: int, ox: int = 0, oy: int = 0
+    ) -> "SpriteSheet":
+        """The bare-image path: an indexed image read as a uniform grid of
+        `w` x `h` cells, no package file involved.
+
+            band = SpriteSheet.grid("band.png", 12, 12)
+            two_d = layer.sprite(0)          # or layer.sprite((0, 0))
+
+            bullets = SpriteSheet.grid("bullets.png", 8, 8, -4, -4)
+
+        One single-part assembly per cell, anchored at the cell's top-left
+        and named by its row-major index, no animations and no named
+        collision planes -- the silhouette is all there is, which is the
+        R-Type case. `ox`/`oy` shift that anchor (the format's `offset`, same
+        sign) for sheets that want centring or a floor anchor. See
+        resources.grid_sprite_sheet_spec for what is and isn't synthesised."""
+        from blitspersecond.resources.sprite_sheet import grid_sprite_sheet_spec
+
+        return cls(grid_sprite_sheet_spec(filename, w, h, ox, oy))
 
     @property
     def tilesets(self) -> Dict[str, SpriteTileset]:
@@ -91,3 +114,41 @@ class SpriteSheet:
         """The package's collision-plane vocabulary (precalculated at load).
         Query selectors validate against this so unknown names fail loudly."""
         return self._planes
+
+    @property
+    def grid_size(self) -> Optional[Tuple[int, int]]:
+        """`(cols, rows)` for a sheet built by `grid()`, else None. Only a
+        grid sheet can be addressed by index or by column and row."""
+        return self._grid
+
+    def assembly_name(self, key: Union[str, int, Tuple[int, int]]) -> str:
+        """Resolve an assembly address to its name.
+
+        A string is a name and passes straight through (unchecked here -- the
+        caller's lookup reports an unknown one). An int, or a `(col, row)`
+        pair, is a grid address, the way `atlas[i]` and `atlas[col, row]`
+        address a TileAtlas -- and only a grid sheet has those, so asking a
+        package sheet for one is an error rather than a coincidence."""
+        if isinstance(key, str):
+            return key
+        if self._grid is None:
+            raise TypeError(
+                f"assembly {key!r}: this sheet came from a package, so its "
+                "assemblies have authored names -- index addressing exists "
+                "only for sheets built by SpriteSheet.grid()"
+            )
+        cols, rows = self._grid
+        if isinstance(key, tuple):
+            col, row = int(key[0]), int(key[1])
+            if not (0 <= col < cols and 0 <= row < rows):
+                raise IndexError(
+                    f"cell {(col, row)} outside the {cols}x{rows} grid"
+                )
+            key = row * cols + col
+        index = int(key)
+        if not 0 <= index < cols * rows:
+            raise IndexError(
+                f"assembly {index} outside the {cols}x{rows} grid "
+                f"({cols * rows} cells)"
+            )
+        return str(index)

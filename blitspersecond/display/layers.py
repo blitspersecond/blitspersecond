@@ -23,7 +23,7 @@ class Layers:
     and the place layers come from:
 
         background = bps.layers.tile("tiles/bg.png", w=8, h=8)
-        actors = bps.layers.sprite(sheet)
+        actors = bps.layers.sprite("band.png", 12, 12)
         actors.after(background)
 
     Owns the ordering. Layers reposition themselves through their fluent
@@ -96,22 +96,59 @@ class Layers:
 
     def sprite(
         self,
-        sheet: "SpriteSheet",
+        source: Union[str, "SpriteSheet"],
+        w: Optional[int] = None,
+        h: Optional[int] = None,
+        ox: int = 0,
+        oy: int = 0,
         *,
         tag: Optional[str] = None,
     ) -> "SpriteLayer":
-        """Make a SpriteLayer bound to `sheet` and put it at the front.
+        """Make a SpriteLayer over `source` and put it at the front.
 
-            actors = bps.layers.sprite(sheet)
+            band = bps.layers.sprite("band.png", 12, 12)   # bare image
+            actors = bps.layers.sprite("chun-li.sprite.json")
             chun = actors.sprite("stance-01")
+
+        `source` is a sprite package file, an indexed image, or a SpriteSheet
+        you already built. Giving w/h is what says "read this image as a
+        uniform grid" -- the same two roads `tile()` offers, since a package
+        is to a sprite sheet what a TMX is to a tileset: optional. A grid
+        sheet's poses are addressed by cell index rather than by name, and
+        anchor at the cell's top-left; `ox`/`oy` move that anchor, so
+        `sprite("bullets.png", 8, 8, -4, -4)` centres each cell on its
+        sprite's position.
 
         One sheet per layer; the layer is the collision identity and the depth
         position, so a mirror match is two SpriteLayers over the same sheet.
         Note the two `sprite` verbs: this one makes the layer, the layer's own
         makes an instance on it.
         """
-        from blitspersecond.graphics.sprite import SpriteLayer
+        from blitspersecond.graphics.sprite import SpriteLayer, SpriteSheet
 
+        if isinstance(source, str):
+            if (w is None) != (h is None):
+                raise TypeError(
+                    "sprite() takes both w and h or neither -- w/h read the "
+                    "image as a uniform grid, and half a grid is nothing"
+                )
+            if w is None and (ox or oy):
+                raise TypeError(
+                    "sprite() takes ox/oy only with w/h -- an authored "
+                    "package already places its own anchor"
+                )
+            sheet = (
+                SpriteSheet.grid(source, w, h, ox, oy)
+                if w is not None and h is not None
+                else SpriteSheet.load(source)
+            )
+        elif w is not None or h is not None or ox or oy:
+            raise TypeError(
+                "sprite() takes w/h/ox/oy only with an image path -- a "
+                "SpriteSheet already carries its own reading"
+            )
+        else:
+            sheet = source
         layer = SpriteLayer(sheet)
         if tag is not None:
             layer.tag = tag

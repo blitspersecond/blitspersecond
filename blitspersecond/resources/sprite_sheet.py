@@ -20,6 +20,12 @@ so the bounds check here and the PixelBuffer construction later share one
 disk hit. The PNG's embedded palette is an authoring preview; the package's
 `palettes` tables are authoritative and land here as real Palette instances
 (stored as authored, like every palette in the machine).
+
+There is a second, package-free way in: `grid_sprite_sheet_spec()` reads a
+plain indexed image as a uniform grid and synthesises the same spec type --
+the bare-image path, matching `bps.layers.tile("island.png", 16, 16)`. It
+loads nothing and validates nothing beyond the image itself, because there is
+no authored file to be wrong.
 """
 
 import json
@@ -91,12 +97,18 @@ class SpriteSheetSpec(NamedTuple):
     `planes` is the package's collision-plane vocabulary, precalculated at
     load: every plane name any assembly declares. Names are opaque to the
     engine; the set exists so a query selector can be validated loudly
-    (a typo'd plane name must be an error, not a hitbox that never hits)."""
+    (a typo'd plane name must be an error, not a hitbox that never hits).
+
+    `grid` is set only by the bare-image path below -- `(cols, rows)` of the
+    uniform grid the assemblies were synthesised from, so a caller may address
+    them the way TileAtlas is addressed (by index, or by column and row)
+    rather than by name. A real package has no grid and is None."""
 
     tilesets: Dict[str, TilesetSpec]
     assemblies: Dict[str, AssemblySpec]
     animations: Dict[str, AnimationSpec]
     planes: frozenset
+    grid: Optional[Tuple[int, int]] = None
 
 
 def _rect(raw, where: str, signed: bool) -> Rect:
@@ -271,6 +283,103 @@ def _animation(
     if not frames:
         raise ValueError(f"{where}: no frames")
     return AnimationSpec(frames=tuple(frames))
+
+
+#: The synthetic tileset every grid sheet carries. Named rather than derived
+#: from the filename so `sprite.palettes[...]` reads the same whatever the
+#: image is called -- and a grid sheet has exactly one palette anyway.
+GRID_TILESET = "sheet"
+
+
+def grid_sprite_sheet_spec(
+    filename: str, w: int, h: int, ox: int = 0, oy: int = 0
+) -> SpriteSheetSpec:
+    """The bare-image path: one indexed image read as a uniform grid of
+    `w` x `h` cells becomes a package, with no package file involved.
+
+    This is `bps.layers.tile("island.png", 16, 16)`'s opposite number. There
+    is no authoring tool in the loop and nothing to name things, so the
+    synthesis is entirely mechanical: one tileset (`GRID_TILESET`), one
+    single-part assembly per cell anchored at its top-left, named by its
+    row-major index -- `"0"`, `"1"`, ... -- and no animations and no
+    collision planes. What you get is the silhouette plane and nothing else,
+    which is exactly the R-Type heritage case docs/SPRITES.md calls the
+    default.
+
+    Top-left because a bare grid cell is still a quad, and a quad goes down
+    from its top-left everywhere else in the machine. An authored package
+    picks a meaningful anchor instead -- Chun-Li's 3198 assemblies put (0, 0)
+    at her feet, centred -- and `ox`/`oy` is how a bare sheet says the same
+    thing: the format's own `offset` field, same meaning and same sign,
+    applied to every cell. `ox=-w // 2, oy=-h // 2` centres the cell on the
+    sprite's position, which is what a particle wants (the bullets package
+    authors exactly that, by hand, for 8x8 tiles: `[-4, -4]`).
+
+    The one place this inverts the format's law: a package's `palettes`
+    tables are authoritative and the PNG's embedded palette is only an
+    authoring preview, but here there is no package, so the embedded palette
+    IS the table. Indexed is required -- sprite tilesets are R8 index
+    textures read through a palette, and an RGB(A) image has no indices to
+    read; `bps.layers.tile()` is the path for those.
+    """
+    from .resource_manager import ResourceManager
+
+    path = abspath(filename)
+    image = ResourceManager().image(path)
+    if not image.indexed:
+        raise ValueError(
+            f"{path}: image is mode {image.mode!r} -- a sprite sheet is an "
+            "indexed (P) surface; use bps.layers.tile() for RGB(A) pictures"
+        )
+    w, h = int(w), int(h)
+    if w <= 0 or h <= 0:
+        raise ValueError(f"{path}: non-positive cell size ({w}, {h})")
+    width, height = image.size
+    if width % w or height % h:
+        raise ValueError(
+            f"{path}: image ({width}, {height}) is not a whole number of "
+            f"({w}, {h}) cells"
+        )
+    cols, rows = width // w, height // h
+    ox, oy = int(ox), int(oy)
+    # The embedded table, copied by SpriteSheet like every other palette --
+    # the ImageSpec's own stays pristine in the ResourceManager cache.
+    palette = image.palette if image.palette is not None else Palette()
+    tiles: Dict[str, Rect] = {}
+    assemblies: Dict[str, AssemblySpec] = {}
+    for index in range(cols * rows):
+        name = str(index)
+        col, row = index % cols, index // cols
+        tiles[name] = Rect(col * w, row * h, w, h)
+        assemblies[name] = AssemblySpec(
+            parts=(
+                SpritePart(
+                    tileset=GRID_TILESET,
+                    tile=name,
+                    # Anchor at the cell's top-left, shifted by ox/oy: the
+                    # same origin a tile blit uses, so a grid sprite lands
+                    # where a tile would until you say otherwise.
+                    offset=Location(ox, oy),
+                    order=0,
+                ),
+            ),
+            collision={},
+        )
+    return SpriteSheetSpec(
+        tilesets={
+            GRID_TILESET: TilesetSpec(
+                image=path,
+                transparent_index=0,
+                default_palette=0,
+                palettes=(palette,),
+                tiles=tiles,
+            )
+        },
+        assemblies=assemblies,
+        animations={},
+        planes=frozenset(),
+        grid=(cols, rows),
+    )
 
 
 def load_sprite_sheet_spec(filename: str) -> SpriteSheetSpec:

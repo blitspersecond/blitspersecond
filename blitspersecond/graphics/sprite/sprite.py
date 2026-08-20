@@ -54,7 +54,11 @@ class Sprite:
     """
 
     def __init__(
-        self, engine, assembly: Optional[str] = None, *, _z: int = 0
+        self,
+        engine,
+        assembly: Optional[Union[str, int, Tuple[int, int]]] = None,
+        *,
+        _z: int = 0,
     ) -> None:
         # Deliberately duck-typed (no isinstance): the engine import would be
         # circular, and the factory is the documented construction path.
@@ -83,12 +87,18 @@ class Sprite:
     @property
     def assembly(self) -> Optional[str]:
         """The name of the pose the sheet presents for this sprite. None
-        (never set) presents nothing -- as does a deliberate blank pose."""
+        (never set) presents nothing -- as does a deliberate blank pose.
+
+        Assign a name, or -- on a sheet built by `SpriteSheet.grid()` -- a
+        cell index or `(col, row)` pair, the way a TileAtlas is addressed.
+        Reads back as the name either way."""
         return self._assembly_name
 
     @assembly.setter
-    def assembly(self, name: str) -> None:
-        spec = self._engine.sheet.assemblies.get(name)
+    def assembly(self, key: Union[str, int, Tuple[int, int]]) -> None:
+        sheet = self._engine.sheet
+        name = sheet.assembly_name(key)
+        spec = sheet.assemblies.get(name)
         if spec is None:
             raise KeyError(f"unknown assembly {name!r}")
         self._assembly_name = name

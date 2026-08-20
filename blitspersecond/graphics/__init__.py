@@ -3,12 +3,17 @@
     from blitspersecond.graphics import PixelBuffer, TileAtlas
 
 Layers are minted by `bps.layers`, not from here -- `bps.layers.tile(...)`,
-`.sprite(sheet)`, `.glyph(charset)` each build one and put it in the draw
+`.sprite(...)`, `.glyph(charset)` each build one and put it in the draw
 order. There are three kinds: TileLayer (graphics.tile, retained tile
 placements over an atlas; also the whole-file path, one buffer as one giant
 tile), GlyphLayer (graphics.glyph, a glyph grid at a position) and SpriteLayer
-(graphics.sprite, rich named instances over a SpriteSheet -- one sheet per
+(graphics.sprite, named instances over a SpriteSheet -- one sheet per
 layer, `layer.sprite("stance-01")` for an instance).
+
+Tiles and sprites each take a project file OR a bare image: `tile(atlas)` next
+to `tile("island.png", 16, 16)`, and `sprite("chun-li.sprite.json")` next to
+`sprite("band.png", 12, 12)`. The bare paths address by grid position, the
+authored ones by name.
 
 What this package supplies is the material those layers draw FROM: PixelBuffer
 is the pixel-data primitive; Tile / TileAtlas / TileFlags address and orient

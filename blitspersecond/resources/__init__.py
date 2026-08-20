@@ -15,7 +15,9 @@ The specs are pure value objects, no GL, no device state: `ImageSpec` (size,
 mode P/RGB/RGBA, pixels; indexed transparency must sit at palette index 0),
 `SoundSpec` (decoded samples at native rate) and `SpriteSheetSpec` (a whole
 sprite package -- tilesets, assemblies, animations -- loaded from the
-interchange JSON with every format invariant checked; see sprite_sheet.py).
+interchange JSON with every format invariant checked; see sprite_sheet.py, and
+`grid_sprite_sheet_spec` there for the package-free path that reads a plain
+indexed image as a uniform grid).
 `TiledFile` is the corresponding GL-free reading of a BPS-compatible TMX:
 sheet descriptions plus structured NumPy planes of local tile indices and
 orientation, laid out as `PLANE_DTYPE`. Tiled is an external authoring tool,
@@ -38,7 +40,11 @@ from .resource_manager import ResourceManager
 from blitspersecond.colors import ConsolePalette, Palette
 from .image import ImageSpec, load_image_spec
 from .sound import SoundSpec
-from .sprite_sheet import SpriteSheetSpec, load_sprite_sheet_spec
+from .sprite_sheet import (
+    SpriteSheetSpec,
+    grid_sprite_sheet_spec,
+    load_sprite_sheet_spec,
+)
 from .tmx import (
     PLANE_DTYPE,
     TiledFile,
@@ -55,6 +61,7 @@ __all__ = [
     "load_image_spec",
     "SoundSpec",
     "SpriteSheetSpec",
+    "grid_sprite_sheet_spec",
     "load_sprite_sheet_spec",
     "TiledTileset",
     "PLANE_DTYPE",

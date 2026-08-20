@@ -5,7 +5,8 @@ one should be suitable for support by the eventual manual, rather than merely
 being a large program that happens to exercise the engine.
 
 - `console.py` — the smallest complete console-input program
-- `gamepad.py` — move a cursor through the direct gamepad surface
+- `gamepad.py` — move a sprite through the direct gamepad surface, off a
+  bare image read as a sprite grid
 - `tmx.py` — load a compatible TMX map and stamp its island onto a
   tile layer
 

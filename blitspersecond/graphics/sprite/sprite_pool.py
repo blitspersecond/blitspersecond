@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from typing import Iterable, Iterator, Optional, Tuple
+from typing import Iterable, Iterator, Optional, Tuple, Union
 
 import numpy as np
 
@@ -15,10 +15,17 @@ class SpritePool:
     engine dirty once on exit.
     """
 
-    def __init__(self, engine, z: int, assemblies: Iterable[str]) -> None:
+    def __init__(
+        self,
+        engine,
+        z: int,
+        assemblies: Iterable[Union[str, int, Tuple[int, int]]],
+    ) -> None:
         self._engine = engine
         self.z = int(z)
-        names = tuple(assemblies)
+        # Grid addresses resolve here, so a pool over a grid sheet reads
+        # `pool(range(4))` the way a single instance reads `sprite(0)`.
+        names = tuple(engine.sheet.assembly_name(key) for key in assemblies)
         if not names:
             raise ValueError("a sprite pool needs at least one instance")
 
@@ -155,12 +162,14 @@ class SpritePlane:
         self._engine = engine
         self.order = int(order)
 
-    def sprite(self, assembly: Optional[str] = None):
+    def sprite(self, assembly: Optional[Union[str, int, Tuple[int, int]]] = None):
         from .sprite import Sprite
 
         return Sprite(self._engine, assembly, _z=self.order)
 
-    def pool(self, assemblies: Iterable[str]) -> SpritePool:
+    def pool(
+        self, assemblies: Iterable[Union[str, int, Tuple[int, int]]]
+    ) -> SpritePool:
         pool = SpritePool(self._engine, self.order, assemblies)
         self._engine._adopt_pool(pool)
         return pool

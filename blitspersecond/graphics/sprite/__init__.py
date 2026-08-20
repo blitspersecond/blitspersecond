@@ -6,7 +6,16 @@ indexed PixelBuffers, with the package's authoritative palette tables as
 sheet-owned mutable copies), assemblies (timeless poses: ordered parts +
 named collision planes in one anchor-local frame) and animation data
 (carried, not played). Load one with SpriteSheet.load(path).
-`bps.layers.sprite(sheet)` creates and attaches one SpriteLayer; that layer
+
+There are two roads in, exactly as there are for tiles. A package file is the
+rich one; `SpriteSheet.grid(path, w, h)` is the bare-image one -- an indexed
+PNG read as a uniform grid, one single-part assembly per cell anchored at its
+top-left, addressed by index or `(col, row)` the way a TileAtlas is, with no
+animations and no named planes. A package is to a sprite sheet what a TMX is
+to a tileset: how you get the structure, not how you get pixels on screen.
+
+`bps.layers.sprite(...)` creates and attaches one SpriteLayer -- from a
+package path, an image path plus w/h, or a sheet you built; that layer
 binds one sheet, is the collision identity and depth position, and draws its
 instances as
 material-coalesced runs -- the cost driver is material transitions, never

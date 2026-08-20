@@ -308,3 +308,119 @@ def test_sheet_rejects_non_spec():
 
     with pytest.raises(TypeError):
         SpriteSheet({"tilesets": {}})
+
+
+# -- the bare-image path (no package file at all) -----------------------------
+
+
+BAND = (
+    Path(__file__).resolve().parents[1]
+    / "blitspersecond/assets/gorillaz/band.png"
+)
+
+
+@pytest.fixture(scope="module")
+def band():
+    from blitspersecond.resources import grid_sprite_sheet_spec
+
+    return grid_sprite_sheet_spec(str(BAND), 12, 12)
+
+
+def test_grid_synthesises_one_tileset(band):
+    from blitspersecond.resources.sprite_sheet import GRID_TILESET
+
+    assert list(band.tilesets) == [GRID_TILESET]
+    tileset = band.tilesets[GRID_TILESET]
+    assert tileset.transparent_index == 0
+    assert tileset.default_palette == 0
+    # The embedded table IS the table here -- there is no package to override
+    # it, which is the one place the bare path inverts the format's law.
+    assert len(tileset.palettes) == 1
+
+
+def test_grid_names_cells_row_major(band):
+    from blitspersecond.resources.sprite_sheet import GRID_TILESET
+
+    assert band.grid == (2, 2)
+    assert list(band.assemblies) == ["0", "1", "2", "3"]
+    tiles = band.tilesets[GRID_TILESET].tiles
+    assert tuple(tiles["0"]) == (0, 0, 12, 12)
+    assert tuple(tiles["1"]) == (12, 0, 12, 12)
+    assert tuple(tiles["2"]) == (0, 12, 12, 12)
+    assert tuple(tiles["3"]) == (12, 12, 12, 12)
+
+
+def test_grid_assemblies_are_one_part_at_the_origin(band):
+    part, = band.assemblies["2"].parts
+    assert part.tile == "2"
+    assert part.offset == Location(0, 0)
+    assert part.order == 0
+    # No authored planes: the silhouette is all a grid sheet has.
+    assert band.assemblies["2"].collision == {}
+    assert band.planes == frozenset()
+    assert band.animations == {}
+
+
+def test_grid_rejects_a_non_indexed_image(tmp_path):
+    from blitspersecond.resources import grid_sprite_sheet_spec
+
+    path = tmp_path / "rgba.png"
+    Image.new("RGBA", (16, 16)).save(path)
+    with pytest.raises(ValueError, match="indexed"):
+        grid_sprite_sheet_spec(str(path), 8, 8)
+
+
+def test_grid_rejects_a_partial_cell(tmp_path):
+    from blitspersecond.resources import grid_sprite_sheet_spec
+
+    path = tmp_path / "odd.png"
+    _write_sheet_png(path)  # 16x16
+    with pytest.raises(ValueError, match="whole number"):
+        grid_sprite_sheet_spec(str(path), 5, 8)
+
+
+def test_grid_rejects_a_non_positive_cell(tmp_path):
+    from blitspersecond.resources import grid_sprite_sheet_spec
+
+    path = tmp_path / "zero.png"
+    _write_sheet_png(path)
+    with pytest.raises(ValueError, match="non-positive"):
+        grid_sprite_sheet_spec(str(path), 0, 8)
+
+
+def test_grid_sheet_addresses_by_index_and_cell():
+    from blitspersecond.graphics import SpriteSheet
+
+    sheet = SpriteSheet.grid(str(BAND), 12, 12)
+    assert sheet.grid_size == (2, 2)
+    assert sheet.assembly_name(2) == "2"
+    assert sheet.assembly_name((1, 1)) == "3"
+    assert sheet.assembly_name("0") == "0"
+    with pytest.raises(IndexError):
+        sheet.assembly_name(4)
+    with pytest.raises(IndexError):
+        sheet.assembly_name((2, 0))
+
+
+def test_package_sheet_refuses_index_addressing():
+    from blitspersecond.graphics import SpriteSheet
+
+    sheet = SpriteSheet.load(str(TEST_SHEET))
+    assert sheet.grid_size is None
+    with pytest.raises(TypeError, match="authored names"):
+        sheet.assembly_name(0)
+
+
+def test_grid_offset_moves_every_anchor():
+    from blitspersecond.resources import grid_sprite_sheet_spec
+
+    # The bullets package authors [-4, -4] by hand for 8x8 tiles; ox/oy is
+    # the same statement, with the same sign, for a bare sheet.
+    spec = grid_sprite_sheet_spec(str(BAND), 12, 12, -6, -6)
+    for assembly in spec.assemblies.values():
+        part, = assembly.parts
+        assert part.offset == Location(-6, -6)
+    # Source rects are unmoved -- the offset places the quad, not the crop.
+    from blitspersecond.resources.sprite_sheet import GRID_TILESET
+
+    assert tuple(spec.tilesets[GRID_TILESET].tiles["3"]) == (12, 12, 12, 12)

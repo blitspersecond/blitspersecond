@@ -160,11 +160,15 @@ class SpriteLayer(Layer):
 
     # -- instances ---------------------------------------------------------
 
-    def sprite(self, assembly: Optional[str] = None) -> Sprite:
+    def sprite(
+        self, assembly: Optional[Union[str, int, Tuple[int, int]]] = None
+    ) -> Sprite:
         """Construct an instance against this engine (the mainline):
-        `chun = engine.sprite("stance-01")`. Draw order within the layer is
-        insertion order; a tail's segments or a trail's ghosts are simply
-        more instances."""
+        `chun = layer.sprite("stance-01")`. On a sheet built by
+        `SpriteSheet.grid()` the pose is addressed by cell index or
+        `(col, row)` instead -- `two_d = band.sprite(0)`. Draw order within
+        the layer is insertion order; a tail's segments or a trail's ghosts
+        are simply more instances."""
         return Sprite(self, assembly)
 
     def _touch(self) -> None:

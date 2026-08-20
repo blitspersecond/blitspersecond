@@ -158,3 +158,37 @@ def test_remove_unbinds_and_re_add_returns_to_the_front(layers, atlas):
 
     layers.add(first)
     assert list(layers) == [second, first]
+
+
+def test_sprite_mints_from_a_bare_image(layers):
+    band = (
+        Path(__file__).resolve().parents[1]
+        / "blitspersecond/assets/gorillaz/band.png"
+    )
+    layer = layers.sprite(str(band), 12, 12)
+
+    assert isinstance(layer, SpriteLayer)
+    assert layer.layers is layers
+    # The grid reading arrived with it: four cells, addressed by index.
+    assert layer.sheet.grid_size == (2, 2)
+    assert layer.sprite(3).assembly == "3"
+
+
+def test_sprite_refuses_half_a_grid(layers):
+    band = (
+        Path(__file__).resolve().parents[1]
+        / "blitspersecond/assets/gorillaz/band.png"
+    )
+    with pytest.raises(TypeError, match="both w and h"):
+        layers.sprite(str(band), 12)
+
+
+def test_sprite_refuses_a_grid_over_a_built_sheet(layers, tmp_path):
+    with pytest.raises(TypeError, match="already carries"):
+        layers.sprite(build_known_sheet(tmp_path), 8, 8)
+
+
+def test_sprite_refuses_an_offset_without_a_grid(layers):
+    package = Path(__file__).resolve().parent / "assets/test.sprite.json"
+    with pytest.raises(TypeError, match="only with w/h"):
+        layers.sprite(str(package), ox=-4, oy=-4)
