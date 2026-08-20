@@ -137,7 +137,7 @@
         ]
       ],
       "tiles": {
-        "neutral": {
+        "frame-0": {
           "source": [
             0,
             0,
@@ -397,11 +397,11 @@
     }
   },
   "assemblies": {
-    "neutral": {
+    "frame-0": {
       "parts": [
         {
           "tileset": "character",
-          "tile": "neutral",
+          "tile": "frame-0",
           "offset": [
             0,
             0
