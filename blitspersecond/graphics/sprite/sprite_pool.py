@@ -3,6 +3,7 @@ from typing import Iterable, Iterator, Optional, Tuple, Union
 
 import numpy as np
 
+from blitspersecond.common import Location
 from blitspersecond.graphics.common.orientation import FLIP_OF, ROTATION_OF
 
 
@@ -85,13 +86,23 @@ class SpritePool:
         # frame path only gathers them and broadcasts the current positions.
         self._rects = np.empty((len(unique_names), 8, 4), dtype=np.int32)
         self._uvs = None
+        self._origin = Location(0, 0)
+        self._build_rects()
+
+    def _build_rects(self) -> None:
+        """The eight oriented local rects per distinct assembly. Rebuilt when
+        the origin moves, which is per unique assembly rather than per slot --
+        a 25,000-bullet pool of two kinds rebuilds sixteen rows."""
         for index, (part, rect) in enumerate(self._parts):
             for orientation in range(8):
-                self._rects[index, orientation] = engine._local_rect_origin(
-                    bool(FLIP_OF[orientation]),
-                    int(ROTATION_OF[orientation]),
-                    part,
-                    rect,
+                self._rects[index, orientation] = (
+                    self._engine._local_rect_origin(
+                        bool(FLIP_OF[orientation]),
+                        int(ROTATION_OF[orientation]),
+                        part,
+                        rect,
+                        self._origin,
+                    )
                 )
 
     def _ensure_templates(self) -> None:
@@ -133,6 +144,52 @@ class SpritePool:
     def collide(self) -> np.ndarray:
         """Writable bool ``(n,)`` collision participation flags."""
         return self._collide
+
+    @property
+    def origin(self) -> Location:
+        """The draw point and the pivot, for every slot -- a Sprite's
+        `origin`, pool-wide.
+
+        Pool-wide rather than per slot because nothing varies it per
+        particle, and because the cached rects it feeds are per distinct
+        assembly, not per instance: moving it rebuilds a handful of rows
+        rather than an array as long as the swarm.
+
+        Bullets want their centre. A danmaku bullet's position IS its centre
+        -- the hitbox is a small disc there, an oriented bullet turns about
+        it, and a ring or spiral spawn is polar maths measured from it. An
+        asset can bake that in (the bullets fixture carries `[-4, -4]` on 8x8
+        tiles), but this lets the game say it about art that did not.
+        """
+        return self._origin
+
+    @origin.setter
+    def origin(self, value) -> None:
+        origin = Location(int(value[0]), int(value[1]))
+        if origin != self._origin:
+            self._origin = origin
+            self._build_rects()
+            self._engine._touch()
+
+    @property
+    def centre(self) -> Location:
+        """The middle of the pooled art -- the value to hand `origin`.
+
+        Every slot shares one origin, so this only means something when the
+        pooled assemblies share an extent; mixed sizes raise rather than pick
+        a winner."""
+        extents = {(rect.width, rect.height) for _part, rect in self._parts}
+        if len(extents) != 1:
+            raise ValueError(
+                f"pooled assemblies have {len(extents)} different sizes "
+                f"({sorted(extents)}) -- there is no single centre; set "
+                "origin explicitly"
+            )
+        (width, height), = extents
+        part = self._parts[0][0]
+        return Location(
+            part.offset.x + width // 2, part.offset.y + height // 2
+        )
 
     @property
     def orientation(self) -> np.ndarray:

@@ -324,10 +324,13 @@ class SpriteLayer(Layer):
         return uv
 
     @staticmethod
-    def _local_rect_origin(flip, rotation, part, rect):
+    def _local_rect_origin(flip, rotation, part, rect, origin=(0, 0)):
+        """One pooled variant's local rect, about `origin` -- the same
+        `position + offset - origin` a lone Sprite draws by."""
         return _local_rect(
             0, 0, flip, rotation,
-            part.offset.x, part.offset.y, rect.width, rect.height,
+            part.offset.x - origin[0], part.offset.y - origin[1],
+            rect.width, rect.height,
         )
 
     # -- the frame plan ----------------------------------------------------
