@@ -12,10 +12,32 @@ class SpritePool:
 
     The pool is the data-oriented path inside one sprite layer: instance
     transforms live in contiguous arrays and every member shares one material.
-    Assembly choice is fixed per slot, but position, visibility, facing and
-    quarter-turn rotation remain live. NumPy callers update thousands of
-    instances inside one ``with pool.edit():`` block, which marks the owning
-    engine dirty once on exit.
+    NumPy callers update thousands of instances inside one
+    ``with pool.edit():`` block, which marks the owning engine dirty once on
+    exit.
+
+    WHAT IS PER SLOT, AND WHY THAT LIST IS SHORT. These are instanced draws:
+    one thing submitted N times with a per-instance transform. Uniformity is
+    the design rather than a saving, so the split is not a judgement call
+    about what anyone might want to vary --
+
+        per slot     positions, orientation      the transform
+                     visible, collide            liveness and intent
+                     assembly_ids                which cached row, fixed
+                                                 at construction
+
+        pool-wide    buffer, palette             the material
+                     color                       the colour registers
+                     origin                      the draw point and pivot
+
+    -- it is the line between a transform and everything else. Anything on
+    the right becoming an array would be N copies of one value, and would say
+    the members are not really one instanced thing after all. If members
+    genuinely need their own material or their own pivot, they are two pools.
+
+    Assembly choice is per slot but immutable: the members may be different
+    cells of one sheet (blue and pink bullets) because that is a UV variation
+    within one material, which instancing serves fine.
     """
 
     def __init__(
