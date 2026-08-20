@@ -1,4 +1,4 @@
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Set, Tuple
 
 import numpy as np
 from pyglet.gl import (
@@ -120,6 +120,10 @@ class SpriteLayer(Layer):
         # composition is this engine's interior business).
         self._primary = next(iter(sheet.tilesets.values()))
         self._sprites: List[Sprite] = []
+        # Just the sprites with a clip to advance, so the per-tick walk costs
+        # what is actually animating rather than what exists (a bullet swarm
+        # animates nothing; pools have a fixed assembly per slot).
+        self._animating: Set[Sprite] = set()
         self._planes: Dict[int, List[Union[Sprite, SpritePool]]] = {}
         self._sprite_z: Dict[Sprite, int] = {}
         self._plane_faces: Dict[int, SpritePlane] = {}
@@ -203,10 +207,21 @@ class SpriteLayer(Layer):
         self._planes.setdefault(pool.z, []).append(pool)
         self._touch()
 
+    def _advance(self) -> None:
+        """One game tick of playback for every sprite on this layer that is
+        playing a clip. The engine loop calls this once per fixed tick, after
+        the game's own tick callback -- so a `play()` issued this tick starts
+        on this tick's frame, matching the order game code wrote by hand
+        before clips were bound (decide, then advance, then draw)."""
+        if self._animating:
+            for sprite in tuple(self._animating):
+                sprite._advance()
+
     def remove(self, sprite: Sprite) -> None:
         """Withdraw an instance. Not a frame-path operation -- effect
         lifetimes that toggle per tick should use .visible instead."""
         self._sprites.remove(sprite)
+        self._animating.discard(sprite)
         z = self._sprite_z.pop(sprite)
         self._planes[z].remove(sprite)
         if not self._planes[z]:

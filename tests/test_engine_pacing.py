@@ -12,6 +12,7 @@ import pytest
 
 from blitspersecond import BlitsPerSecond
 from blitspersecond import loop as loop_module
+from blitspersecond.display import Layers
 from blitspersecond.display.internal import PresentationSession
 from blitspersecond.display.internal.presentation import (
     session as presentation_module,
@@ -46,6 +47,11 @@ class FakeDisplay:
         window_rates: Iterable[float | None] = (),
     ) -> None:
         self.clock = clock
+        # A real Display owns the draw order, and the loop advances any clips
+        # on it once per game tick. These tests care about cadence, not
+        # content, so an empty collection is the whole of the modelling --
+        # but it has to BE there, or the tick never completes.
+        self.layers = Layers()
         self.refresh_rate = refresh_rate
         self.outputs = (
             (refresh_rate,) if outputs is None else outputs

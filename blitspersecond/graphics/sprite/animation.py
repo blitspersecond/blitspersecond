@@ -8,20 +8,23 @@ class Animation:
     data -- an internal frame counter, integer tick holds, loop never or
     forever. Nothing else.
 
-        anim = Animation(sheet, "stance")            # loops by default
-        ...
-        anim.update()                                # once per game tick
-        sprite.assembly = anim.assembly
+    Normally you never build one. `sprite.play("run")` makes and owns it, and
+    the engine loop advances it once per game tick; `sprite.animation` hands
+    it back for `.done`, `.frame` and `.name`. Constructing one directly is
+    the unbound path -- a sequencer with no sprite attached, which nothing
+    advances for you:
 
-    The whole per-tick contract is those two lines, and the split is
-    deliberate: the Animation owns WHICH frame is current, the game owns
-    what to do with it (and owns not calling update() at all -- hitstop is
-    exactly that, no API needed). A cancel is `anim.play("hp")` -- abandon
-    this sequence, start that one; a one-shot reports `done` and holds its
-    last frame until told otherwise. Branching, transitions, predicates,
-    root motion, effect spawning: game code, above this line, per
-    docs/SPRITES.md. Time is integer ticks from the fixed-step loop --
-    never wall-clock.
+        anim = Animation(sheet, "stance")            # loops by default
+        anim.update()                                # your tick, your call
+
+    The split is the same either way: the Animation owns WHICH frame is
+    current, the game owns what to do with it. A cancel is `play("hp")` --
+    abandon this sequence, start that one -- and that one primitive is also
+    the interruption and the reissue, since setting a frame restarts its
+    hold. A one-shot reports `done` and holds its last frame until told
+    otherwise. Branching, transitions, predicates, root motion, effect
+    spawning: game code, above this line, per docs/SPRITES.md. Time is
+    integer ticks from the fixed-step loop -- never wall-clock.
     """
 
     def __init__(

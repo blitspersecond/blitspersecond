@@ -44,11 +44,17 @@ queries test. Deliberately a debug tool, not a frame-path requirement.
 
 Animation closes the loop: the tick sequencer over the sheet's carried
 clip data -- internal frame counter, integer holds, loop never/forever,
-settable frame, `done` for one-shots. `anim.update(); sprite.assembly =
-anim.assembly` is the whole per-tick contract; play(name) is the cancel
-primitive; hitstop is not calling update(). Everything smarter -- state
-machines, branching, predicates -- is game code, per docs/SPRITES.md. The
-layer itself still never reads animation data.
+settable frame, `done` for one-shots. It is bound to the sprite, so
+`sprite.play("run")` is the whole of it: the clip advances on the game tick
+with nothing to call and no pose to copy across, and `sprite.animation`
+exposes the sequencer when a state machine wants `.done`. play() is the
+cancel, the interruption and the reissue -- hitstop is reissuing the frame
+you are on, because setting a frame restarts its hold. Writing
+`sprite.assembly` by hand takes the sprite off its clip; `stop()` does the
+same deliberately. Everything smarter -- state machines, branching,
+predicates -- is game code, per docs/SPRITES.md. The layer itself still
+never reads animation data: drawing sees the resolved assembly and nothing
+else.
 
 The interchange format and its loader live in resources.sprite_sheet
 (resources load, graphics draw); the public faces re-export from

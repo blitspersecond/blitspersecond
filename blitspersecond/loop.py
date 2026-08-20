@@ -33,7 +33,8 @@ class Loop:
 
         1. Pump the window event queue.
         2. Apply lifecycle transitions.
-        3. Snapshot input and run each fixed game tick due.
+        3. Snapshot input, run each fixed game tick due, and advance the
+           clips any sprites are playing.
         4. Dispatch the resulting frame to display.
         5. Service pyglet's scheduled callbacks.
 
@@ -116,6 +117,12 @@ class Loop:
                             self._pads.update()
                             if tick is not None:
                                 tick(self)
+                            # Clips advance after the game has had its say,
+                            # so a play() issued this tick starts on this
+                            # tick's frame -- and a catch-up batch advances
+                            # animation once per tick it is making up, not
+                            # once per rendered frame.
+                            self._display.layers._advance()
 
                     presentation.after_simulation()
 

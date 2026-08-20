@@ -175,6 +175,19 @@ class Layers:
             layer.tag = tag
         return self.add(layer)
 
+    def _advance(self) -> None:
+        """One game tick of playback across every layer that has any.
+
+        The engine loop calls this once per fixed tick, after the game's tick
+        callback. Only sprite layers do anything -- tiles and glyphs have no
+        clips -- and a sprite layer with nothing playing costs an empty set
+        test, so a scene that animates nothing pays nothing.
+        """
+        for layer in self._layers:
+            advance = getattr(layer, "_advance", None)
+            if advance is not None:
+                advance()
+
     def remove(self, layer: Layer) -> bool:
         """Take a layer out of the draw order. Returns False if it wasn't in it."""
         if not isinstance(layer, Layer) or layer not in self._layers:

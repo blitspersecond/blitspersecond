@@ -3,6 +3,8 @@ from typing import Optional, Tuple, Union
 from blitspersecond.common import Location
 from blitspersecond.resources.sprite_sheet import AssemblySpec
 
+from .animation import Animation
+
 
 class PaletteRegisters(dict):
     """A sprite's per-tileset palette selection: tileset name -> table index.
@@ -36,12 +38,26 @@ class Sprite:
     """One instance: all per-presentation state, constructed against the
     engine (`engine.sprite("stance-01")` is the mainline).
 
-    A sprite is timeless. It owns no clock, frame counter, loop, move state,
-    velocity, or effect lifetime -- game code (or an Animation instance,
-    later) selects what it presents and where:
+    A sprite owns no move state, velocity, or effect lifetime -- game code
+    selects what it presents and where:
+
+        sprite.play("jump")
+        sprite.present_at(*fighter.position, flip_x=fighter.facing_left)
+
+    or, driving the pose directly, with no clip involved:
 
         sprite.assembly = "jump-02"
-        sprite.present_at(*fighter.position, flip_x=fighter.facing_left)
+
+    It does own a clip once `play()` gives it one, and that clip advances on
+    the game tick without the caller doing anything per-tick. That is the
+    whole of its relationship with time: it holds no wall clock, and a tick
+    is a fixed 1/fps step from the engine loop. The layer still never reads
+    the sheet's animation data -- drawing sees `_assembly` and nothing else.
+
+    The game keeps initiation, which is where the decisions are: `play()`
+    again is the cancel, the interruption and the reissue. Branching,
+    transitions, hitstop, root motion and effect spawning are game code
+    above this line, per docs/SPRITES.md.
 
     What lives here, and why here (docs/SPRITES.md pins each): `assembly`
     (which pose the sheet presents), `position` (pixel-space, caller
@@ -66,6 +82,7 @@ class Sprite:
         self._assembly_name: Optional[str] = None
         self._assembly: Optional[AssemblySpec] = None
         self._xy = [0.0, 0.0]
+        self._animation: Optional[Animation] = None
         self._flip_x = False
         self._rotation = 0
         self._visible = True
@@ -91,11 +108,21 @@ class Sprite:
 
         Assign a name, or -- on a sheet built by `SpriteSheet.grid()` -- a
         cell index or `(col, row)` pair, the way a TileAtlas is addressed.
-        Reads back as the name either way."""
+        Reads back as the name either way.
+
+        Assigning by hand takes the sprite off any clip it was playing: two
+        things writing one pose every tick is a fight, and the explicit write
+        is the one that means it."""
         return self._assembly_name
 
     @assembly.setter
     def assembly(self, key: Union[str, int, Tuple[int, int]]) -> None:
+        self.stop()
+        self._set_assembly(key)
+
+    def _set_assembly(self, key: Union[str, int, Tuple[int, int]]) -> None:
+        """Write the pose without disturbing playback -- the path the tick's
+        advance uses, so advancing a clip does not cancel it."""
         sheet = self._engine.sheet
         name = sheet.assembly_name(key)
         spec = sheet.assemblies.get(name)
@@ -104,6 +131,65 @@ class Sprite:
         self._assembly_name = name
         self._assembly = spec
         self._engine._touch()
+
+    # -- playback ----------------------------------------------------------
+
+    def play(
+        self,
+        name: str,
+        loop: bool = True,
+        frame: int = 0,
+    ) -> "Animation":
+        """Play a clip from the sheet. The game's ONE animation verb.
+
+            kid.play("run")                 # loops
+            kid.play("attack", loop=False)  # one-shot, holds its last frame
+
+        The clip advances itself once per game tick from here on -- there is
+        no per-tick call to make and no pose to copy across. What the game
+        keeps is initiation: `play()` again is the cancel, the interruption
+        and the reissue, all one primitive. A mid-clip cancel is
+        `play(other)`; resuming somewhere specific is `play(name,
+        frame=n)`; pinning a frame (hitstop) is reissuing the frame you are
+        on, since setting a frame restarts its hold.
+
+        Returns the Animation, so `.done`, `.frame` and `.name` are there
+        when a state machine wants them -- state machines stay game code.
+        """
+        animation = self._animation
+        if animation is None:
+            self._animation = animation = Animation(
+                self._engine.sheet, name, frame, loop
+            )
+        else:
+            animation.play(name, frame, loop)
+        self._engine._animating.add(self)
+        self._set_assembly(animation.assembly)
+        return animation
+
+    def stop(self) -> None:
+        """Stop advancing, holding the current pose. Not a pause -- the clip
+        is dropped; `play()` is how anything starts again."""
+        self._animation = None
+        self._engine._animating.discard(self)
+
+    @property
+    def animation(self) -> Optional["Animation"]:
+        """The clip this sprite is playing, or None. Read `.done` off it for
+        one-shots; a state machine reacting to that is game code."""
+        return self._animation
+
+    def _advance(self) -> None:
+        """One tick of playback: advance the clip, then present its frame.
+        Called by the layer, which the engine loop calls once per game tick
+        after the game's own tick has had its say -- so a `play()` issued
+        this tick starts on this tick's frame."""
+        animation = self._animation
+        if animation is None:
+            return
+        animation.update()
+        if animation.assembly != self._assembly_name:
+            self._set_assembly(animation.assembly)
 
     # -- position (pixel-space; floats held, floored at draw) --------------
 
