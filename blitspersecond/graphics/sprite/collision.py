@@ -272,7 +272,9 @@ class SpriteCollision:
     def _stamp_pool(self, pool, masks) -> None:
         from .sprite_layer import _local_rect
 
-        active = np.flatnonzero(pool._visible & pool._collide)
+        # Only `collide` -- an invisible slot still occupies space. See the
+        # two-bit note on Sprite.visible.
+        active = np.flatnonzero(pool._collide)
         if not len(active):
             return
         assembly_ids = pool._assembly_ids[active]
@@ -322,11 +324,7 @@ class SpriteCollision:
         for entry in self._engine._entries():
             if isinstance(entry, SpritePool):
                 self._stamp_pool(entry, masks)
-            elif (
-                entry._visible
-                and entry._collide
-                and entry._assembly is not None
-            ):
+            elif entry._collide and entry._assembly is not None:
                 self._stamp_pose(
                     entry._assembly,
                     int(entry._xy[0]),

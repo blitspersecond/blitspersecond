@@ -31,6 +31,11 @@ class Layer:
 
     @property
     def enabled(self) -> bool:
+        """Whether the compositor draws this layer. Drawing only: a disabled
+        layer keeps its contents and keeps answering `collides_with`, in the
+        same way a sprite's `visible` is separate from its `collide`. Turning
+        a layer off is a view decision, not a world one -- to take its
+        contents out of play, clear their collide bits."""
         return self._enabled
 
     @enabled.setter

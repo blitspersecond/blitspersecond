@@ -159,12 +159,15 @@ class SpritePool:
 
     @property
     def visible(self) -> np.ndarray:
-        """Writable bool ``(n,)`` display flags."""
+        """Writable bool ``(n,)``: is this slot's quad sent. Independent of
+        `collide`, exactly as on a lone Sprite -- clearing this bit hides a
+        bullet without letting it through anything."""
         return self._visible
 
     @property
     def collide(self) -> np.ndarray:
-        """Writable bool ``(n,)`` collision participation flags."""
+        """Writable bool ``(n,)``: does this slot stamp the layer's planes.
+        The free slots of a recycled pool are usually cleared in both."""
         return self._collide
 
     @property

@@ -105,8 +105,15 @@ def test_pool_instances_collapse_into_one_layer_mask(pair):
         pool.visible[:] = True
 
     assert bullets.collides_with(player).at() is True
+
+    # The pool's two bits are independent exactly as a Sprite's are: hiding
+    # the one overlapping bullet does not retire it...
     with pool.edit():
         pool.visible[17] = False
+    assert bullets.collides_with(player).at() is True
+    # ...clearing its collide bit does.
+    with pool.edit():
+        pool.collide[17] = False
     assert bullets.collides_with(player).at() is False
 
 
@@ -208,18 +215,37 @@ def test_selector_validation(pair):
         a.collides_with(b, mine="hit", theirs=("hurt", "nope"))
 
 
-def test_collide_and_visibility_intent(pair):
+def test_visible_and_collide_are_independent_bits(pair):
+    # Being seen and being there are separate questions, so all four
+    # combinations are reachable -- notably the two mixed ones, the ghost
+    # (drawn, hits nothing) and the cloak (hits, not drawn).
     a, b = pair
     a.sprite("solid").position = (0, 0)
     dot = b.sprite("dot")
     dot.position = (7, 7)
-    dot.collide = False  # the afterimage flag: display-only
-    assert a.collides_with(b).at() is False
-    dot.collide = True
-    dot.visible = False  # hidden = not present
-    assert a.collides_with(b).at() is False
-    dot.visible = True
-    assert a.collides_with(b).at() is True
+    for visible, collide, hits in (
+        (True, True, True),  # ordinary
+        (True, False, False),  # ghost: an afterimage passes through
+        (False, True, True),  # cloak: an invisible wall still stops you
+        (False, False, False),  # parked
+    ):
+        dot.visible = visible
+        dot.collide = collide
+        assert a.collides_with(b).at() is hits, (visible, collide)
+
+
+def test_visibility_does_not_dirty_the_collision_masks(pair):
+    # The bits being independent has to be true of the invalidation too:
+    # a blinking sprite must not restamp planes it cannot have changed.
+    a, _ = pair
+    solid = a.sprite("solid")
+    a.collision_mask  # settle any pending rebuild
+    assert a._collision_dirty is False
+    solid.visible = False
+    assert a._dirty is True
+    assert a._collision_dirty is False
+    solid.collide = False
+    assert a._collision_dirty is True
 
 
 def test_blank_assembly_contributes_nothing(pair):

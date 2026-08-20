@@ -219,7 +219,9 @@ class SpriteLayer(Layer):
 
     def remove(self, sprite: Sprite) -> None:
         """Withdraw an instance. Not a frame-path operation -- effect
-        lifetimes that toggle per tick should use .visible instead."""
+        lifetimes that toggle per tick should park the sprite instead, by
+        clearing `visible` AND `collide`. Clearing `visible` alone leaves it
+        cloaked, not gone, and a cloaked corpse still hits."""
         self._sprites.remove(sprite)
         self._animating.discard(sprite)
         z = self._sprite_z.pop(sprite)

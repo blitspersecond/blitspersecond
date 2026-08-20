@@ -32,9 +32,11 @@ Collision is in: every sprite layer answers `collides_with` with a DEFAULT
 plane -- the occupied-pixel silhouette -- and assemblies may add named rect
 planes selected per question
 (`p1.collides_with(p2, mine="attack", theirs="body_hurt").at()`), the
-names validated against the sheet's load-time vocabulary. Visible collidable
+names validated against the sheet's load-time vocabulary. Collidable
 presentations stamp once into retained packed screen-space masks whenever
-their state changes; every query thereafter is a cheap word AND. Cross-engine
+their state changes -- collidable, not visible: `visible` and `collide` are
+independent bits, so a ghost is drawn and hits nothing while a cloak hits
+and is not drawn. Every query thereafter is a cheap word AND. Cross-engine
 comes free -- a sprite layer against a tile/text mask layer is the same
 protocol.
 

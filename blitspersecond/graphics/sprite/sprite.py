@@ -71,8 +71,9 @@ class Sprite:
     together), `palettes` (per-tileset registers; the mirror match
     proves they can't live on the shared engine), colour/alpha registers
     (the layer colour registers, per-quad here -- ghost trails dim through
-    these), `visible` (the display intent every engine has) and `collide`
-    (participate in the layer's retained planes, or be display-only).
+    these), `visible` (is the quad sent) and `collide` (does it stamp the
+    layer's retained planes) -- two independent bits, so a ghost and a
+    cloak are both expressible.
     """
 
     def __init__(
@@ -358,18 +359,40 @@ class Sprite:
 
     @property
     def visible(self) -> bool:
+        """Whether the quad is sent. Nothing else: the sprite is still in the
+        layer, still holds its pose, still advances its clip, still stamps
+        its collision planes -- it just isn't drawn this frame.
+
+        `visible` and `collide` are two independent bits over one presence,
+        because being seen and being there are different questions and games
+        need all four answers:
+
+            visible  collide
+              True     True    the ordinary case
+              True     False   a ghost -- an afterimage or a trail segment,
+                               drawn but not there
+              False    True    CLOAKED -- there but not drawn: an invisible
+                               wall, a mine, a Predator
+              False    False   parked -- kept, cheap, out of both passes
+
+        Toggling this dirties staging alone, never the collision masks, so
+        a blink is a per-tick write with no restamp behind it. Removing the
+        sprite from the layer is the way to make it stop existing;
+        `visible=False` is the way to make it stop showing."""
         return self._visible
 
     @visible.setter
     def visible(self, value: bool) -> None:
         self._visible = bool(value)
-        self._engine._touch()
+        self._engine._dirty = True
 
     @property
     def collide(self) -> bool:
-        """Participate in the layer's collision planes, or be display-only
-        (afterimage ghosts ride their owner's layer with collide=False).
-        Stored per-presentation state; consumed when sprite collision lands."""
+        """Whether this presentation stamps into the layer's retained
+        collision planes. Independent of `visible` -- see the two-bit note
+        there -- so a cloaked sprite still hits and a ghost still doesn't.
+
+        Toggling this dirties the masks alone, never staging."""
         return self._collide
 
     @collide.setter
