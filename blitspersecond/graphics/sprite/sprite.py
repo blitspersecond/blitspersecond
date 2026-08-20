@@ -42,7 +42,8 @@ class Sprite:
     selects what it presents and where:
 
         sprite.play("jump")
-        sprite.present_at(*fighter.position, flip_x=fighter.facing_left)
+        sprite.position = fighter.position
+        sprite.flip_x = fighter.facing_left
 
     or, driving the pose directly, with no clip involved:
 
@@ -325,22 +326,6 @@ class Sprite:
     def rotation(self, value: int) -> None:
         self._rotation = int(value) & 3
         self._engine._touch()
-
-    def present_at(
-        self,
-        x: float,
-        y: float,
-        flip_x: Optional[bool] = None,
-    ) -> None:
-        """Position (and optionally face) this sprite in one call -- the
-        per-tick line game code writes under an animation.
-
-        Takes x and y separately; `position` reads back as a pair, so pass
-        another sprite's straight through with `present_at(*other.position)`.
-        """
-        self.position = (x, y)
-        if flip_x is not None:
-            self.flip_x = flip_x
 
     # -- visibility / collision intent -------------------------------------
 

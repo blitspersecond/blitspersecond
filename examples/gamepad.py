@@ -42,7 +42,7 @@ def main() -> None:
     cursor = band.sprite(TWO_D)
     x = (bps.config.display.width - HEAD) / 2
     y = (bps.config.display.height - HEAD) / 2
-    cursor.present_at(x, y)
+    cursor.position = (x, y)
 
     status = Console(bps.layers.glyph(CharSet.ASCII8X12))
     status.pen = Pen(TRANSPARENT, WHITE, TRANSPARENT, TRANSPARENT)
@@ -64,7 +64,7 @@ def main() -> None:
 
         x = min(max(x + dx * SPEED, 0), engine.config.display.width - HEAD)
         y = min(max(y + dy * SPEED, 0), engine.config.display.height - HEAD)
-        cursor.present_at(x, y)
+        cursor.position = (x, y)
 
     bps.tick = move
     bps.run()

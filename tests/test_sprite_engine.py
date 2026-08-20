@@ -111,10 +111,11 @@ def test_position_and_facing(engine):
         s.position = (320.7, 300.2)
         assert s.position == Location(320, 300)  # floats held, floored out
         assert s.x == pytest.approx(320.7)
-        s.present_at(100, 200, flip_x=True)
+        s.position = (100, 200)
+        s.flip_x = True
         assert s.position == Location(100, 200)
         assert s.flip_x is True
-        s.present_at(101, 200)  # flip untouched when not passed
+        s.position = (101, 200)  # flip untouched: it is its own property
         assert s.flip_x is True
     finally:
         engine.remove(s)

@@ -53,7 +53,8 @@ def main() -> None:
         if not left <= x <= right:
             step = -step
             x = min(max(x, left), right)
-        walker.present_at(x, line, flip_x=step < 0)
+        walker.position = (x, line)
+        walker.flip_x = step < 0
 
     bps.run(walk)
 
