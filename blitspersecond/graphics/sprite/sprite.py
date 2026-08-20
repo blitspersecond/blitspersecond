@@ -82,6 +82,7 @@ class Sprite:
         self._assembly_name: Optional[str] = None
         self._assembly: Optional[AssemblySpec] = None
         self._xy = [0.0, 0.0]
+        self._origin = Location(0, 0)
         self._animation: Optional[Animation] = None
         self._flip_x = False
         self._rotation = 0
@@ -190,6 +191,83 @@ class Sprite:
         animation.update()
         if animation.assembly != self._assembly_name:
             self._set_assembly(animation.assembly)
+
+    # -- origin (the draw point, and the pivot) ----------------------------
+
+    @property
+    def origin(self) -> Location:
+        """The sprite's own reference point: where `position` puts it, and
+        the point `flip_x` mirrors about and `rotation` turns around.
+
+        Two separate things place a sprite's art, and keeping them apart is
+        what makes both explainable:
+
+            drawn at   =   position  +  offset  -  origin
+
+        The ORIGIN is the sprite's, and it defaults to `(0, 0)` -- the art's
+        own top-left. No halfway point is invented for you, because a default
+        you cannot predict is worse than one you have to change. The OFFSET
+        is the *frame's*, carried by the asset, and says where this
+        particular pose's art sits relative to that point.
+
+        Chun-Li is the offset half: her origin is (0, 0) and it lands between
+        her feet, on the centre line of her push box, while 958 distinct
+        per-frame offsets hang the art around it as she leans and strides.
+        Mirroring about that point turns her round and leaves her body
+        exactly where it was -- which is why two fighters' `x` values are a
+        real distance no matter what their limbs are doing.
+
+        A grid sheet is the origin half: every cell is the same size and the
+        art is drawn to fill it, so there are no frame offsets at all. Left
+        at (0, 0) the sprite draws from its cell's top-left, and flipping
+        mirrors about that corner -- which moves it a full width sideways,
+        because mirroring about a corner is what that means. A sprite that
+        turns around wants `origin = sprite.centre`, and then it turns on
+        the spot.
+
+        Moving the origin moves the draw point with it, necessarily: they
+        are the same point. `origin = centre` means `position` now says
+        where the sprite's centre goes.
+        """
+        return self._origin
+
+    @origin.setter
+    def origin(self, value: Union[Tuple[int, int], Location]) -> None:
+        self._origin = Location(int(value[0]), int(value[1]))
+        self._engine._touch()
+
+    @property
+    def centre(self) -> Location:
+        """The middle of the current pose's art, in the sprite's local frame
+        -- the value to hand `origin` when a sprite needs to turn on the
+        spot rather than swing about its corner:
+
+            walker.origin = walker.centre
+
+        Derived from the pose currently presented, so read it once at setup
+        rather than per tick: on uniform grid art every cell gives the same
+        answer, but an authored sheet's poses differ frame to frame and a
+        per-tick reassignment would make the sprite wander. Raises if
+        nothing is presented, since there is no art to find the middle of.
+        """
+        if self._assembly is None or not self._assembly.parts:
+            raise ValueError(
+                "no pose is presented, so there is no art to centre on -- "
+                "set an assembly (or play a clip) first"
+            )
+        tilesets = self._engine.sheet.tilesets
+        left = top = right = bottom = None
+        for part in self._assembly.parts:
+            rect = tilesets[part.tileset].tiles[part.tile]
+            x0, y0 = part.offset.x, part.offset.y
+            x1, y1 = x0 + rect.width, y0 + rect.height
+            left = x0 if left is None else min(left, x0)
+            top = y0 if top is None else min(top, y0)
+            right = x1 if right is None else max(right, x1)
+            bottom = y1 if bottom is None else max(bottom, y1)
+        assert left is not None and top is not None
+        assert right is not None and bottom is not None
+        return Location((left + right) // 2, (top + bottom) // 2)
 
     # -- position (pixel-space; floats held, floored at draw) --------------
 

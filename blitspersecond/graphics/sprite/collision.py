@@ -233,16 +233,20 @@ class SpriteCollision:
         ] |= (shifted >> np.uint64(CWORD_BITS)).astype(CWORD)
 
     def _stamp_pose(
-        self, assembly, px, py, flip, rotation, masks
+        self, assembly, px, py, flip, rotation, masks, origin=(0, 0)
     ) -> None:
         from .sprite_layer import _local_rect
 
+        # The same shift the draw applies, for the same reason: art and
+        # planes pivot about one point or they come apart. See Sprite.origin.
+        ox, oy = origin
         for part in assembly.parts:
             tileset = self._engine.sheet.tilesets[part.tileset]
             rect = tileset.tiles[part.tile]
             x, y, _width, _height = _local_rect(
                 px, py, flip, rotation,
-                part.offset.x, part.offset.y, rect.width, rect.height,
+                part.offset.x - ox, part.offset.y - oy,
+                rect.width, rect.height,
             )
             self._stamp_one(
                 masks[None],
@@ -255,7 +259,7 @@ class SpriteCollision:
             for rect in rects:
                 x, y, width, height = _local_rect(
                     px, py, flip, rotation,
-                    rect.x, rect.y, rect.width, rect.height,
+                    rect.x - ox, rect.y - oy, rect.width, rect.height,
                 )
                 self._stamp_one(
                     target,
@@ -331,6 +335,7 @@ class SpriteCollision:
                     entry._flip_x,
                     entry._rotation,
                     masks,
+                    entry._origin,
                 )
         self._engine._collision_dirty = False
 

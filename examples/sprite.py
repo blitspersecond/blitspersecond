@@ -34,10 +34,15 @@ def main() -> None:
     walker = fumiko.sprite()
     walker.play("walk")
 
-    # Fumiko's cells are anchored between her feet, so her position is where
-    # she stands -- and flipping turns her on the spot rather than shifting
-    # her sideways.
-    floor = bps.config.display.height // 2
+    # A sprite draws from its origin and mirrors about it too. Left at the
+    # default (0, 0) that is the art's own top-left, so turning round would
+    # swing her a full width sideways -- which is what mirroring about a
+    # corner means, and not what a character wants. Moving the origin to the
+    # middle of the art makes her turn on the spot, and makes her position
+    # mean her middle rather than her corner.
+    walker.origin = walker.centre
+
+    line = bps.config.display.height // 2
     left, right = MARGIN, bps.config.display.width - MARGIN
     x = float(left)
     step = SPEED
@@ -48,7 +53,7 @@ def main() -> None:
         if not left <= x <= right:
             step = -step
             x = min(max(x, left), right)
-        walker.present_at(x, floor, flip_x=step < 0)
+        walker.present_at(x, line, flip_x=step < 0)
 
     bps.run(walk)
 

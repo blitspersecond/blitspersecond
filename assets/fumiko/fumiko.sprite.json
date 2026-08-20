@@ -403,8 +403,8 @@
           "tileset": "character",
           "tile": "neutral",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -416,8 +416,8 @@
           "tileset": "character",
           "tile": "idle-0",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -429,8 +429,8 @@
           "tileset": "character",
           "tile": "idle-1",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -442,8 +442,8 @@
           "tileset": "character",
           "tile": "idle-2",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -455,8 +455,8 @@
           "tileset": "character",
           "tile": "walk-0",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -468,8 +468,8 @@
           "tileset": "character",
           "tile": "walk-1",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -481,8 +481,8 @@
           "tileset": "character",
           "tile": "walk-2",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -494,8 +494,8 @@
           "tileset": "character",
           "tile": "run-0",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -507,8 +507,8 @@
           "tileset": "character",
           "tile": "run-1",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -520,8 +520,8 @@
           "tileset": "character",
           "tile": "run-2",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -533,8 +533,8 @@
           "tileset": "character",
           "tile": "jump-0",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -546,8 +546,8 @@
           "tileset": "character",
           "tile": "jump-1",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -559,8 +559,8 @@
           "tileset": "character",
           "tile": "jump-2",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -572,8 +572,8 @@
           "tileset": "character",
           "tile": "jump-3",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -585,8 +585,8 @@
           "tileset": "character",
           "tile": "f-attack-0",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -598,8 +598,8 @@
           "tileset": "character",
           "tile": "f-attack-1",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -611,8 +611,8 @@
           "tileset": "character",
           "tile": "f-attack-2",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -624,8 +624,8 @@
           "tileset": "character",
           "tile": "f-attack-3",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -637,8 +637,8 @@
           "tileset": "character",
           "tile": "f-attack-4",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -650,8 +650,8 @@
           "tileset": "character",
           "tile": "attack-0",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -663,8 +663,8 @@
           "tileset": "character",
           "tile": "attack-1",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -676,8 +676,8 @@
           "tileset": "character",
           "tile": "attack-2",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -689,8 +689,8 @@
           "tileset": "character",
           "tile": "attack-3",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -702,8 +702,8 @@
           "tileset": "character",
           "tile": "attack-4",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -715,8 +715,8 @@
           "tileset": "character",
           "tile": "blk-0",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -728,8 +728,8 @@
           "tileset": "character",
           "tile": "blk-1",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -741,8 +741,8 @@
           "tileset": "character",
           "tile": "super-0",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -754,8 +754,8 @@
           "tileset": "character",
           "tile": "super-1",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -767,8 +767,8 @@
           "tileset": "character",
           "tile": "super-2",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -780,8 +780,8 @@
           "tileset": "character",
           "tile": "super-3",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -793,8 +793,8 @@
           "tileset": "character",
           "tile": "super-4",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }
@@ -806,8 +806,8 @@
           "tileset": "character",
           "tile": "super-5",
           "offset": [
-            -12,
-            -32
+            0,
+            0
           ],
           "order": 0
         }

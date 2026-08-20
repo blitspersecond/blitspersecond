@@ -388,17 +388,21 @@ class SpriteLayer(Layer):
             # whole-pixel crispness (collision stamping floors identically,
             # so draw and planes stay in lockstep).
             px, py = int(s._xy[0]), int(s._xy[1])
+            ox, oy = s._origin
             flip = s._flip_x
             rot = s._rotation
             colors = (s._color[0], s._color[1], s._color[2], s._color[3])
             for part in s._assembly.parts:
                 ts = self._sheet.tilesets[part.tileset]
                 r = ts.tiles[part.tile]
-                # The offset moves via the shared orientation formula; the
-                # pixels follow via the flipped/rotated UV variant.
+                # drawn at = position + offset - origin. The frame's offset
+                # says where this pose's art sits; the sprite's origin says
+                # which point of it lands on `position` and which point flip
+                # and rotation pivot about. See Sprite.origin.
                 dx, dy, dw, dh = _local_rect(
                     px, py, flip, rot,
-                    part.offset.x, part.offset.y, r.width, r.height,
+                    part.offset.x - ox, part.offset.y - oy,
+                    r.width, r.height,
                 )
                 v = self._verts[n]
                 v[0, 0] = dx
