@@ -1,6 +1,11 @@
 from typing import Optional, Tuple, Union
 
 from blitspersecond.common import Location
+from blitspersecond.graphics.common import (
+    Orientation,
+    as_flip_rotation,
+    from_flip_rotation,
+)
 from blitspersecond.resources.sprite_sheet import AssemblySpec
 
 from .animation import Animation
@@ -301,10 +306,43 @@ class Sprite:
         self._engine._touch()
 
     @property
+    def orientation(self) -> Orientation:
+        """How the sprite is turned: one of the eight axis-aligned
+        orientations, the same vocabulary a tile placement uses.
+
+            enemy.orientation = Orientation.FLIP_H          # facing
+            crate.orientation = Orientation.ROT_90
+            icon.orientation = Orientation.FLIP_V
+
+        This is the state; `flip_x` and `rotation` below are views onto it,
+        not separate fields. They used to BE the state, which quietly hid two
+        of the three generators -- a vertical flip was `flip_x=True,
+        rotation=2` and a transpose was `flip_x=True, rotation=3`, both
+        reachable and neither findable. Naming all eight fixes that without
+        losing anything: the two spellings are a bijection.
+
+        Whatever it is set to, the mirror and the turn happen about the
+        sprite's `origin`, and the collision planes turn with the art -- draw
+        and planes share one orientation formula precisely so they cannot
+        drift.
+        """
+        return from_flip_rotation(self._flip_x, self._rotation)
+
+    @orientation.setter
+    def orientation(self, value: Orientation) -> None:
+        self._flip_x, self._rotation = as_flip_rotation(Orientation(value))
+        self._engine._touch()
+
+    @property
     def flip_x(self) -> bool:
-        """Facing. Mirrors the complete local geometry -- draw parts now,
-        collision planes with them when sprite collision lands -- about the
-        anchor's vertical axis. Never rewrites the asset."""
+        """Facing, as a bool -- the FLIP_H half of `orientation`, kept
+        because "which way is she facing" is the question game code actually
+        asks every tick, and `flip_x = velocity < 0` says it plainly.
+
+        A view, not a field: writing it leaves any turn in `orientation`
+        alone, and reading it back after `orientation = Orientation.FLIP_V`
+        gives True, because that orientation IS a mirror and a half-turn.
+        """
         return self._flip_x
 
     @flip_x.setter
@@ -314,12 +352,13 @@ class Sprite:
 
     @property
     def rotation(self) -> int:
-        """Quarter-turns clockwise (0-3), about the anchor -- the D of the
-        tile flip bits' H/V/D, arrived at the same way: UV corners cycle
-        and mask views turn, the asset is never rewritten. Applied AFTER
-        flip_x (mirror the local frame, then turn it), so a mirrored
-        fighter and a rotated crate compose predictably. Values wrap: 4 is
-        0, -1 is 3."""
+        """Quarter-turns clockwise (0-3) -- the turn half of `orientation`,
+        and the other convenience over it. Values wrap: 4 is 0, -1 is 3.
+
+        Applied AFTER the mirror (mirror the local frame, then turn it), so a
+        mirrored fighter and a rotated crate compose predictably, and so the
+        decomposition is unique.
+        """
         return self._rotation
 
     @rotation.setter

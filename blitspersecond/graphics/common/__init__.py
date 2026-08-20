@@ -7,6 +7,11 @@ from .collision_query import (
     CollisionQuery,
     PlaneCollidable,
 )
+from .orientation import (
+    Orientation,
+    as_flip_rotation,
+    from_flip_rotation,
+)
 from .pixelbuffer import PixelBuffer
 
 __all__ = [
@@ -17,5 +22,8 @@ __all__ = [
     "Collidable",
     "CollisionQuery",
     "PlaneCollidable",
+    "Orientation",
+    "as_flip_rotation",
+    "from_flip_rotation",
     "PixelBuffer",
 ]

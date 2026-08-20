@@ -21,11 +21,12 @@ instances as
 material-coalesced runs -- the cost driver is material transitions, never
 instance count.
 Sprite is the instance, constructed against the engine
-(`engine.sprite("stance-01")`): assembly, position, flip_x, rotation
-(quarter-turns about the anchor -- the tile flip bits' D-move made
-per-instance state; collision turns in lockstep), per-tileset
-palette registers, colour registers, collide -- all per-presentation
-state, no clocks anywhere.
+(`engine.sprite("stance-01")`): assembly, position, origin (the draw point
+AND the pivot, default (0, 0), with `centre` as the value to hand it),
+orientation (the same eight axis-aligned transforms a tile placement uses,
+with `flip_x` and `rotation` as views onto it -- collision turns in
+lockstep), per-tileset palette registers, colour registers, collide -- all
+per-presentation state, no clocks anywhere.
 
 Collision is in: every sprite layer answers `collides_with` with a DEFAULT
 plane -- the occupied-pixel silhouette -- and assemblies may add named rect

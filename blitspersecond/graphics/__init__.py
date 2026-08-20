@@ -16,8 +16,9 @@ to `tile("island.png", 16, 16)`, and `sprite("chun-li.sprite.json")` next to
 authored ones by name.
 
 What this package supplies is the material those layers draw FROM: PixelBuffer
-is the pixel-data primitive; Tile / TileAtlas / TileFlags address and orient
-tiles; CharSet names the system character sets; CollisionQuery is what
+is the pixel-data primitive; Tile / TileAtlas address tiles and Orientation
+turns anything (the eight axis-aligned transforms, shared by tile placements
+and sprite facing alike -- `TileFlags` is the old, tile-side name for it); CharSet names the system character sets; CollisionQuery is what
 collision questions return. TileMap is the non-rendering TMX resource: loaded
 TileAtlases plus ordinary tile/flags arrays, never compositor Layers.
 
@@ -38,7 +39,7 @@ over a GlyphLayer -- is a consumer of this engine, one level up in
 blitspersecond.console.)
 """
 
-from .common import CollisionQuery, PixelBuffer
+from .common import CollisionQuery, Orientation, PixelBuffer
 from .glyph import CharSet, GlyphEngine, GlyphLayer
 from .sprite import (
     Animation,
@@ -59,6 +60,7 @@ from .tile import (
 )
 
 __all__ = [
+    "Orientation",
     "PixelBuffer",
     "CharSet",
     "Tile",

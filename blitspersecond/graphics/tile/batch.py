@@ -33,7 +33,6 @@ projection UBO plumbing comes with the ShaderProgram itself, so drawing outside
 a pyglet Batch needs no extra wiring.
 """
 
-from enum import IntFlag
 from typing import Callable, Tuple
 
 import numpy as np
@@ -61,29 +60,14 @@ from pyglet.gl import (
 from pyglet.graphics.vertexarray import VertexArray
 from pyglet.graphics.vertexbuffer import BufferObject
 
-class TileFlags(IntFlag):
-    """Orientation of one placement: the TMX flip bits, engine-side.
+from blitspersecond.graphics.common import Orientation
 
-    A property of the *blit* (the placement), never of a pooled Tile -- the same
-    source tile appears flipped and unflipped within one map, and a pooled
-    source-ref must stay placement-free. Tiled semantics: TRANSPOSE (the
-    'diagonal flip', an x/y axis swap) applies FIRST, then FLIP_H, then FLIP_V
-    -- that ordering is baked into the UV permutation table, so callers just OR
-    bits together. The eight combinations cover every 90-degree rotation and
-    mirror (the ROT_* aliases spell out the rotations). Rendering cost: zero --
-    a flag is just a different pairing of the four static tex_coords with the
-    four quad corners (see _UV_PERMS). For rectangular tiles, TileEngine swaps
-    the placement width/height when TRANSPOSE is present, so the permutation
-    rotates the same pixels without stretching them.
-    """
-
-    NONE = 0
-    TRANSPOSE = 1  # Tiled's diagonal bit: swap x/y axes (applied first)
-    FLIP_H = 2  # mirror across the vertical axis
-    FLIP_V = 4  # mirror across the horizontal axis
-    ROT_90 = TRANSPOSE | FLIP_H  # 90 degrees clockwise
-    ROT_180 = FLIP_H | FLIP_V
-    ROT_270 = TRANSPOSE | FLIP_V
+#: The shared orientation vocabulary, which used to be defined here as
+#: `TileFlags`. It moved to graphics.common when sprites adopted it -- the
+#: eight orientations were never tile-specific, just tile-housed. The old
+#: name stays as an alias: a tile placement's orientation is what it always
+#: was, and `TileFlags.FLIP_H` reads well at a blit site.
+TileFlags = Orientation
 
 
 def _uv_perms() -> Tuple[Tuple[int, ...], ...]:
