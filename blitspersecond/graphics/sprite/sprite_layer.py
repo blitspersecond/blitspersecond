@@ -412,7 +412,15 @@ class SpriteLayer(Layer):
                 self._uvs[n] = self._uv(part.tileset, part.tile, flip, rot)
                 # The material: which texture, which palette table, which
                 # colour registers. A part override outranks the instance
-                # register (effects pinned while the character recolours).
+                # register -- and note what that is and isn't for. Parts from
+                # DIFFERENT tilesets already draw under different palettes,
+                # because the register is per tileset (Chun-Li recolours her
+                # costume while her effects stay pinned at 25 without any
+                # override in the package -- 0 of her 3237 parts carry one).
+                # The override exists for the narrower case the registers
+                # cannot reach: two parts from the SAME tileset under
+                # different palettes in one pose, e.g. one spark tile drawn
+                # twice in two colours.
                 index = (
                     part.palette
                     if part.palette is not None
