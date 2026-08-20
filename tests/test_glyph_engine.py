@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from blitspersecond.colors import ConsolePalette, MagicPen, Pen, system_palette
+from blitspersecond.graphics.common import Orientation
 from blitspersecond.graphics.glyph import CharSet, GlyphEngine
 from blitspersecond.display.layer import Layer
 
@@ -552,3 +553,114 @@ def test_magic_pen_pixels_are_live_but_written_cells_are_snapshots():
     assert not np.any(cell_colours(glyphs, 0, 0)[:, :, 1] == 99)
     glyphs.cell[1, 0] = ord("a")
     assert np.all(cell_colours(glyphs, 1, 0)[:, :, 1] == 99)
+
+
+# -- orientation: the second brush, beside the pen ---------------------------
+
+
+def cell_pixels(glyphs, x, y):
+    """One cell's composed palette indices -- (gh, gw)."""
+    gw, gh = glyphs._char_width, glyphs._char_height
+    return glyphs._image.pixels[y * gh : (y + 1) * gh, x * gw : (x + 1) * gw]
+
+
+def test_orientation_starts_upright():
+    glyphs = GlyphEngine(CharSet.ASCII8X12)
+    assert glyphs.orientation is Orientation.NONE
+
+
+def test_flipped_r_is_a_passable_cyrillic_ya():
+    # The whole feature in one line: a mirrored R is Я. Composed pixels, not
+    # the variant table -- this proves the flip survives the render path.
+    glyphs = GlyphEngine(CharSet.ASCII8X12)
+    glyphs.pen = Pen(0, 15)
+    glyphs.clear()
+    glyphs.cell[0, 0] = ord("R")
+    glyphs.orientation = Orientation.FLIP_H
+    glyphs.cell[1, 0] = ord("R")
+
+    upright = cell_pixels(glyphs, 0, 0)
+    assert np.array_equal(cell_pixels(glyphs, 1, 0), upright[:, ::-1])
+    assert not np.array_equal(cell_pixels(glyphs, 1, 0), upright)  # R is not symmetric
+
+
+@pytest.mark.parametrize(
+    ("orientation", "mirror"),
+    [
+        (Orientation.FLIP_H, lambda a: a[:, ::-1]),
+        (Orientation.FLIP_V, lambda a: a[::-1]),
+        (Orientation.ROT_180, lambda a: a[::-1, ::-1]),
+    ],
+)
+def test_each_legal_orientation_mirrors_the_composed_cell(orientation, mirror):
+    glyphs = GlyphEngine(CharSet.ASCII8X12)
+    glyphs.pen = Pen(0, 15)
+    glyphs.clear()
+    glyphs.cell[0, 0] = ord("R")
+    glyphs.orientation = orientation
+    glyphs.cell[1, 0] = ord("R")
+    assert np.array_equal(cell_pixels(glyphs, 1, 0), mirror(cell_pixels(glyphs, 0, 0)))
+
+
+@pytest.mark.parametrize(
+    "orientation",
+    [Orientation.TRANSPOSE, Orientation.ROT_90, Orientation.ROT_270],
+)
+@pytest.mark.parametrize("charset", [CharSet.ASCII8X12, CharSet.ASCII8X8])
+def test_quarter_turns_are_refused_even_on_a_square_charset(charset, orientation):
+    # 8x8 could take all eight; it does not get to. A rule that holds for
+    # every charset beats a capability that holds for some of them.
+    glyphs = GlyphEngine(charset)
+    with pytest.raises(ValueError, match="quarter turn"):
+        glyphs.orientation = orientation
+    assert glyphs.orientation is Orientation.NONE  # rejected, not half-applied
+
+
+def test_written_cells_keep_their_facing_when_the_brush_turns():
+    # Exactly how the pen behaves: the brush describes the NEXT write.
+    glyphs = GlyphEngine(CharSet.ASCII8X12)
+    glyphs.pen = Pen(0, 15)
+    glyphs.clear()
+    glyphs.cell[0, 0] = ord("R")
+    before = cell_pixels(glyphs, 0, 0).copy()
+    glyphs.orientation = Orientation.FLIP_H
+    assert np.array_equal(cell_pixels(glyphs, 0, 0), before)
+
+
+def test_clear_uses_the_current_orientation_like_it_uses_the_pen():
+    glyphs = GlyphEngine(CharSet.ASCII8X12)
+    glyphs.orientation = Orientation.ROT_180
+    glyphs.clear()
+    assert np.all(glyphs._orient == Orientation.ROT_180 >> 1)
+
+
+def test_scroll_carries_facing_with_the_cells():
+    glyphs = GlyphEngine(CharSet.ASCII8X12)
+    glyphs.pen = Pen(0, 15)
+    glyphs.clear()
+    glyphs.orientation = Orientation.FLIP_H
+    glyphs.cell[0, 0] = ord("R")
+    flipped = cell_pixels(glyphs, 0, 0).copy()
+
+    glyphs.orientation = Orientation.NONE
+    glyphs.scroll((3, 2))
+    # The cell moved with its glyph, its ink AND its facing.
+    assert np.array_equal(cell_pixels(glyphs, 3, 2), flipped)
+    # Newly exposed cells take the current brush.
+    assert glyphs._orient[0, 0] == Orientation.NONE >> 1
+
+
+def test_replacing_a_pattern_rederives_its_mirrors():
+    # A font edited at runtime must stay consistent in every orientation --
+    # the variant table is derived, never a second source of truth.
+    glyphs = GlyphEngine(CharSet.ASCII8X12)
+    glyphs.pen = Pen(0, 15)
+    glyphs.clear()
+    pattern = np.zeros((12, 8), dtype=np.uint8)
+    pattern[0, 0] = 1  # a lone pixel in the top-left corner
+    glyphs.glyph[7] = pattern
+
+    glyphs.orientation = Orientation.FLIP_H
+    glyphs.cell[0, 0] = 7
+    composed = cell_pixels(glyphs, 0, 0)
+    assert composed[0, -1] != composed[0, 0]  # the pixel mirrored to the right edge

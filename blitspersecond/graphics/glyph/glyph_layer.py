@@ -13,7 +13,13 @@ from pyglet.image import Texture
 from blitspersecond.colors import MagicPen, Palette, Pen, system_palette
 from blitspersecond.common import Size
 from blitspersecond.display.layer import Layer
-from blitspersecond.graphics.common import CWORD, Collidable, CollisionQuery, PixelBuffer
+from blitspersecond.graphics.common import (
+    CWORD,
+    Collidable,
+    CollisionQuery,
+    Orientation,
+    PixelBuffer,
+)
 from blitspersecond.graphics.tile import TileLayer
 from blitspersecond.resources import ImageSpec, load_image_spec
 from blitspersecond.system.config import Config
@@ -24,6 +30,27 @@ ATLAS_ROWS = 16
 CHAR_COUNT = ATLAS_COLS * ATLAS_ROWS
 
 _CHARSET_DIR = Path(__file__).resolve().parents[2] / "assets" / "charset"
+
+#: The orientations a glyph cell can take: the four that preserve a
+#: rectangle, which is exactly the ones with TRANSPOSE clear. The turning
+#: three are refused rather than special-cased on square charsets -- a rule
+#: that holds for every charset is worth more than a capability that holds
+#: for some of them, and 8x8 is the only square set BPS ships.
+#:
+#: These four are the Klein four-group: closed under composition, every
+#: element its own inverse, and composition is plain XOR of the bits. The
+#: full D4 is not abelian, which is the other reason not to let the turning
+#: three in through a side door.
+LEGAL_ORIENTATIONS = (
+    Orientation.NONE,
+    Orientation.FLIP_H,
+    Orientation.FLIP_V,
+    Orientation.ROT_180,
+)
+
+#: With TRANSPOSE clear a flag value is `2*H + 4*V`, so `>> 1` is `H + 2*V`
+#: -- a dense 0..3 index into the variant table, no lookup needed.
+_VARIANTS = len(LEGAL_ORIENTATIONS)
 
 
 class CharSet(Enum):
@@ -56,6 +83,7 @@ class _CellAccess:
             raise ValueError(f"glyph index must be a byte, got {byte}")
 
         self._engine._chars[x, y] = byte
+        self._engine._orient[x, y] = self._engine._slot
         self._engine._paint(x, y, self._engine._pen.paint)
         self._engine._stamp(x, y)
 
@@ -102,7 +130,7 @@ class _GlyphAccess:
         if pattern.size and (np.any(pattern < 0) or np.any(pattern > 3)):
             raise ValueError("glyph pattern plane indices must be in the range 0..3")
 
-        self._engine._glyphs[byte] = pattern
+        self._engine._set_pattern(byte, pattern)
         if np.any(self._engine._chars == byte):
             self._engine._refresh()
 
@@ -119,6 +147,14 @@ class GlyphLayer(Layer):
 
     Character patterns are readable and replaceable through ``glyph[id]``;
     pattern values select one of the four slots in each cell's pen.
+
+    Writes take TWO brushes, not one: ``pen`` is what colour they are and
+    ``orientation`` is which way they face. Both describe the next write and
+    neither disturbs cells already on screen. Facing is limited to the four
+    orientations that preserve a rectangle, and costs nothing at render time
+    -- the mirrored patterns are derived once at construction and the facing
+    folds into the glyph id, so a screen of mixed facings gathers exactly as
+    an upright one does.
     """
 
     def __init__(self, charset: CharSet | tuple[int, int]) -> None:
@@ -148,7 +184,19 @@ class GlyphLayer(Layer):
             raise ValueError("a character set atlas must be an indexed image")
 
         self._atlas = atlas
-        self._glyphs = (
+        # Every glyph pre-flipped, once: (variant, glyph, gh, gw). Orientation
+        # then costs a wider gather rather than a branch -- `_refresh` folds
+        # the variant into the glyph id and indexes a flat view of this, so
+        # the composed shape and the work per cell are exactly what they were
+        # before orientation existed (measured at 1.00x). 96KB for the
+        # shipped 8x12 set, small enough to stay resident.
+        self._variants = np.empty(
+            (_VARIANTS, CHAR_COUNT, char_height, char_width), dtype=np.uint8
+        )
+        # Variant 0 IS the upright table, as a view -- one store, so writing a
+        # pattern through `glyph[id]` cannot leave the two disagreeing.
+        self._glyphs = self._variants[0]
+        self._glyphs[:] = (
             np.asarray(atlas.data, dtype=np.uint8)
             .reshape(
                 ATLAS_ROWS,
@@ -159,14 +207,28 @@ class GlyphLayer(Layer):
             .transpose(0, 2, 1, 3)
             .reshape(CHAR_COUNT, char_height, char_width)
         )
+        self._reflect()
+        # A flat (variant * 256 + glyph) view of the same buffer, so the
+        # gather is one index array and stays a view of the writes above.
+        self._flat = self._variants.reshape(
+            _VARIANTS * CHAR_COUNT, char_height, char_width
+        )
         self._char_width = char_width
         self._char_height = char_height
         self._palette = system_palette()
         self._pen = Pen(0, 0, 0, 0)
+        # The second brush, beside the pen: which way subsequent writes face.
+        # `_slot` is the same value as a dense variant index, kept alongside
+        # so the write path never converts.
+        self._orientation = Orientation.NONE
+        self._slot = 0
         # Cell storage is x-major -- _chars[x, y] -- so every index in this
         # file reads the way the API does. Only _image.pixels stays row-major,
         # because that is the GPU's byte order rather than our choice.
         self._chars = np.empty((self._cols, self._rows), dtype=np.uint8)
+        # uint16 so the folded `_orient * CHAR_COUNT + _chars` index needs no
+        # widening cast on the render path.
+        self._orient = np.zeros((self._cols, self._rows), dtype=np.uint16)
         # Colour is screen-shaped -- one pen per PIXEL, not per cell. A plain
         # Pen paints a cell's slab with four constants and behaves exactly as
         # it always has; the room this leaves is for a pen that varies within
@@ -267,6 +329,47 @@ class GlyphLayer(Layer):
         self._pen = value
 
     @property
+    def orientation(self) -> Orientation:
+        """Which way subsequent cell writes face -- the second brush, beside
+        `pen`. Set it, then write; the cells you already wrote keep what they
+        were stamped with, exactly as the pen's slots do.
+
+            layer.orientation = Orientation.FLIP_H
+            layer.cell[x, y] = ord("R")          # draws a passable Я
+
+        Only the four orientations that preserve a rectangle are accepted --
+        NONE, FLIP_H, FLIP_V, ROT_180. A quarter turn would need a cell
+        `height x width` instead of `width x height`, which is a different
+        grid, so it is refused rather than silently squashed. The 8x8 charset
+        is square and could take all eight; it does not get to, because a
+        rule that holds for every charset beats a capability that holds for
+        some of them.
+
+        Deliberately NOT a property of `Pen`. A pen answers one question --
+        what four indices go in a cell's colour slab -- and orientation
+        answers a different one, about the glyph pattern. Putting it on the
+        pen would also fuse the letter's facing to the ink's, and those are
+        independent: a MagicPen's array is already mirrorable on its own
+        (`pen.pixels[:] = pen.pixels[:, ::-1]`), so the two combine rather
+        than gating each other."""
+        return self._orientation
+
+    @orientation.setter
+    def orientation(self, value: Orientation) -> None:
+        flags = Orientation(value)
+        if flags not in LEGAL_ORIENTATIONS:
+            raise ValueError(
+                f"a {self._char_width}x{self._char_height} glyph cell cannot "
+                f"take {flags!r}: a quarter turn would make it "
+                f"{self._char_height}x{self._char_width}. Glyph cells take "
+                f"NONE, FLIP_H, FLIP_V or ROT_180"
+            )
+        self._orientation = flags
+        # TRANSPOSE is clear, so the value is 2*H + 4*V and >> 1 is the dense
+        # variant index. See LEGAL_ORIENTATIONS.
+        self._slot = flags >> 1
+
+    @property
     def cell(self) -> _CellAccess:
         return self._cell
 
@@ -275,8 +378,10 @@ class GlyphLayer(Layer):
         return self._glyph
 
     def clear(self) -> None:
-        """Set every cell to glyph 0, painted with the current pen."""
+        """Set every cell to glyph 0, painted with the current pen and facing
+        the current orientation -- both brushes, the same way round."""
         self._chars.fill(0)
+        self._orient.fill(self._slot)
         self._flood()
         self._refresh()
 
@@ -284,8 +389,8 @@ class GlyphLayer(Layer):
         """Move the cell grid by ``(x, y)`` cells without wrapping.
 
         Positive x moves contents right and positive y moves them down.
-        Moved cells keep their colours; newly exposed cells are glyph 0 in the
-        current pen.
+        Moved cells keep their colours and their facing; newly exposed cells
+        are glyph 0 in the current pen and the current orientation.
         """
         if not isinstance(amount, tuple) or len(amount) != 2:
             raise TypeError("scroll amount must be an (x, y) tuple")
@@ -310,6 +415,9 @@ class GlyphLayer(Layer):
 
         if src_x0 < src_x1 and src_y0 < src_y1:
             chars = self._chars[src_x0:src_x1, src_y0:src_y1].copy()
+            # Facing travels with the character it belongs to -- scrolling
+            # moves cells, and a cell is its glyph, its ink and its facing.
+            orient = self._orient[src_x0:src_x1, src_y0:src_y1].copy()
             # Colour moves in pixels, because that is how it is stored -- the
             # slab of a moved cell travels intact, whatever is inside it.
             colours = self._colours[
@@ -317,22 +425,42 @@ class GlyphLayer(Layer):
             ].copy()
         else:
             chars = None
+            orient = None
             colours = None
 
         self._chars.fill(0)
+        self._orient.fill(self._slot)
         self._flood()
 
-        if chars is not None and colours is not None:
+        if chars is not None and colours is not None and orient is not None:
             dst_x0 = max(x, 0)
             dst_y0 = max(y, 0)
             dst_x1 = dst_x0 + chars.shape[0]
             dst_y1 = dst_y0 + chars.shape[1]
             self._chars[dst_x0:dst_x1, dst_y0:dst_y1] = chars
+            self._orient[dst_x0:dst_x1, dst_y0:dst_y1] = orient
             self._colours[
                 dst_y0 * gh : dst_y1 * gh, dst_x0 * gw : dst_x1 * gw
             ] = colours
 
         self._refresh()
+
+    def _reflect(self, byte: Optional[int] = None) -> None:
+        """Derive the mirrored variants from the upright ones -- all 256
+        patterns, or one when a pattern is replaced. Slot order is the dense
+        `H + 2*V` from LEGAL_ORIENTATIONS: 1 mirrors x, 2 mirrors y, 3 both.
+        A glyph is (gh, gw), so x is axis -1 and y is axis -2."""
+        source = self._variants[0] if byte is None else self._variants[0, byte]
+        target = self._variants if byte is None else self._variants[:, byte]
+        target[1] = source[..., ::-1]
+        target[2] = source[..., ::-1, :]
+        target[3] = source[..., ::-1, ::-1]
+
+    def _set_pattern(self, byte: int, pattern: np.ndarray) -> None:
+        """Replace one glyph's upright pattern and re-derive its mirrors, so
+        a font edited at runtime stays consistent in every orientation."""
+        self._variants[0, byte] = pattern
+        self._reflect(byte)
 
     def _flood(self) -> None:
         """Repaint every cell's colour with the current pen. A plain pen's four
@@ -360,8 +488,11 @@ class GlyphLayer(Layer):
         # Cells are (x, y, gh, gw); the image is row-major, so the transpose
         # to (y, gh, x, gw) is where the two orders meet -- once, here. Colour
         # is already screen-shaped, so it takes no part in the reshuffle.
+        # Orientation folds into the glyph id rather than branching: one
+        # gather from the variant table, the same output shape as an
+        # unoriented grid, so this costs what it always did.
         planes = (
-            self._glyphs[self._chars]
+            self._flat[self._orient * CHAR_COUNT + self._chars]
             .transpose(1, 2, 0, 3)
             .reshape(self._colours.shape[:2])
         )
@@ -371,7 +502,7 @@ class GlyphLayer(Layer):
         self._image.dirty = True
 
     def _stamp(self, x: int, y: int) -> None:
-        glyph = self._glyphs[self._chars[x, y]]
+        glyph = self._variants[self._orient[x, y], self._chars[x, y]]
         glyph_height, glyph_width = glyph.shape
         top = y * glyph_height
         left = x * glyph_width
