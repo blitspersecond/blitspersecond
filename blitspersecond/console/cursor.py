@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
     from blitspersecond.graphics.glyph import GlyphLayer
+
+    from .console import Console
 
 
 class Cursor:
@@ -17,10 +19,29 @@ class Cursor:
 
     __slots__ = ("_glyphs", "_x", "_y")
 
-    def __init__(self, glyphs: "GlyphLayer") -> None:
-        self._glyphs = glyphs
+    def __init__(self, glyphs: Union["GlyphLayer", "Console"]) -> None:
+        """Takes the surface to address: a GlyphLayer, or any controller over
+        one -- `Cursor(console)` and `Cursor(console.layer)` are the same
+        cursor. Reaching through `.layer` is the same hook `layers.add` and
+        `layers.remove` use, so a caller never has to unwrap by hand."""
+        from blitspersecond.graphics.glyph import GlyphLayer
+
+        layer = getattr(glyphs, "layer", glyphs)
+        if not isinstance(layer, GlyphLayer):
+            raise TypeError(
+                f"a cursor addresses a GlyphLayer, or a controller over one "
+                f"(Cursor(console)); got {type(glyphs)}"
+            )
+        self._glyphs = layer
         self._x = 0
         self._y = 0
+
+    @property
+    def layer(self) -> "GlyphLayer":
+        """The glyph layer this cursor addresses. Read-only -- a cursor is
+        bound to one surface for life; point a different one at a different
+        layer rather than re-aiming this one."""
+        return self._glyphs
 
     @property
     def x(self) -> int:

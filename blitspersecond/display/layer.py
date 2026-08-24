@@ -53,12 +53,29 @@ class Layer:
         self._tag = value
 
     @property
-    def layers(self):
-        """The Layers collection this layer is bound to (None if unbound)."""
-        return self._layers
+    def attached(self) -> bool:
+        """Whether this layer is in a draw order, and so on screen.
 
-    @layers.setter
-    def layers(self, layers) -> None:
+        The one thing a layer knows that its collection does not tell you for
+        free: `bps.layers` can be asked whether it contains something, but a
+        layer handed to a helper cannot ask that without also being handed
+        the engine.
+
+        This used to expose the collection itself, as `layer.layers`. It is a
+        bool now for two reasons. The engine has exactly ONE Layers, so
+        `layer.layers` was `bps.layers` in every real program and bought
+        nothing that having `bps` did not -- except this answer. And handing
+        the collection back invited reaching sideways through a layer to
+        reorder or remove OTHER layers, which reads as though the layer had
+        authority over the order it merely sits in. Reordering THIS layer is
+        what `before/after/first/last/swap_with` below are for."""
+        return self._layers is not None
+
+    def _bind(self, layers) -> None:
+        """Record which collection holds this layer. Called by Layers.add and
+        Layers.remove ONLY -- binding is the collection's to decide, and a
+        public setter let a layer be told it was in an order that had never
+        heard of it."""
         self._layers = layers
 
     # -- fluent ordering (delegates to the bound collection) -------------

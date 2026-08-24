@@ -227,10 +227,13 @@ def make_palette() -> ConsolePalette:
 
 def install_quadrants(glyphs: GlyphLayer) -> None:
     """Define byte values 0..15 as the sixteen 2x2 quadrant combinations."""
-    height, width = glyphs.glyph[0].shape
+    width, height = glyphs.glyph.size
     half_h, half_w = height // 2, width // 2
     for code in range(16):
-        pattern = np.zeros((height, width), dtype=np.uint8)
+        # Shape and dtype taken from an existing pattern: a pattern is a
+        # NumPy array, so it is (height, width) while `glyph.size` is
+        # (width, height), and building one from the latter transposes it.
+        pattern = np.zeros_like(glyphs.glyph[0])
         if code & 0b0001:
             pattern[:half_h, :half_w] = 1
         if code & 0b0010:

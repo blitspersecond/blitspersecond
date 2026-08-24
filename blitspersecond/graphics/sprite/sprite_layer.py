@@ -606,10 +606,6 @@ class SpriteLayer(Layer):
         return True  # sprite tilesets are indexed by construction
 
     @property
-    def transparency_index(self) -> Optional[int]:
-        return self._primary.transparent_index
-
-    @property
     def palette(self) -> Optional[Palette]:
         return self._primary.palettes[self._primary.default_palette]
 

@@ -50,7 +50,7 @@ def test_tile_mints_an_attached_tile_layer(layers, atlas):
     layer = layers.tile(atlas)
 
     assert isinstance(layer, TileLayer)
-    assert layer.layers is layers
+    assert layer.attached
     assert list(layers) == [layer]
 
 
@@ -58,7 +58,7 @@ def test_glyph_mints_an_attached_glyph_layer(layers):
     layer = layers.glyph(CharSet.ASCII8X8)
 
     assert isinstance(layer, GlyphLayer)
-    assert layer.layers is layers
+    assert layer.attached
     assert list(layers) == [layer]
 
 
@@ -66,7 +66,7 @@ def test_sprite_mints_an_attached_sprite_layer(layers, tmp_path):
     layer = layers.sprite(build_known_sheet(tmp_path))
 
     assert isinstance(layer, SpriteLayer)
-    assert layer.layers is layers
+    assert layer.attached
     assert list(layers) == [layer]
 
 
@@ -81,7 +81,13 @@ def test_mint_accepts_a_tag(layers, atlas):
     layer = layers.tile(atlas, tag="scenery")
 
     assert layer.tag == "scenery"
-    assert layers.tagged("scenery") == [layer]
+    assert layers.find(tag="scenery") == [layer]
+
+
+def test_find_returns_none_when_nothing_matches(layers, atlas):
+    layers.tile(atlas, tag="scenery")
+
+    assert layers.find(tag="hud") is None
 
 
 def test_tile_forwards_its_arguments(layers):
@@ -97,7 +103,7 @@ def test_tile_forwards_its_arguments(layers):
 
 
 def test_building_a_layer_directly_leaves_it_unattached(atlas):
-    assert TileLayer(atlas).layers is None
+    assert not TileLayer(atlas).attached
 
 
 def test_legacy_engine_names_are_the_layer_classes():
@@ -110,7 +116,7 @@ def test_legacy_engine_call_no_longer_attaches(layers, atlas):
     """The behaviour change: these used to find a running engine and attach."""
     loose = TileEngine(atlas)
 
-    assert loose.layers is None
+    assert not loose.attached
     assert list(layers) == []
 
 
@@ -118,8 +124,25 @@ def test_add_places_a_layer_built_unattached(layers, atlas):
     loose = TileLayer(atlas)
 
     assert layers.add(loose) is loose
-    assert loose.layers is layers
+    assert loose.attached
     assert list(layers) == [loose]
+
+
+def test_add_attaches_a_controllers_layer_hook(layers, atlas):
+    class Controller:
+        def __init__(self):
+            self.layer = TileLayer(atlas)
+
+    controller = Controller()
+
+    assert layers.add(controller) is controller
+    assert list(layers) == [controller.layer]
+    assert controller.layer.attached
+
+
+def test_add_rejects_anything_that_is_neither_layer_nor_controller(layers):
+    with pytest.raises(TypeError, match="layers.add takes a Layer"):
+        layers.add(object())
 
 
 # -- the guards --------------------------------------------------------
@@ -152,12 +175,32 @@ def test_remove_unbinds_and_re_add_returns_to_the_front(layers, atlas):
     first = layers.tile(atlas)
     second = layers.glyph((8, 8))
 
-    assert layers.remove(first) is True
-    assert first.layers is None
+    assert layers.remove(first) is first
+    assert not first.attached
     assert list(layers) == [second]
 
     layers.add(first)
     assert list(layers) == [second, first]
+
+
+def test_remove_raises_when_the_layer_is_not_in_this_collection(layers, atlas):
+    loose = TileLayer(atlas)
+
+    with pytest.raises(ValueError, match="not in this Layers collection"):
+        layers.remove(loose)
+
+
+def test_remove_accepts_a_controllers_layer_hook(layers, atlas):
+    class Controller:
+        def __init__(self, layer):
+            self.layer = layer
+
+    bound = layers.tile(atlas)
+    controller = Controller(bound)
+
+    assert layers.remove(controller) is controller
+    assert not bound.attached
+    assert list(layers) == []
 
 
 def test_sprite_mints_from_a_bare_image(layers):
@@ -168,7 +211,7 @@ def test_sprite_mints_from_a_bare_image(layers):
     layer = layers.sprite(str(band), 12, 12)
 
     assert isinstance(layer, SpriteLayer)
-    assert layer.layers is layers
+    assert layer.attached
     # The grid reading arrived with it: four cells, addressed by index.
     assert layer.sheet.grid_size == (2, 2)
     assert layer.sprite(3).assembly == "3"

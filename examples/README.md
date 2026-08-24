@@ -5,6 +5,10 @@ one should be suitable for support by the eventual manual, rather than merely
 being a large program that happens to exercise the engine.
 
 - `console.py` — the smallest complete console-input program
+- `pen.py` — flat pens, facing, and where a gradient comes from
+  (the engine deliberately does not build ramps for you)
+- `glyphs.py` — the advanced road: a blank layer with glyphs you invent,
+  direct cell writes and runs, and a console layered over the top
 - `gamepad.py` — move a sprite through the direct gamepad surface, off a
   bare image read as a sprite grid
 - `sprite.py` — play a clip from a sprite package, and turn around

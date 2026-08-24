@@ -128,9 +128,7 @@ class PromptView:
         console = self.console
         y = console.cursor.y
         console.foreground = INPUT_FG
-        width = len(PROMPT) + LINE_MAX + 1
-        for x in range(width):
-            console.glyphs.cell[x, y] = ord(" ")
+        console.glyphs.cell[:, y] = 0
         for i, ch in enumerate(rendered):
             console.glyphs.cell[i, y] = ord(ch)
 
@@ -141,8 +139,7 @@ class PromptView:
         console = self.console
         y = console.cursor.y
         console.foreground = INPUT_FG
-        for x in range(console.cols):
-            console.glyphs.cell[x, y] = ord(" ")
+        console.glyphs.cell[:, y] = 0
         console.cursor = (0, y)
         console.write(PROMPT + line[:LINE_MAX])
         console.write("\n")

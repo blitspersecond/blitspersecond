@@ -29,7 +29,8 @@ ROOT = Path(__file__).resolve().parents[2]
 from blitspersecond import BlitsPerSecond
 from blitspersecond.audio.engine import AudioEngine, Program, Stage
 from blitspersecond.audio.operators import Envelope, Gain, LowPass, Square
-from blitspersecond.colors import CYAN, GRAY, NAVY, Pen, TRANSPARENT, WHITE
+from blitspersecond.colors import CYAN, GRAY, NAVY, TRANSPARENT, WHITE
+from blitspersecond.graphics.common import Pen
 from blitspersecond.graphics import GlyphLayer, PixelBuffer
 from blitspersecond.graphics.glyph import CharSet
 from blitspersecond.input import Predicate, key

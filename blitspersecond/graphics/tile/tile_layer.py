@@ -517,7 +517,29 @@ class TileLayer(Layer):
         """The caller's absolute camera position.
 
         Only its sub-cell remainder reaches the GPU. Whole-cell changes are
-        baked destructively into this engine's bounded local tilemap."""
+        baked destructively into this engine's bounded local tilemap.
+
+        A CAMERA, not a move -- and deliberately unlike `GlyphLayer.scroll`,
+        which shifts its contents and blanks the gap. The two are different
+        lineages rather than an inconsistency:
+
+            AMOS SCROLL / DEF SCROLL    blitter-copies a screen zone by
+                                        pixels; destructive, and affordable
+                                        because the Amiga blitter was free
+            Commander Keen              hardware panning plus a redraw of
+                                        only the newly exposed edge; a
+                                        camera, nothing copied
+
+        This is Keen's. The deciding fact is that a tile layer has a WORLD
+        larger than the screen behind it, so there is something for a camera
+        to move over and a destructive copy would be strictly more work for
+        the same picture. A glyph layer has no world beyond its grid -- the
+        grid IS the screen -- so moving the contents is the only thing
+        "scroll" can mean there. Same word, because both machines used it;
+        different meanings, because the two surfaces have different extents.
+
+        See docs/references/amos/06-02-using-screens.md for the zone form,
+        and GlyphLayer.scroll for the text one."""
         return self._scroll
 
     @scroll.setter
@@ -686,10 +708,6 @@ class TileLayer(Layer):
     @property
     def indexed(self) -> bool:
         return self.buffer.indexed
-
-    @property
-    def transparency_index(self) -> Optional[int]:
-        return self.buffer.transparency_index
 
     @property
     def palette(self) -> Palette:

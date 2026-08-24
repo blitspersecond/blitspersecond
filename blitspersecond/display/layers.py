@@ -41,28 +41,42 @@ class Layers:
     def __init__(self):
         self._layers: List[Layer] = []
 
-    def add[T: Layer](self, layer: T) -> T:
-        """Place an already-built Layer at the front of the draw order.
+    def add[T](self, item: T) -> T:
+        """Place an already-built Layer at the front of the draw order --
+        or, given a controller like Console that wraps one (built unattached
+        the same way TileLayer(...) and friends are), attach the layer it
+        wraps and hand back the controller.
 
         tile()/sprite()/glyph() below do this for you; this is for a layer
-        built unattached (TileLayer(...) and friends) or for re-adding one
-        after remove(). Re-adding puts it at the front, not back where it
-        was. Anything that isn't a Layer is refused."""
+        built unattached, a controller built over one, or for re-adding a
+        layer after remove(). Re-adding puts it at the front, not back where
+        it was.
+
+        A controller exposes its layer through a public `.layer` property
+        (Console has one; TileMap will) rather than `add` checking
+        `isinstance(item, Console)` -- display/ stays ignorant of concrete
+        controller types this way, which matters because console imports
+        graphics.glyph, and importing Console here would loop back through
+        it (see the module docstring above).
+
+        Anything that is neither a Layer nor a controller is refused."""
+        layer = item if isinstance(item, Layer) else getattr(item, "layer", None)
         if not isinstance(layer, Layer):
             raise TypeError(
-                f"layers.add takes a Layer -- layers.tile/sprite/glyph make "
-                f"them, or build one unattached with TileLayer / SpriteLayer "
-                f"/ GlyphLayer; got {type(layer)}"
+                f"layers.add takes a Layer, or a controller exposing a "
+                f"`.layer` -- layers.tile/sprite/glyph make layers "
+                f"directly, or build one unattached with TileLayer / "
+                f"SpriteLayer / GlyphLayer; got {type(item)}"
             )
-        if layer.layers is not None and layer.layers is not self:
+        if layer.attached and layer._layers is not self:
             raise ValueError(
-                "layer is already in another Layers collection; remove() it "
-                "there first -- one layer cannot sit in two draw orders"
+                "layer is already in another Layers collection; remove() "
+                "it there first -- one layer cannot sit in two draw orders"
             )
         if layer not in self._layers:
             self._layers.append(layer)
-            layer.layers = self
-        return layer
+            layer._bind(self)
+        return item
 
     # -- minting: the primary way layers come into being -------------------
 
@@ -188,17 +202,27 @@ class Layers:
             if advance is not None:
                 advance()
 
-    def remove(self, layer: Layer) -> bool:
-        """Take a layer out of the draw order. Returns False if it wasn't in it."""
-        if not isinstance(layer, Layer) or layer not in self._layers:
-            return False
-        self._layers.remove(layer)
-        layer.layers = None
-        return True
+    def remove[T](self, item: T) -> T:
+        """Take a layer -- or a controller wrapping one, through the same
+        `.layer` a controller exposes to `add` -- out of the draw order.
 
-    def tagged(self, tag: str) -> List[Layer]:
-        """All bound layers carrying `tag`, in stack order."""
-        return [layer for layer in self._layers if layer.tag == tag]
+        Raises if `item` isn't in this collection: removing something that
+        was never here (or already taken out) is a bug in the caller, not a
+        quiet no-op to paper over."""
+        layer = item if isinstance(item, Layer) else getattr(item, "layer", None)
+        if not isinstance(layer, Layer) or layer not in self._layers:
+            raise ValueError(f"{item!r} is not in this Layers collection")
+        self._layers.remove(layer)
+        layer._bind(None)
+        return item
+
+    def find(self, *, tag: str) -> Optional[List[Layer]]:
+        """Bound layers carrying `tag`, in stack order -- or None if none do.
+
+        Unlike a plain lookup returning empty, None distinguishes "nothing
+        has this tag" from a caller who forgot to check before indexing."""
+        matches = [layer for layer in self._layers if layer.tag == tag]
+        return matches if matches else None
 
     # -- reposition (all operate on already-bound layers) ----------------
 

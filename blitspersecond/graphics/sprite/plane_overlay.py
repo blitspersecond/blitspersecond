@@ -83,7 +83,6 @@ class PlaneOverlay:
                 (w, h),
                 "P",
                 palette=self._palette,
-                transparency_index=0,
             )
         )
 

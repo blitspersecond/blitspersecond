@@ -12,8 +12,6 @@ with.
 """
 
 from .palette import ConsolePalette, Palette
-from .pen import Pen
-from .magic_pen import MagicPen
 from .colors import (
     system_palette,
     TRANSPARENT,
@@ -38,8 +36,6 @@ from .colors import (
 __all__ = [
     "Palette",
     "ConsolePalette",
-    "Pen",
-    "MagicPen",
     "system_palette",
     "TRANSPARENT",
     "WHITE",

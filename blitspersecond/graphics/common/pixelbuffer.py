@@ -39,7 +39,6 @@ class PixelBuffer:
         self._fmt = spec.fmt
         self._size = spec.size
         self._palette = spec.palette
-        self._transparency_index = spec.transparency_index
         # Own copy -- breaks the reference to the spec's (shared) buffer.
         self._pixels: np.ndarray = np.array(spec.data)
         self._texture: Optional[Texture] = None
@@ -148,10 +147,6 @@ class PixelBuffer:
     @property
     def indexed(self) -> bool:
         return self._mode == "P"
-
-    @property
-    def transparency_index(self) -> Optional[int]:
-        return self._transparency_index
 
     @property
     def palette(self) -> Optional[Palette]:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from blitspersecond.colors import Pen
+from blitspersecond.graphics.common import Pen
 from blitspersecond.input.kbm.input import Input
 
 from .console import Console

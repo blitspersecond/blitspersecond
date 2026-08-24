@@ -25,7 +25,6 @@ class ImageSpec:
         mode: str,
         data: Optional[np.ndarray] = None,
         palette: Optional[Palette] = None,
-        transparency_index: Optional[int] = None,
     ) -> None:
         if mode not in _VALID_MODES:
             raise ValueError(f"Image mode '{mode}' not supported. Must be one of {_VALID_MODES}.")
@@ -35,7 +34,6 @@ class ImageSpec:
         self._size = Size(width, height)
         self._mode = mode
         self._palette = palette
-        self._transparency_index = transparency_index
 
         shape = (height, width) if self.channels == 1 else (height, width, self.channels)
         if data is None:
@@ -77,10 +75,6 @@ class ImageSpec:
         return self._palette
 
     @property
-    def transparency_index(self) -> Optional[int]:
-        return self._transparency_index
-
-    @property
     def indexed(self) -> bool:
         return self._mode == "P"
 
@@ -104,14 +98,16 @@ def load_image_spec(filename: str) -> ImageSpec:
             if palette_list is not None:
                 palette = Palette(np.array(palette_list, dtype=np.uint8).tolist())
 
-        transparency_index = None
-        if "transparency" in img.info:
-            transparency_index = img.info["transparency"]
-            if transparency_index != 0:
-                raise InvalidTransparencyError(
-                    f"Image {filename} has transparency at index {transparency_index}, "
-                    f"but BPS requires index 0."
-                )
+        # Index 0 is the engine-wide hole: Palette pins it to alpha 0, and
+        # masks and collision solidity key off the index rather than the
+        # alpha. A file that puts its hole anywhere else would be silently
+        # solid there, so it is refused rather than carried. Checked, not
+        # kept -- there is nothing downstream that could act on the value.
+        if img.info.get("transparency", 0) != 0:
+            raise InvalidTransparencyError(
+                f"Image {filename} has transparency at index "
+                f"{img.info['transparency']}, but BPS requires index 0."
+            )
 
         # Row 0 = top (PIL order). Uploaded as-is: content stays GL
         # upside-down everywhere; the framebuffer flips once before display.
@@ -122,7 +118,6 @@ def load_image_spec(filename: str) -> ImageSpec:
             mode=img.mode,
             data=data,
             palette=palette,
-            transparency_index=transparency_index,
         )
     except InvalidTransparencyError as e:
         raise InvalidTransparencyError(

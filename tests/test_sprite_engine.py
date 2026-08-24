@@ -191,5 +191,4 @@ def test_setters_mark_engine_dirty(engine):
 def test_drawable_metadata_face(engine):
     # The primary (first) tileset is the engine's face for the compositor.
     assert engine.indexed is True
-    assert engine.transparency_index == 0
     assert engine.size == (128, 128)

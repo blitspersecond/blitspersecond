@@ -12,6 +12,7 @@ from .orientation import (
     as_flip_rotation,
     from_flip_rotation,
 )
+from .pen import Pen, SYSTEM_SLOTS
 from .pixelbuffer import PixelBuffer
 
 __all__ = [
@@ -25,5 +26,7 @@ __all__ = [
     "Orientation",
     "as_flip_rotation",
     "from_flip_rotation",
+    "Pen",
+    "SYSTEM_SLOTS",
     "PixelBuffer",
 ]
