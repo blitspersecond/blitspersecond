@@ -422,7 +422,7 @@ def test_collidable_border_stamp_enters_with_camera(monkeypatch):
     )
 
 
-# -- atlas.region: a rectangular block of tiles as a blittable plane --------
+# -- atlas.region: a rectangular block of tiles as a blittable grid ---------
 
 
 def _region_atlas() -> TileAtlas:
@@ -430,31 +430,36 @@ def _region_atlas() -> TileAtlas:
     return TileAtlas(_buffer(size=(80, 40)), 8, 8)
 
 
-def test_region_returns_a_blittable_plane():
-    plane = _region_atlas().region(0, 0, 10, 5)
+def test_region_returns_a_blittable_grid():
+    grid = _region_atlas().region(0, 0, 10, 5)
 
-    assert plane.dtype == PLANE_DTYPE
-    assert plane.shape == (5, 10)  # numpy order: (rows, cols)
+    assert grid.dtype == PLANE_DTYPE
+    assert grid.shape == (10, 5)  # x-major: (cols, rows), like every grid
 
 
 def test_region_carries_flat_row_major_tile_ids():
-    plane = _region_atlas().region(0, 0, 10, 5)
+    """The AXES are x-major; the VALUES stay Tiled's flat row-major ids."""
+    grid = _region_atlas().region(0, 0, 10, 5)
 
-    assert plane["tile"][0].tolist() == list(range(10))
-    assert plane["tile"][1].tolist() == list(range(10, 20))
+    assert grid["tile"][:, 0].tolist() == list(range(10))
+    assert grid["tile"][:, 1].tolist() == list(range(10, 20))
 
 
 def test_region_offset_is_x_y_in_tiles():
-    plane = _region_atlas().region(2, 1, 3, 2)
+    grid = _region_atlas().region(2, 1, 3, 2)
 
-    assert plane["tile"].tolist() == [[12, 13, 14], [22, 23, 24]]
+    # grid[x, y]: x runs across, y down -- the arguments' own order.
+    assert grid["tile"][0, 0] == 12
+    assert grid["tile"][2, 0] == 14
+    assert grid["tile"][0, 1] == 22
+    assert grid["tile"][2, 1] == 24
 
 
 def test_region_has_no_orientation_and_is_writable():
-    plane = _region_atlas().region(0, 0, 4, 2)
+    grid = _region_atlas().region(0, 0, 4, 2)
 
-    assert not plane["flags"].any()
-    assert plane.flags.writeable  # callers may set flags before blitting
+    assert not grid["flags"].any()
+    assert grid.flags.writeable  # callers may set flags before blitting
 
 
 @pytest.mark.parametrize(
@@ -496,18 +501,79 @@ def _island() -> str:
     )
 
 
-def test_tiled_layer_names_its_tileset():
+def test_tiled_layer_carries_its_sheet():
     """The loader rejects a layer spanning two tilesets, so the pairing is
-    established at parse time -- it must not be re-derived downstream."""
+    established at parse time -- it must not be re-derived downstream. The
+    layer therefore carries the sheet itself, not a name to look up in a
+    published tileset table (there is no longer such a table)."""
     from blitspersecond.resources import load_tiled_file
 
     tiled = load_tiled_file(_island())
 
     assert tiled.layers, "island.tmx should have at least one layer"
-    names = {ts.name for ts in tiled.tilesets}
+    assert not hasattr(tiled, "tilesets"), "TMX plumbing must not be published"
     for entry in tiled.layers:
-        assert entry.tileset in names
-        assert entry.plane.shape == (tiled.rows, tiled.cols)
+        assert entry.tileset  # its name in Tiled, for identity/messages
+        assert entry.image.endswith(".png")
+        assert (entry.w, entry.h) == (tiled.w, tiled.h)
+        # X-MAJOR: (cols, rows), not numpy's (rows, cols).
+        assert entry.tiles.shape == (tiled.cols, tiled.rows)
+
+
+def test_tiled_file_mints_tilemaps_by_layer_name():
+    from blitspersecond.resources import ResourceManager
+
+    tiled = ResourceManager().tmx(_island())
+
+    assert tiled.names == ("blue_island",)
+    with pytest.raises(KeyError, match="no tile layer"):
+        tiled.layer("nope")
+
+
+def test_minted_tilemaps_are_memoised_per_layer():
+    """Asking twice gives the same map -- one world, one camera. copy() is
+    how a caller opts into a second."""
+    from blitspersecond.resources import ResourceManager
+
+    tiled = ResourceManager().tmx(_island())
+
+    assert tiled.tilemap("blue_island") is tiled.tilemap("blue_island")
+
+
+def test_minted_tilemaps_are_unattached():
+    """Build unattached, layers.add places -- the one construction law."""
+    from blitspersecond.resources import ResourceManager
+
+    island = ResourceManager().tmx(_island()).tilemap("blue_island")
+
+    assert not island.layer.attached
+
+
+def test_maps_over_one_sheet_share_a_buffer():
+    """Identity is sharing: one PNG, one texture, one interned tile pool."""
+    from blitspersecond.resources import ResourceManager
+
+    manager = ResourceManager()
+    island = manager.tmx(_island()).tilemap("blue_island")
+
+    assert island.tileset.buffer is manager.buffer(
+        manager.tmx(_island()).layer("blue_island").image
+    )
+
+
+def test_copy_is_independent_in_grid_and_sheet():
+    from blitspersecond.resources import ResourceManager
+
+    island = ResourceManager().tmx(_island()).tilemap("blue_island")
+    twin = island.copy()
+
+    assert twin is not island
+    assert twin.tileset.buffer is not island.tileset.buffer
+    assert twin.tileset.buffer.id != island.tileset.buffer.id
+    twin.tiles["tile"][0, 0] = 123
+    assert island.tiles["tile"][0, 0] != 123
+    twin.tileset.buffer.pixels[0, 0] = 200
+    assert island.tileset.buffer.pixels[0, 0] != 200
 
 
 def test_tiled_file_speaks_bps_not_tmx():
@@ -523,15 +589,19 @@ def test_tiled_file_speaks_bps_not_tmx():
     assert not hasattr(tiled, "width")
 
 
-def test_planes_are_read_only_and_maps_get_their_own_copy():
-    from blitspersecond.resources import load_tiled_file
+def test_grids_are_read_only_and_maps_get_their_own_copy():
+    from blitspersecond.resources import ResourceManager, load_tiled_file
 
     a = load_tiled_file(_island())
     b = load_tiled_file(_island())
 
     # The cached spec stays pristine; TileMap copies before handing it on.
-    assert not a.layers[0].plane.flags.writeable
-    assert np.array_equal(a.layers[0].plane, b.layers[0].plane)
+    assert not a.layers[0].tiles.flags.writeable
+    assert np.array_equal(a.layers[0].tiles, b.layers[0].tiles)
+
+    # ...and what the map hands out IS writable, because it is the map's own.
+    island = ResourceManager().tmx(_island()).tilemap("blue_island")
+    assert island.tiles.flags.writeable
 
 
 # -- TileLayer.clear: empties stamps, keeps the binding ---------------------
@@ -670,7 +740,8 @@ class _RecordingMap:
         self.painted = []
         self.tile = tile
         self.map = TileMap.__new__(TileMap)
-        self.map._plane = np.zeros((rows, cols), dtype=PLANE_DTYPE)
+        # X-major: (cols, rows). The grid is the engine's to define.
+        self.map._tiles = np.zeros((cols, rows), dtype=PLANE_DTYPE)
         self.map._layer = _StubLayer(tile)
         self.map._tmx = None
         self.map._scroll = (0.0, 0.0)
@@ -740,7 +811,7 @@ def test_diagonal_step_never_stamps_a_cell_twice():
     assert seen, "a diagonal step should paint an L of new cells"
 
 
-def test_window_is_clamped_to_the_plane():
+def test_window_is_clamped_to_the_grid():
     m = _RecordingMap(cols=4, rows=4)
 
     for x0, y0, x1, y1 in m.painted:

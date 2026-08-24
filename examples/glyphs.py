@@ -27,8 +27,7 @@ from blitspersecond import BlitsPerSecond
 from blitspersecond.colors import CYAN, GRAY, WHITE, YELLOW, system_palette
 from blitspersecond.console import Console
 from blitspersecond.graphics.common import Orientation, Pen
-from blitspersecond.graphics.glyph import CharSet
-from bps.blitspersecond.graphics.glyph.glyph_layer import GlyphLayer
+from blitspersecond.graphics.glyph import CharSet, GlyphLayer
 
 # Glyph ids we are about to invent. Byte values, nothing more -- on a blank
 # layer there is no character set to disagree with.

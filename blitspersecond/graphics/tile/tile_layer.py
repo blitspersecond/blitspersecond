@@ -381,37 +381,40 @@ class TileLayer(Layer):
         y: int,
         flags: TileFlags = TileFlags.NONE,
     ) -> None:
-        """Stamp one tile, or a whole tile/flags map plane, at `(x, y)`.
+        """Stamp one tile, or a whole tile/flags grid, at `(x, y)`.
 
-        A plane is the structured NumPy array returned by TileMap. It carries
-        local tile indices and per-cell orientation but no rendering state;
-        this already-bound destination layer owns the work of stamping it.
-        Passing `flags` with a plane is an error because every cell already
-        carries its own flags.
+        A grid is the structured NumPy array `TileMap.tiles` hands back,
+        indexed `[x, y]`. It carries local sheet indices and per-cell
+        orientation but no rendering state; this already-bound destination
+        layer owns the work of stamping it. Passing `flags` with a grid is an
+        error because every cell already carries its own flags.
 
         A single tile appends one row to the DOD SoA and writes its texture
         rect into the TileBatch. No per-placement Python object exists.
         """
         if isinstance(tile, np.ndarray):
             if flags != TileFlags.NONE:
-                raise TypeError("a map plane carries its own per-cell TileFlags")
+                raise TypeError("a tile grid carries its own per-cell TileFlags")
             self._blit_plane(tile, int(x), int(y))
             return
         self._blit_tile(tile, int(x), int(y), flags)
 
-    def _blit_plane(self, plane: np.ndarray, x: int, y: int) -> None:
-        if plane.ndim != 2 or plane.dtype != PLANE_DTYPE:
+    def _blit_plane(self, grid: np.ndarray, x: int, y: int) -> None:
+        # The grid is X-MAJOR -- `grid[gx, gy]` -- so argwhere yields (x, y)
+        # pairs directly and no transpose happens anywhere on this path. See
+        # the addressing decision in tile_map.py.
+        if grid.ndim != 2 or grid.dtype != PLANE_DTYPE:
             raise TypeError(
-                "expected a two-dimensional TileMap tile/flags array, got "
-                f"shape {plane.shape} dtype {plane.dtype}"
+                "expected a two-dimensional TileMap tile/flags grid, got "
+                f"shape {grid.shape} dtype {grid.dtype}"
             )
         tw, th = self.tile_size  # also rejects an unbound layer, loudly
-        for row, col in np.argwhere(plane["tile"] >= 0):
-            cell = plane[row, col]
+        for gx, gy in np.argwhere(grid["tile"] >= 0):
+            cell = grid[gx, gy]
             self._blit_tile(
                 int(cell["tile"]),
-                x + int(col) * tw,
-                y + int(row) * th,
+                x + int(gx) * tw,
+                y + int(gy) * th,
                 TileFlags(int(cell["flags"])),
             )
 

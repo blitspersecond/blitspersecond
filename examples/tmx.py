@@ -18,8 +18,11 @@ Close the window to quit.
 
 from pathlib import Path
 
+import numpy as np
+
 from blitspersecond import BlitsPerSecond
-from blitspersecond.graphics import TileFlags, TileMap
+from blitspersecond.graphics import TileFlags
+from blitspersecond.resources import ResourceManager
 
 MAP = Path(__file__).resolve().parents[1] / "assets/gorillaz/island.tmx"
 
@@ -31,14 +34,15 @@ def main() -> None:
     mode = examples[0]  # choose one of the three examples above
 
     bps = BlitsPerSecond()
-    island = TileMap.open(str(MAP), bps.layers)["blue_island"]
+    island = ResourceManager().tmx(str(MAP)).tilemap("blue_island")
+    bps.layers.add(island)
 
     # A TileMap holds both halves: the layer it stamps into, and the world it
     # stamps from. Everything below works them by hand, so start from empty --
-    # open() has already filled the visible window, which is the normal path
+    # minting has already filled the visible window, which is the normal path
     # (see examples/layers.py).
-    layer, plane = island.layer, island.plane
-    tileset = layer.atlas
+    layer, tiles = island.layer, island.tiles
+    tileset = island.tileset
     layer.clear()
     layer.palette[SKY] = (73, 171, 212, 255)
     layer.background = SKY  # transparent pixels are open sky
@@ -48,24 +52,25 @@ def main() -> None:
     oy = (bps.config.display.height - map_height) // 2
 
     if mode == "tile":
-        for row, line in enumerate(plane):
-            for column, cell in enumerate(line):
-                index = int(cell["tile"])
-                if index >= 0:
-                    layer.blit(
-                        tileset[index],
-                        ox + column * island.tile_size[0],
-                        oy + row * island.tile_size[1],
-                        TileFlags(int(cell["flags"])),
-                    )
+        tw, th = island.tile_size
+        # The grid is x-major, so argwhere hands back (x, y) pairs directly --
+        # no transposing, and column/row mean what they say.
+        for column, row in np.argwhere(tiles["tile"] >= 0):
+            cell = tiles[column, row]
+            layer.blit(
+                tileset[int(cell["tile"])],
+                ox + int(column) * tw,
+                oy + int(row) * th,
+                TileFlags(int(cell["flags"])),
+            )
 
     elif mode == "full":
-        layer.blit(plane, ox, oy)
+        layer.blit(tiles, ox, oy)
 
     elif mode == "region":
         # A rectangle of the TILESET, not the map: every tile the sheet has,
         # in atlas order, stamped by one blit. region() hands back the same
-        # kind of plane TileMap does, which is why blit takes both.
+        # kind of grid TileMap.tiles does, which is why blit takes both.
         sheet = tileset.region(0, 0, tileset.cols, tileset.rows)
         tw, th = tileset.tile_size
         layer.blit(

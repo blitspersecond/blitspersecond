@@ -116,6 +116,35 @@ class PixelBuffer:
         self._texture.blit_into(data, 0, 0, 0)
         self._dirty = False
 
+    def copy(self) -> "PixelBuffer":
+        """An independent buffer with the same pixels and a NEW identity.
+
+        Identity is sharing here -- `id` names this buffer's texture in every
+        Tile that samples it and keys its pool in the TileCache -- so a copy
+        is the only way to own pixels that started out shared. The returned
+        buffer has its own `id`, its own (lazily created) texture, its own
+        collision mask and its own mutable palette, and writing to it reaches
+        nothing else.
+
+        This is what `TileMap.copy()` is built on, and why that method copies
+        at buffer granularity rather than at the atlas above it: an atlas is
+        arithmetic OVER a buffer and would still share the pixels.
+        """
+        twin = PixelBuffer.__new__(PixelBuffer)
+        twin._mode = self._mode
+        twin._fmt = self._fmt
+        twin._size = self._size
+        # Its own palette registers, so recolouring one cannot reach the
+        # other -- the same law SpriteSheet applies per sheet.
+        twin._palette = Palette(self._palette.raw()) if self._palette else None
+        twin._pixels = np.array(self._pixels)
+        twin._texture = None
+        twin._dirty = False
+        twin._mask = None
+        twin._mask_dirty = True
+        twin._id = next(PixelBuffer._ids)
+        return twin
+
     # -- identity / metadata ---------------------------------------------
 
     @property

@@ -123,16 +123,18 @@ class TileAtlas:
             brush = tileset.region(0, 0, 10, 5)
             layer.blit(brush, x, y)
 
-        Returns the same structured array TileMap layers are made of
-        (PLANE_DTYPE, shape `(h, w)`), so one blit stamps the whole block
-        and a brush cut from a tileset travels the same path as a plane
-        loaded from a TMX. `flags` is all zero -- an atlas rectangle carries
-        no orientation -- and the array is a fresh writable copy, so callers
-        may set per-cell flags before blitting.
+        Returns the same structured grid `TileMap.tiles` is made of
+        (PLANE_DTYPE, shape `(w, h)`, indexed `[x, y]`), so one blit stamps
+        the whole block and a brush cut from a tileset travels the same path
+        as a grid loaded from a TMX. `flags` is all zero -- an atlas rectangle
+        carries no orientation -- and the array is a fresh writable copy, so
+        callers may set per-cell flags before blitting.
 
-        Arguments are in TILES, not pixels, and read x, y, w, h throughout.
-        Note the returned array is indexed `[row, col]` like every other
-        plane: it is numpy-shaped, while the arguments are geometry.
+        Arguments are in TILES, not pixels, and read x, y, w, h throughout --
+        and so does the result. This used to hand back a `[row, col]` array
+        while taking geometry arguments, which meant one call site had to hold
+        both orders at once; the grid is the engine's to define, so it is
+        x-major like every other grid here.
 
         Out of bounds is an IndexError rather than a silent clamp. A brush is
         asked for at a definite size; quietly returning a smaller one because
@@ -147,13 +149,14 @@ class TileAtlas:
                 f"region ({x}, {y}, {w}, {h}) does not fit an atlas of "
                 f"{cols}x{rows} tiles"
             )
-        plane = np.zeros((h, w), dtype=PLANE_DTYPE)
-        # Flat row-major indices, matching _to_indices and Tiled's tile IDs.
-        plane["tile"] = (
-            np.arange(y, y + h, dtype=np.int32)[:, None] * cols
-            + np.arange(x, x + w, dtype=np.int32)[None, :]
+        grid = np.zeros((w, h), dtype=PLANE_DTYPE)
+        # The VALUES stay flat row-major tile ids (that is Tiled's numbering
+        # and _to_indices'); only the array's own axes are x-major.
+        grid["tile"] = (
+            np.arange(y, y + h, dtype=np.int32)[None, :] * cols
+            + np.arange(x, x + w, dtype=np.int32)[:, None]
         )
-        return plane
+        return grid
 
     def __len__(self) -> int:
         return self.cols * self.rows

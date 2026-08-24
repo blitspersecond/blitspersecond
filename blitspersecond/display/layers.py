@@ -18,6 +18,20 @@ if TYPE_CHECKING:
     from blitspersecond.graphics.tile import TileAtlas, TileLayer
 
 
+def _as_layer(item: object) -> Optional[Layer]:
+    """The one hook that turns "a layer, or something wrapping one" into a
+    layer: a Layer is itself, a controller is its public `.layer`.
+
+    One function so `add` and the ordering moves cannot drift apart -- it was
+    possible to `layers.add(tilemap)` and then have `layer.before(tilemap)`
+    silently do nothing, because only `add` knew how to unwrap.
+    """
+    if isinstance(item, Layer):
+        return item
+    inner = getattr(item, "layer", None)
+    return inner if isinstance(inner, Layer) else None
+
+
 class Layers:
     """Ordered collection of layers, background (index 0) to foreground --
     and the place layers come from:
@@ -42,26 +56,58 @@ class Layers:
         self._layers: List[Layer] = []
 
     def add[T](self, item: T) -> T:
-        """Place an already-built Layer at the front of the draw order --
-        or, given a controller like Console that wraps one (built unattached
-        the same way TileLayer(...) and friends are), attach the layer it
-        wraps and hand back the controller.
+        """Place a built Layer at the front of the draw order -- or, given a
+        controller like Console or TileMap that wraps one, attach the layer it
+        wraps. Returns WHAT YOU PASSED, so the inline form is lossless:
 
-        tile()/sprite()/glyph() below do this for you; this is for a layer
+            console = bps.layers.add(Console(80, 45))
+            fg = bps.layers.add(maps.tilemap("fg"))
+            bg = bps.layers.add(maps.tilemap("bg"))
+            bg.before(fg)
+
+        RETURNING THE LAYER INSTEAD WAS TRIED AND REVERTED. Do not re-try it
+        without reading this; it has already cost a day once.
+
+        The question did not exist before 2026-08-24. Until `980867e` this
+        method took Layers ONLY -- 2026-08-14 spelled it `-> Layer`,
+        2026-08-18 spelled it `-> T` -- and while the argument is always a
+        Layer those two say the same thing about the same object. Neither is
+        prior art. `980867e` made controllers addable through `.layer`, which
+        is the commit that first made "the layer" and "what you passed" two
+        different things, and it answered `-> T` without saying why. That
+        silence is the whole reason this was reopened hours later.
+
+        The answer is `-> T`, and the evidence is a trap. With `-> Layer`,
+        `console = bps.layers.add(Console(...))` binds a GlyphLayer and
+        SILENTLY DISCARDS the console -- verified collected, with no
+        back-reference from the layer to recover it. It does not fail
+        cleanly either: GlyphLayer shares 7 of Console's 15 public members,
+        so `.pen`, `.cols` and `.attached` keep working while `.write` and
+        `.print` raise, and a test asserting only `.attached` kept passing
+        while no longer testing what its name claimed.
+
+        The one reason anyone wanted the layer back was reordering. That is
+        now moot: controllers proxy the draw-order verbs themselves (see
+        display/controller.py), so `console.before(sprites)` works on the
+        thing you are already holding. `add` PLACES what you built; it is
+        not a factory. tile()/sprite()/glyph() are the ones that mint, and
+        they return layers because they MADE those layers.
+
+        tile()/sprite()/glyph() do the whole job for you; this is for a layer
         built unattached, a controller built over one, or for re-adding a
         layer after remove(). Re-adding puts it at the front, not back where
         it was.
 
         A controller exposes its layer through a public `.layer` property
-        (Console has one; TileMap will) rather than `add` checking
+        (Console and TileMap both do) rather than `add` checking
         `isinstance(item, Console)` -- display/ stays ignorant of concrete
         controller types this way, which matters because console imports
         graphics.glyph, and importing Console here would loop back through
         it (see the module docstring above).
 
         Anything that is neither a Layer nor a controller is refused."""
-        layer = item if isinstance(item, Layer) else getattr(item, "layer", None)
-        if not isinstance(layer, Layer):
+        layer = _as_layer(item)
+        if layer is None:
             raise TypeError(
                 f"layers.add takes a Layer, or a controller exposing a "
                 f"`.layer` -- layers.tile/sprite/glyph make layers "
@@ -106,7 +152,8 @@ class Layers:
         layer = TileLayer(source, w, h, collidable)
         if tag is not None:
             layer.tag = tag
-        return self.add(layer)
+        self.add(layer)
+        return layer
 
     def sprite(
         self,
@@ -166,7 +213,8 @@ class Layers:
         layer = SpriteLayer(sheet)
         if tag is not None:
             layer.tag = tag
-        return self.add(layer)
+        self.add(layer)
+        return layer
 
     def glyph(
         self,
@@ -187,7 +235,8 @@ class Layers:
         layer = GlyphLayer(charset)
         if tag is not None:
             layer.tag = tag
-        return self.add(layer)
+        self.add(layer)
+        return layer
 
     def _advance(self) -> None:
         """One game tick of playback across every layer that has any.
@@ -244,24 +293,53 @@ class Layers:
         self._layers.remove(layer)
         self._layers.insert(index, layer)
 
-    def _move_before(self, layer: Layer, other: Layer) -> None:
+    def _target(self, other: object) -> Layer:
+        """The layer `other` refers to, or a raise saying why it cannot be.
+
+        Accepts a controller (Console, TileMap) through the same `.layer` hook
+        `add` uses, so anything you can add you can also order against.
+
+        RAISES rather than returning None. This used to be a silent `return`:
+        ordering against a non-layer, or against a layer in another
+        collection, quietly did nothing and the frame just came out wrong --
+        the worst failure mode there is, and the same one the Console block
+        records for `console.cursor = some_cursor`. A reorder that cannot
+        happen must say so.
+        """
+        target = _as_layer(other)
+        if target is None:
+            raise TypeError(
+                f"expected a Layer, or a controller exposing a `.layer` "
+                f"(Console, TileMap); got {type(other)}"
+            )
+        if target not in self._layers:
+            raise ValueError(
+                "cannot order against a layer that is not in this draw "
+                "order -- layers.add() it first"
+            )
+        return target
+
+    def _move_before(self, layer: Layer, other: object) -> None:
         """Place `layer` immediately behind `other` (drawn just before it)."""
-        if layer is other or layer not in self._layers or other not in self._layers:
+        target = self._target(other)
+        if layer is target:
             return
         self._layers.remove(layer)
-        self._layers.insert(self._layers.index(other), layer)
+        self._layers.insert(self._layers.index(target), layer)
 
-    def _move_after(self, layer: Layer, other: Layer) -> None:
+    def _move_after(self, layer: Layer, other: object) -> None:
         """Place `layer` immediately in front of `other` (drawn just after it)."""
-        if layer is other or layer not in self._layers or other not in self._layers:
+        target = self._target(other)
+        if layer is target:
             return
         self._layers.remove(layer)
-        self._layers.insert(self._layers.index(other) + 1, layer)
+        self._layers.insert(self._layers.index(target) + 1, layer)
 
-    def _swap(self, a: Layer, b: Layer) -> None:
-        if a not in self._layers or b not in self._layers:
+    def _swap(self, a: Layer, b: object) -> None:
+        target = self._target(b)
+        if a is target:
             return
-        i, j = self._layers.index(a), self._layers.index(b)
+        i, j = self._layers.index(a), self._layers.index(target)
         self._layers[i], self._layers[j] = self._layers[j], self._layers[i]
 
     def _to_back(self, layer: Layer) -> None:

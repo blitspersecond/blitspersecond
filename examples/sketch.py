@@ -2,36 +2,39 @@ from blitspersecond import BlitsPerSecond
 from blitspersecond.console import Console
 
 from blitspersecond.graphics.glyph import CharSet
+from blitspersecond.resources.tmx import TiledFile
 
 bps = BlitsPerSecond()
 
-c = Console(CharSet.ASCII8X12)  # should this self register as a layer? Think about it.
-l1 = bps.layers.add(c)
+
+from blitspersecond.resources import ResourceManager
+
+# tmx = ResourceManager().tmx("assets/gorillaz/island.tmx")
+fg_tmx = ResourceManager().tmx("../experiments/assets/tiled/sonic/Sonic_md_fg1.tmx")
+fg_tm = fg_tmx.tilemap("Layer 1")
+
+bg_tmx = ResourceManager().tmx("../experiments/assets/tiled/sonic/Sonic_md_bg1.tmx")
+bg_tm = bg_tmx.tilemap("Layer 1")
+
+fg = bps.layers.add(fg_tm)
+bg = bps.layers.add(bg_tm)
+
+console = bps.layers.add(Console(CharSet.ASCII8X12))
+
+console.write("Let the Bat be Latina", at=(10, 10))
+
+bg.before(fg)
+
+x = 0
 
 
-c.print(
-    "Hello world", at=(0, 0)
-)  # convenience method for console, does new line stuffs - ignore for now
-c.write("Hello world")  # advances cursor
-c.write("Hello World")
+def main(bps: BlitsPerSecond):
+    global x
+    bg.scroll = (x // 2, 0)
+    fg.scroll = (x, 0)
+    x += 2
 
-c.write("bah" * 20)
-
-c.layer.cell[1, 10] = ord("A")
-
-c.layer.scroll(0, 1)  # scrolls the layer up one row, leaving a blank row at the bottom
-assert ["hello"][
-    0
-] == "hello"  # just to make sure pytest doesn't complain about no asserts
-
-
-for i in range(20):
-    c.write("boo..")
-
-
-def loopa(bps: BlitsPerSecond) -> None:
     pass
 
 
-if __name__ == "__main__":
-    bps.run(loopa)
+bps.run(main)

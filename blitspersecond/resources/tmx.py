@@ -14,12 +14,15 @@ from __future__ import annotations
 import base64
 import gzip
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from os.path import abspath, dirname, join
-from typing import Tuple
+from typing import TYPE_CHECKING, Dict, Tuple
 from xml.etree import ElementTree
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from blitspersecond.graphics.tile import TileMap
 
 
 _TMX_FLIP_H = 0x80000000
@@ -35,8 +38,18 @@ PLANE_DTYPE = np.dtype([("tile", np.int32), ("flags", np.uint8)])
 
 
 @dataclass(frozen=True)
-class TiledTileset:
-    """One BPS-compatible grid tileset referenced by a TMX map."""
+class _Tileset:
+    """One grid tileset referenced by a TMX map -- LOAD-TIME ONLY.
+
+    Private on purpose. Everything here except `image`/`w`/`h` is TMX plumbing
+    that this module consumes and finishes with: `firstgid` and `tilecount`
+    resolve a global ID to an owning tileset, `cols` validates the declared
+    grid against the real one. Publishing them handed callers the file
+    format's bookkeeping after the parser had already discharged it.
+
+    What survives the load is carried on TiledLayer, which the loader has
+    already PROVED uses exactly one tileset.
+    """
 
     name: str
     firstgid: int
@@ -52,32 +65,109 @@ class TiledTileset:
 
 @dataclass(frozen=True)
 class TiledLayer:
-    """One tile layer: its plane, and which tileset the plane's indices mean.
+    """One tile layer: its grid, and the sheet that grid's indices mean.
 
     The pairing is not a convenience -- the loader PROVES it, rejecting any
     layer whose tiles span more than one tileset, because one texture per
-    layer is what the batch depends on. Carrying the tileset name here is what
-    stops every consumer re-deriving a fact already established at parse time.
+    layer is what the batch depends on. Carrying the sheet here is what stops
+    every consumer re-deriving a fact already established at parse time.
+
+    `image`/`w`/`h` are the whole of what a consumer needs from the tileset:
+    which sheet, at what cell size. They live here rather than on a separate
+    published record because the tileset a layer uses is a property OF the
+    layer once the file is parsed.
     """
 
     name: str
+    #: The tileset's name in Tiled -- identity and error messages only.
     tileset: str
-    # Structured PLANE_DTYPE, indexed [row, col]; tile -1 is empty.
-    plane: np.ndarray
+    #: Absolute path to the sheet, and one cell in PIXELS.
+    image: str
+    w: int
+    h: int
+    # Structured PLANE_DTYPE, indexed [x, y] -- X-MAJOR, screen order, the
+    # same way GlyphLayer stores its cell grid. See TileMap.tiles.
+    tiles: np.ndarray
 
 
 @dataclass(frozen=True)
 class TiledFile:
-    """A complete, cached, GL-free reading of one compatible TMX file."""
+    """A complete, cached, GL-free reading of one compatible TMX file -- and
+    the factory the TileMaps in it come from.
+
+        maps = ResourceManager().tmx("island.tmx")
+        island = maps.tilemap("blue_island")
+        bps.layers.add(island)
+
+    A TMX is an ASSET: immutable, shared, one per path in the ResourceManager
+    memo. A TileMap is a GAME OBJECT: it has a camera and a stamped window.
+    This type is the seam between them -- cached itself, minting fresh state
+    on request -- which is the same split as ImageSpec (cached, pristine) to
+    PixelBuffer (owned, mutable).
+
+    Minted TileMaps are memoised per layer name, so asking twice gives the
+    same map rather than two cameras over one world. Take `.copy()` on the
+    result when you want an independent one.
+    """
 
     # The map in cells, then one tile in pixels.
     cols: int
     rows: int
     w: int
     h: int
-    tilesets: Tuple[TiledTileset, ...]
     # Authored back-to-front order.
     layers: Tuple[TiledLayer, ...]
+    # Minted TileMaps, by layer name. Mutable inside a frozen dataclass: the
+    # dict is rebound never, mutated in place always. Excluded from eq/repr so
+    # the record still compares as the pure data it is.
+    _minted: Dict[str, "TileMap"] = field(
+        default_factory=dict, compare=False, repr=False
+    )
+
+    @property
+    def names(self) -> Tuple[str, ...]:
+        """Every tile layer's name, authored back to front -- so iterating
+        this and adding each map reproduces the artist's stacking as the
+        draw order."""
+        return tuple(layer.name for layer in self.layers)
+
+    def layer(self, name: str) -> TiledLayer:
+        """One layer's raw record: its grid, and the sheet it means.
+
+        The data road. `tilemap()` is the one that mints something drawable;
+        this is for a caller building its own -- a repeating strip tiled
+        across the screen, a plane the file did not literally contain.
+        """
+        for entry in self.layers:
+            if entry.name == name:
+                return entry
+        raise KeyError(
+            f"no tile layer {name!r} in this map; it has: "
+            f"{', '.join(self.names)}"
+        )
+
+    def tilemap(self, name: str) -> "TileMap":
+        """The TileMap for one tile layer, minted unattached and memoised.
+
+        Unattached is the law every graphics type here obeys: build it, then
+        `layers.add(...)` places it. Nothing is drawn until you do.
+
+        Layers sharing a sheet share one TileAtlas -- and therefore one
+        texture and one interned tile pool -- because the sheet is an asset
+        and identity IS sharing for a PixelBuffer.
+        """
+        minted = self._minted.get(name)
+        if minted is not None:
+            return minted
+        # Call-time import: graphics imports resources for ImageSpec/TiledFile,
+        # so a module-level import here closes the loop. Same deferral, and the
+        # same reason, as display/layers.py's mint methods.
+        from blitspersecond.graphics.tile import TileMap
+
+        entry = self.layer(name)
+        minted = TileMap(_sheet(entry), np.array(entry.tiles), self)
+        self._minted[name] = minted
+        return minted
 
 
 def _positive_int(element, attribute: str, where: str) -> int:
@@ -107,7 +197,7 @@ def _load_tileset(
     reference,
     map_dir: str,
     map_tile_size: Tuple[int, int],
-) -> TiledTileset:
+) -> _Tileset:
     where = "tileset"
     firstgid = _positive_int(reference, "firstgid", where)
     source = reference.get("source")
@@ -180,7 +270,7 @@ def _load_tileset(
             f"{declared_count} tiles does not match image grid "
             f"{columns} columns / {tilecount} tiles"
         )
-    return TiledTileset(
+    return _Tileset(
         name=name,
         firstgid=firstgid,
         image=image_path,
@@ -235,7 +325,7 @@ def _decode_data(data, count: int, where: str) -> np.ndarray:
     return gids
 
 
-def _owner(gid: int, tilesets: Tuple[TiledTileset, ...], where: str) -> TiledTileset:
+def _owner(gid: int, tilesets: Tuple[_Tileset, ...], where: str) -> _Tileset:
     for tileset in reversed(tilesets):
         if gid >= tileset.firstgid:
             local = gid - tileset.firstgid
@@ -249,7 +339,7 @@ def _load_layer(
     element,
     width: int,
     height: int,
-    tilesets: Tuple[TiledTileset, ...],
+    tilesets: Tuple[_Tileset, ...],
 ) -> TiledLayer:
     name = element.get("name", "")
     where = f"layer {name!r}"
@@ -295,8 +385,8 @@ def _load_layer(
     # An empty layer names no tileset of its own; it takes the map's first so
     # that every layer answers the question, drawing nothing either way.
     tileset_name = next(iter(owners)) if owners else tilesets[0].name
+    tileset = next(ts for ts in tilesets if ts.name == tileset_name)
     if owners:
-        tileset = next(ts for ts in tilesets if ts.name == tileset_name)
         plane["tile"][occupied] = (
             raw[occupied].astype(np.int64) - tileset.firstgid
         )
@@ -305,8 +395,36 @@ def _load_layer(
         | (((gids & _TMX_FLIP_H) != 0).astype(np.uint8) << 1)
         | (((gids & _TMX_FLIP_V) != 0).astype(np.uint8) << 2)
     )
-    plane.setflags(write=False)
-    return TiledLayer(name=name, tileset=tileset_name, plane=plane)
+    # TMX decodes row-major; the engine addresses grids [x, y]. Transpose ONCE
+    # here, at load, so every downstream read is native and no per-access
+    # wrapper or per-frame transpose is needed. This mirrors GlyphLayer, whose
+    # cell grid is likewise stored x-major precisely so `cell[x, y]` is free.
+    tiles = np.ascontiguousarray(plane.T)
+    tiles.setflags(write=False)
+    return TiledLayer(
+        name=name,
+        tileset=tileset_name,
+        image=tileset.image,
+        w=tileset.w,
+        h=tileset.h,
+        tiles=tiles,
+    )
+
+
+def _sheet(entry: TiledLayer):
+    """The shared TileAtlas for one layer's tileset.
+
+    The PixelBuffer comes from the ResourceManager memo, so every layer over
+    the same sheet -- in this map, in another map, or placed by hand through
+    `layers.tile()` -- gets the SAME buffer and therefore one texture. The
+    atlas on top is cheap arithmetic and not worth caching: two grids over one
+    buffer is a legitimate thing to want.
+    """
+    from blitspersecond.graphics.tile import TileAtlas
+
+    from .resource_manager import ResourceManager
+
+    return TileAtlas(ResourceManager().buffer(entry.image), entry.w, entry.h)
 
 
 def load_tiled_file(filename: str) -> TiledFile:
@@ -366,6 +484,5 @@ def load_tiled_file(filename: str) -> TiledFile:
         rows=height,
         w=tilewidth,
         h=tileheight,
-        tilesets=tilesets,
         layers=layers,
     )

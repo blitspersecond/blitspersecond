@@ -49,7 +49,6 @@ from .tmx import (
     PLANE_DTYPE,
     TiledFile,
     TiledLayer,
-    TiledTileset,
     load_tiled_file,
 )
 
@@ -63,7 +62,6 @@ __all__ = [
     "SpriteSheetSpec",
     "grid_sprite_sheet_spec",
     "load_sprite_sheet_spec",
-    "TiledTileset",
     "PLANE_DTYPE",
     "TiledFile",
     "TiledLayer",

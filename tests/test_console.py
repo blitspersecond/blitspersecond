@@ -116,8 +116,9 @@ def test_console_is_built_unattached():
 def test_layers_add_attaches_the_layer_a_bare_console_was_built_over():
     layers = Layers()
 
-    console = layers.add(Console(CharSet.ASCII8X8))
+    console = Console(CharSet.ASCII8X8)
 
+    assert layers.add(console) is console  # add hands back what you passed
     assert isinstance(console, Console)
     assert console.glyphs.attached
     assert list(layers) == [console.glyphs]

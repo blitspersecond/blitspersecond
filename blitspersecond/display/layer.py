@@ -95,17 +95,22 @@ class Layer:
             )
         return self._layers
 
-    def before(self, other: "Layer") -> "Layer":
-        """Draw just before `other` (one step toward the background)."""
+    def before(self, other: object) -> "Layer":
+        """Draw just before `other` (one step toward the background).
+
+        `other` may be a Layer or anything wrapping one (Console, TileMap):
+        whatever you can `layers.add`, you can order against."""
         self._bound()._move_before(self, other)
         return self
 
-    def after(self, other: "Layer") -> "Layer":
-        """Draw just after `other` (one step toward the foreground)."""
+    def after(self, other: object) -> "Layer":
+        """Draw just after `other` (one step toward the foreground).
+
+        `other` may be a Layer or anything wrapping one (Console, TileMap)."""
         self._bound()._move_after(self, other)
         return self
 
-    def swap_with(self, other: "Layer") -> "Layer":
+    def swap_with(self, other: object) -> "Layer":
         """Swap stack positions with `other`."""
         self._bound()._swap(self, other)
         return self

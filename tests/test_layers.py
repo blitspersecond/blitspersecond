@@ -135,6 +135,8 @@ def test_add_attaches_a_controllers_layer_hook(layers, atlas):
 
     controller = Controller()
 
+    # add returns WHAT YOU PASSED, so `x = layers.add(Wrapper(...))` keeps
+    # the wrapper instead of silently dropping it.
     assert layers.add(controller) is controller
     assert list(layers) == [controller.layer]
     assert controller.layer.attached
@@ -235,3 +237,75 @@ def test_sprite_refuses_an_offset_without_a_grid(layers):
     package = Path(__file__).resolve().parent / "assets/test.sprite.json"
     with pytest.raises(TypeError, match="only with w/h"):
         layers.sprite(str(package), ox=-4, oy=-4)
+
+
+# -- controllers speak the draw order themselves ----------------------------
+
+
+def _console():
+    from blitspersecond.console import Console
+    from blitspersecond.graphics.glyph import CharSet
+
+    return Console(CharSet.ASCII8X8)
+
+
+def test_a_controller_orders_itself_without_reaching_for_its_layer(layers, atlas):
+    """console.before(other) -- not console.layer.before(other.layer)."""
+    back = TileLayer(atlas)
+    console = _console()
+    layers.add(back)
+    layers.add(console)
+
+    console.before(back)
+
+    assert list(layers) == [console.layer, back]
+
+
+def test_controller_ordering_accepts_another_controller(layers):
+    """Whatever you can add, you can order against."""
+    a, b = _console(), _console()
+    layers.add(a)
+    layers.add(b)
+
+    a.after(b)
+
+    assert list(layers) == [b.layer, a.layer]
+
+
+def test_controller_ordering_chains_in_the_controllers_vocabulary(layers, atlas):
+    back = TileLayer(atlas)
+    console = _console()
+    layers.add(back)
+    layers.add(console)
+
+    assert console.before(back) is console
+
+
+def test_controller_tag_and_attached_hold_no_state_of_their_own(layers):
+    console = _console()
+
+    assert not console.attached
+    layers.add(console)
+    assert console.attached
+
+    console.tag = "hud"
+    assert console.layer.tag == "hud"
+    console.layer.tag = "changed elsewhere"
+    assert console.tag == "changed elsewhere"
+
+
+def test_ordering_against_a_non_layer_raises_rather_than_no_opping(layers, atlas):
+    """The old silent `return` made an impossible reorder look successful."""
+    layer = TileLayer(atlas)
+    layers.add(layer)
+
+    with pytest.raises(TypeError, match="expected a Layer"):
+        layer.before(object())
+
+
+def test_ordering_against_an_unplaced_layer_raises(layers, atlas):
+    placed, loose = TileLayer(atlas), TileLayer(atlas)
+    layers.add(placed)
+
+    with pytest.raises(ValueError, match="not in this draw order"):
+        placed.before(loose)

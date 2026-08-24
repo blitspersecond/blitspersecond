@@ -145,6 +145,7 @@ from contextlib import contextmanager
 from typing import cast, Iterator, Optional, Tuple, TYPE_CHECKING, Union
 
 from blitspersecond.colors import Palette
+from blitspersecond.display.controller import Controller
 from blitspersecond.graphics.common import Pen
 from blitspersecond.graphics.glyph import CharSet, GlyphLayer
 from blitspersecond.system.config import Config
@@ -156,7 +157,7 @@ if TYPE_CHECKING:
     from blitspersecond.input.kbm.input import Input
 
 
-class Console:
+class Console(Controller):
     """A text console: clear / write / print with a per-cell colour pen.
     Spectrum / Amiga flavour, not a VT220.
 
@@ -242,25 +243,6 @@ class Console:
         caller working across wrapper types doesn't need to know which one
         it's holding."""
         return self._glyphs
-
-    @property
-    def attached(self) -> bool:
-        """Whether this console's layer is in a draw order, and so on screen.
-        Read-through to `.layer.attached` -- Console carries no draw-order
-        state of its own."""
-        return self._glyphs.attached
-
-    @property
-    def tag(self) -> Optional[str]:
-        """The underlying glyph layer's tag -- `console.tag` reaches through
-        to `console.glyphs.tag` rather than the console carrying its own,
-        since tag is a draw-order/lookup concept and the layer is the thing
-        actually sitting in one."""
-        return self._glyphs.tag
-
-    @tag.setter
-    def tag(self, value: Optional[str]) -> None:
-        self._glyphs.tag = value
 
     # -- geometry -----------------------------------------------------------
 
