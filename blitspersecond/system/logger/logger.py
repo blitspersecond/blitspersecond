@@ -14,8 +14,6 @@ from pathlib import Path
 from sys import stdout
 from typing import Optional
 
-from blitspersecond.common import SingletonMeta
-
 from .colored_formatter import ColoredFormatter
 
 
@@ -35,11 +33,15 @@ class LogLevel(Enum):
             return cls.INFO
 
 
-class Logger(metaclass=SingletonMeta):
-    """A singleton logger that wraps the Python logging module"""
+class Logger:
+    """Wraps the Python logging module. NOT a singleton -- `BlitsPerSecond`
+    is the singleton, and `bps.logger` is the intended way to reach one; this
+    class just makes constructing/wiring the stdlib logger nameable. Two
+    `Logger()` calls with the same `name` are still safe to make (the
+    `if not self.logger.handlers` guard below stops duplicate handlers),
+    because `logging.getLogger(name)` is itself a global registry keyed on
+    name -- uniqueness was never this class's job to add on top."""
 
-    # TODO: refactor this; do we want a singleton really? if so then we shouldn't be
-    # passing params into the constructor - remember python loggers are hierarchical
     def __init__(
         self,
         name: str = "BlitsPerSecond",

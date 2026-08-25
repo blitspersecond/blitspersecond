@@ -1,7 +1,20 @@
-from dataclasses import dataclass, field
-import os
+# Audited 2026-08-25: Display (width/height/fps/scale), Input.poll_rate and
+# Tiles are gone. 640x360@60 is the engine's fixed shape, not a setting --
+# README calls it "a fixed 640x360 internal screen", so a Config field
+# implying it varies was always going to mislead a reader. `scale` is
+# measured off the window once one exists, never chosen. `poll_rate` named
+# the tick rate, which is not something you poll for. `Tiles` had no
+# identified caller and no requirement behind it -- it belongs with the tile
+# pillar's own port, not here ahead of it. `spin_pacing` is deferred rather
+# than cut: whether it is still needed under the newer deadline pacing is
+# undecided until the window/display loop is back, so it returns with that
+# piece, not before.
+#
+# `fullscreen` survives because it is the one field that is actually
+# user-set input, self-contained (an env var, nothing measured or derived),
+# and already has its own contract pinned in tests/test_config.py.
 
-from blitspersecond.common import SingletonMeta, Size
+import os
 
 
 def _environment_flag(name: str, default: bool = False) -> bool:
@@ -15,51 +28,17 @@ def _environment_flag(name: str, default: bool = False) -> bool:
     raise ValueError(f"{name} must be a boolean flag")
 
 
-@dataclass
-class Display:
-    height: int = 360
-    width: int = 640
-    fps: int = 60
-    scale: int = 4
-    # Borderless at the current desktop mode; never switches display modes.
-    # Presentation uses the largest centred integer scale that fits.
-    fullscreen: bool = field(
-        default_factory=lambda: _environment_flag("BPS_FULLSCREEN")
-    )
-    # Unthrottled-fallback pacing: spin-poll the last ~2ms to the present
-    # deadline (exact grid, costs up to ~a quarter core -- fine on a desktop).
-    # False keeps the deadline grid but sleeps the whole way: drift-free,
-    # only sleep-wake jitter remains. Never spins when vsync is blocking.
-    spin_pacing: bool = True
+class Config:
+    """NOT a singleton -- `BlitsPerSecond` is the singleton, and `bps.config`
+    is the intended way to reach one; a bare `Config()` is a normal object,
+    with no identity to enforce here on top of the engine's own."""
 
-
-@dataclass
-class Input:
-    poll_rate: int = 60
-
-
-@dataclass
-class Tiles:
-    max: int = field(
-        default_factory=lambda: Display().height // 10 * Display().width // 20
-    )
-    default: Size = Size(32, 32)
-
-
-class Config(metaclass=SingletonMeta):
     def __init__(self):
-        self._display = Display()
-        self._input = Input()
-        self._tiles = Tiles()
+        self._fullscreen = _environment_flag("BPS_FULLSCREEN")
 
     @property
-    def display(self):
-        return self._display
-
-    @property
-    def input(self):
-        return self._input
-
-    @property
-    def tiles(self):
-        return self._tiles
+    def fullscreen(self) -> bool:
+        """Borderless at the current desktop mode; never switches display
+        modes. Presentation uses the largest centred integer scale that
+        fits."""
+        return self._fullscreen

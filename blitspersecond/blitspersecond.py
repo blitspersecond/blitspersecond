@@ -20,3 +20,7 @@ class BlitsPerSecond(metaclass=SingletonMeta):
     @property
     def logger(self) -> Logger:
         return self._logger
+
+    @property
+    def config(self) -> Config:
+        return self._config
