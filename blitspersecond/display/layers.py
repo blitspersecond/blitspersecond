@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
+from .controller import Controller
 from .layer import Layer
 
 # Annotations only. The mint methods below import their layer class at CALL
@@ -55,7 +56,7 @@ class Layers:
     def __init__(self):
         self._layers: List[Layer] = []
 
-    def add[T](self, item: T) -> T:
+    def add[T: Layer | Controller](self, item: T) -> T:
         """Place a built Layer at the front of the draw order -- or, given a
         controller like Console or TileMap that wraps one, attach the layer it
         wraps. Returns WHAT YOU PASSED, so the inline form is lossless:
@@ -72,10 +73,21 @@ class Layers:
         method took Layers ONLY -- 2026-08-14 spelled it `-> Layer`,
         2026-08-18 spelled it `-> T` -- and while the argument is always a
         Layer those two say the same thing about the same object. Neither is
-        prior art. `980867e` made controllers addable through `.layer`, which
-        is the commit that first made "the layer" and "what you passed" two
-        different things, and it answered `-> T` without saying why. That
-        silence is the whole reason this was reopened hours later.
+        prior art. `980867e` made controllers addable and dropped the `T:
+        Layer` bound, which is what first made "the layer" and "what you
+        passed" two different things; `-> T` carried through unexamined.
+
+        That was not an oversight, and the note here previously said it was.
+        Nothing yet distinguished the two answers: a console was the only
+        controller and it went up ALONE, so there was no second layer to
+        order it against and no way to notice which object you were holding.
+        The trap needs a controller and two other layers on screen at once,
+        and that configuration first existed when the tile pillar landed
+        later the same day. The choice was not undecided; it was undecidable.
+
+        Which is the phase-1 thesis in miniature: some of this surface is
+        only judgeable once two pillars coexist, so a shape that looks
+        settled against one engine is not yet evidence of anything.
 
         The answer is `-> T`, and the evidence is a trap. With `-> Layer`,
         `console = bps.layers.add(Console(...))` binds a GlyphLayer and
