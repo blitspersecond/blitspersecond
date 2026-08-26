@@ -6,10 +6,18 @@ Display owns the mapping from those ticks to presentation slots. Audio commands
 issued by a game tick are consumed independently by the realtime audio worker.
 Audio starts as a blocking readiness gate before presentation timing begins,
 then runs continuously until terminal engine shutdown.
+
+The loop does not own the state machine, and it no longer starts one: an
+engine is already RUNNING when it arrives here, having blocked through
+warm-up in its own constructor. The loop brackets its spell of servicing
+(`servicing`, `stopped`) and offers `Lifecycle` one boundary per iteration to
+apply deferred requests (`settle`); which state may follow which is the
+Lifecycle's business, not this file's. Everything else it touches on the
+engine is a subsystem it is here to service, in order.
 """
 
 from time import perf_counter
-from typing import Callable, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from pyglet import clock
 
@@ -23,10 +31,7 @@ class Loop:
     """Engine-private controller for the machine's main loop."""
 
     @staticmethod
-    def run(
-        engine: "BlitsPerSecond",
-        callback: Optional[Callable[["BlitsPerSecond"], None]] = None,
-    ) -> None:
+    def run(engine: "BlitsPerSecond") -> None:
         """Run input, game, lifecycle, and output at controlled boundaries.
 
         Ordering contract:
@@ -42,63 +47,64 @@ class Loop:
         the machine at the configured game rate. Suspension is separate:
         events and presentation remain live while game ticks stop.
         """
-        self = engine
-        self._set_state(EngineState.STARTING)
-        if callback is not None:
-            self.tick = callback
+        lifecycle = engine._lifecycle
+        # Claim the machine before anything can fail: from here a stop request
+        # waits for this loop to unwind rather than exiting out from under it.
+        lifecycle.servicing()
 
         try:
-            # Device activation and any future kernel warm-up belong entirely
-            # to STARTING. Presentation deadlines and the first tick baseline
-            # do not exist yet, so slow hardware startup cannot become a false
-            # first-frame stall or catch-up batch.
-            presentation = self._display._presentation_session()
+            # The pacing baselines come into existence at the moment the loop
+            # does, never during the constructor's warm-up -- that is what
+            # keeps slow hardware startup from reading as a first-frame stall.
+            presentation = engine._display._presentation_session()
         except BaseException as error:
-            self._shutdown(f"engine startup failed: {type(error).__name__}")
-            # self._set_state(EngineState.STOPPED)
+            # The one shutdown that does not leave through `stopped()`: a
+            # failed start is worth a traceback, and re-raising gives one
+            # (plus its own non-zero status) where a bare exit code would not.
+            # A loop is servicing by now, so this marks and unwinds rather
+            # than exiting from here.
+            lifecycle.fail(f"engine startup failed: {type(error).__name__}")
             raise
 
-        self._running = True
         last_tick = perf_counter()
-        # self._set_state(EngineState.RUNNING)
         try:
-            while self._running:
+            while lifecycle.running:
                 try:
                     priming_this_frame = presentation.begin_iteration()
-                    was_backgrounded = self._backgrounded
+                    # Latched by hand because the loop needs the EDGE, not the
+                    # level. Reporting that edge is the Lifecycle's job to take
+                    # over when the loop's own shape is settled.
+                    was_backgrounded = lifecycle.backgrounded
 
-                    self._display.dispatch_events()
+                    engine._display.dispatch_events()
                     presentation.after_dispatch()
-                    # The WM-close observer can call _shutdown during dispatch.
-                    if self._display.closed or not self._running:
-                        self._shutdown("display closed during event dispatch")
+                    # The WM-close observer can stop the engine during dispatch.
+                    if engine._display.closed or not lifecycle.running:
+                        lifecycle.stop("display closed during event dispatch")
                         break
 
-                    if self._backgrounded and not was_backgrounded:
+                    if lifecycle.backgrounded and not was_backgrounded:
                         presentation.backgrounded()
                         last_tick = perf_counter()
-                        self._metrics.pace.rebase()
-                    elif was_backgrounded and not self._backgrounded:
+                        engine._metrics.pace.rebase()
+                    elif was_backgrounded and not lifecycle.backgrounded:
                         presentation.foregrounded()
                         priming_this_frame = False
 
                     # Lifecycle requests land between event dispatch and input,
-                    # never part-way through a coherent game tick.
-                    suspended = self._user_suspended
-                    if suspended and self._state is EngineState.RUNNING:
-                        self._set_state(EngineState.SUSPENDING)
-                        self._set_state(EngineState.SUSPENDED)
-                    elif not suspended and self._state is EngineState.SUSPENDED:
-                        self._set_state(EngineState.RESUMING)
-                        self._metrics.pace.rebase()
+                    # never part-way through a coherent game tick. Resuming
+                    # invalidates the timing baselines -- wall time passed that
+                    # no tick accounted for -- so they rebase rather than treat
+                    # the gap as a catch-up debt.
+                    if lifecycle.settle() is EngineState.RUNNING:
+                        engine._metrics.pace.rebase()
                         presentation.resumed()
                         last_tick = perf_counter()
-                        self._set_state(EngineState.RUNNING)
 
                     tick_count = presentation.ticks_due(
-                        running=self._state is EngineState.RUNNING,
+                        running=lifecycle.state is EngineState.RUNNING,
                         priming=priming_this_frame,
-                        backgrounded=self._backgrounded,
+                        backgrounded=lifecycle.backgrounded,
                     )
                     if tick_count:
                         # Spread elapsed wall time evenly over a catch-up batch.
@@ -109,27 +115,28 @@ class Loop:
                         last_tick = now
                         for _ in range(tick_count):
                             # Latch the scene before input callbacks; rebinding
-                            # tick therefore takes effect next complete tick.
-                            tick = self._tick
-                            self._metrics.pace.push(per_tick)
-                            self._kbm._update()
-                            self._pads.update()
-                            if tick is not None:
-                                tick(self)
+                            # loop therefore takes effect next complete tick.
+                            # Never None -- an unset loop is a do-nothing
+                            # lambda -- so this is a bare call, not a test.
+                            game_loop = engine._loop
+                            engine._metrics.pace.push(per_tick)
+                            engine._kbm._update()
+                            engine._pads.update()
+                            game_loop()
                             # Clips advance after the game has had its say,
                             # so a play() issued this tick starts on this
                             # tick's frame -- and a catch-up batch advances
                             # animation once per tick it is making up, not
                             # once per rendered frame.
-                            self._display.layers._advance()
+                            engine._display.layers._advance()
 
                     presentation.after_simulation()
 
                     # A game tick may have called stop(), closing the surface.
-                    if not self._running or self._display.closed:
+                    if not lifecycle.running or engine._display.closed:
                         break
 
-                    if self._backgrounded:
+                    if lifecycle.backgrounded:
                         # Never feed an occlusion-throttled swap chain. Audio's
                         # device-paced worker and all game policy remain live.
                         clock.tick()
@@ -137,27 +144,33 @@ class Loop:
                         continue
 
                     if presentation.present(tick_count):
-                        # Display reports the condition; the engine publishes
+                        # Display reports the condition; the lifecycle publishes
                         # visibility and deliberately chooses no pause policy.
-                        self._set_backgrounded(
+                        lifecycle.set_backgrounded(
                             True,
                             "presentations withheld by compositor",
                         )
                         presentation.backgrounded()
                         last_tick = perf_counter()
-                        self._metrics.pace.rebase()
+                        engine._metrics.pace.rebase()
 
                     clock.tick()
                 except Exception as error:
-                    self._logger.error(f"Error during main loop: {error}")
-                    self._shutdown(f"main loop exception: {type(error).__name__}")
+                    engine._logger.error(f"Error during main loop: {error}")
+                    lifecycle.fail(
+                        f"main loop exception: {type(error).__name__}"
+                    )
                     break
         except KeyboardInterrupt:
-            self._shutdown("KeyboardInterrupt")
+            # 128 + SIGINT, the shell's convention for "killed by Ctrl-C".
+            lifecycle.stop("KeyboardInterrupt", 130)
 
-        self._set_state(EngineState.STOPPED)
         presentation.finish()
         # Report while logging is alive, not from atexit after test runners
         # have already closed their handlers.
-        self._metrics.pace.report()
-        self._logger.info("Main loop has exited.")
+        engine._metrics.pace.report()
+        engine._logger.info("Main loop has exited.")
+        # Terminal: publishes STOPPED now that the epilogue is done, then
+        # leaves the process with the status the shutdown earned. `run()`
+        # does not return.
+        lifecycle.stopped()

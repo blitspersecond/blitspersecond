@@ -1,11 +1,56 @@
-from typing import Callable, Optional
+from typing import Callable, Optional, cast
 
 
 from blitspersecond.common import SingletonMeta
 from blitspersecond.system import Logger, Config, EventBus
 from blitspersecond.display import Display
 
+from .lifecycle import EngineState, Lifecycle
 from .loop import Loop
+
+
+def _NOTHING() -> None:
+    """The default loop: a game that has not yet said what to do."""
+
+
+def _as_loop(loop: object) -> Callable[[], None]:
+    """Reduce whatever `bps.loop` was handed to one zero-argument callable.
+
+    Done once, at assignment, so the sixty-times-a-second path is a bare call
+    with no type inspection in it. Accepts a plain function or lambda, a
+    GameLoop subclass (constructed here), or an already-built GameLoop; None
+    puts the do-nothing default back.
+
+    A class is constructed EVERY time it is assigned, deliberately. Caching
+    one instance per class was tried and reverted: it made an unconditional
+    transition -- `self.bps.loop = next_scene` with no guard around it --
+    allocation-free, but the program was still switching scene sixty times a
+    second, which is the actual defect. All it removed was the symptom that
+    would have led someone to the bug, and in exchange a re-entered scene
+    came back holding the previous visit's state. A game that rebuilds a
+    scene every tick should feel like one.
+
+    Deliberately duck-typed rather than an isinstance check against GameLoop:
+    `gameloop` imports the engine, so importing it back would be a cycle --
+    and the engine has no business depending on the class we happen to teach.
+    """
+    if loop is None:
+        return _NOTHING
+    # A class is itself callable, so this has to be settled before the
+    # callable test, or `bps.loop = Title` would store the constructor.
+    if isinstance(loop, type):
+        loop = loop()
+    # Cast rather than constrain: a loop is welcome to return something, we
+    # simply ignore it. Demanding `-> None` would reject `lambda: bps.stop()`.
+    if callable(loop):
+        return cast(Callable[[], None], loop)
+    run = getattr(loop, "run", None)
+    if callable(run):
+        return cast(Callable[[], None], run)
+    raise TypeError(
+        "loop must be a callable, a GameLoop, or None -- "
+        f"got {type(loop).__name__}"
+    )
 
 
 class BlitsPerSecond(metaclass=SingletonMeta):
@@ -22,34 +67,68 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         self._logger = Logger()
         self._config = Config()
         self._event_bus = EventBus()
-        self._display = Display(
-            width=self.width,
-            height=self.height,
-            framerate=self.framerate,
-            events=self._event_bus,
-        )
-        self._tick: Optional[Callable[["BlitsPerSecond"], None]] = None
+        # The state machine is its own object, not a scatter of flags on the
+        # engine. It owns the states, the transitions between them, and the
+        # requests that drive them -- including the window-system events that
+        # feed it, which it subscribes to itself. The engine holds it, forwards
+        # the game-facing verbs to it, and otherwise reacts to it.
+        self._lifecycle = Lifecycle(events=self._event_bus, logger=self._logger)
+        # Never None: an unset loop is a do-nothing lambda, so the hot path
+        # calls it unconditionally instead of testing it sixty times a second.
+        self._loop: Callable[[], None] = _NOTHING
+        # Declared before warm-up so teardown has something to look at if
+        # warm-up dies half-built. Every subsystem added below gets the same
+        # treatment: named here, built during STARTING, checked in _teardown.
+        self._display: Optional[Display] = None
 
-        # Shutdown trigger. OS/WM close requests -- the close button, Alt+F4,
-        # and platform equivalents -- arrive as on_close and go to _shutdown,
-        # the one place that touches the window, via Display. Pyglet's default
-        # on_close is wired to the global app.event_loop rather than our
-        # private loop, so it never stops our loop; hence the explicit observer.
-        self._event_bus.push_handlers(
-            on_close=self._on_window_close,
-            # on_hide=self._on_window_background,
-            # on_show=self._on_window_foreground,
-            # on_expose=self._on_window_foreground,
-            # on_activate=self._on_window_foreground,
-        )
+        # Teardown is driven BY the state machine rather than racing it. One
+        # direction of causation: something requests a stop, the lifecycle
+        # publishes STOPPING, and the subsystems the engine owns come down
+        # here. Previously _shutdown both moved the state and closed the
+        # window, from four call sites, each of which had to remember both.
+        # Subscribed before warm-up, so a stop during it still tears down.
+        self._event_bus.push_handlers(on_engine_state=self._on_engine_state)
 
-    def _on_window_close(self) -> bool:
-        self._shutdown("window close request (OS/WM)")
-        return True
+        # Warm-up happens HERE, not in the loop: constructing an engine blocks
+        # until it is ready to be run. Opening the display today; the audio
+        # readiness gate will block in the same stretch. Presentation
+        # deadlines and the first tick baseline deliberately do not exist yet,
+        # so slow hardware startup cannot become a false first-frame stall or
+        # a catch-up batch -- Loop establishes those when it actually starts.
+        self._lifecycle.starting()
+        try:
+            self._display = Display(
+                width=self.width,
+                height=self.height,
+                framerate=self.framerate,
+                events=self._event_bus,
+            )
+        except Exception as error:
+            # An engine that cannot start is an engine that stops. On a single
+            # thread there is no loop servicing the lifecycle yet, so the
+            # failure runs the whole shutdown -- teardown of whatever did get
+            # built, then exit -- without returning here. The traceback goes to the
+            # log first, because a non-zero status alone says nothing about
+            # WHICH part of warm-up failed. Nothing is cached by the
+            # metaclass either way, so no half-built engine outlives this.
+            self._logger.exception(f"Engine start-up failed: {error}")
+            self._lifecycle.fail(f"start-up failed: {type(error).__name__}")
+            raise  # unreachable: the failure leaves the process
+        self._lifecycle.started()
 
-    def _shutdown(self, reason: str = "unspecified") -> None:
-        self._running = False
-        if not self._display.closed:
+    def _on_engine_state(self, previous: EngineState, current: EngineState) -> None:
+        if current is EngineState.STOPPING:
+            self._teardown()
+
+    def _teardown(self) -> None:
+        """Bring down the subsystems this engine owns. Runs once, inside the
+        transition to STOPPING.
+
+        Every subsystem is checked for existence, not assumed: warm-up can
+        fail part-way and stop from inside the constructor, so this runs
+        against a half-built engine as readily as a fully-built one.
+        """
+        if self._display is not None and not self._display.closed:
             self._display.close()
 
     @property
@@ -60,28 +139,70 @@ class BlitsPerSecond(metaclass=SingletonMeta):
     def config(self) -> Config:
         return self._config
 
-    def run(
-        self,
-        callback: Optional[Callable[["BlitsPerSecond"], None]] = None,
-    ) -> None:
-        """Run the machine on its display-owned presentation cadence.
+    @property
+    def events(self) -> EventBus:
+        return self._event_bus
 
-        Pass a callback as shorthand for assigning `bps.tick`, or bind and
-        rebind `bps.tick` yourself as scenes change.
+    def start(self, loop: object = None) -> None:
+        """Start the game: service `bps.loop` on the display's cadence.
+
+        Starts the GAME, not the engine -- the engine is already RUNNING by
+        the time you get here, having blocked through warm-up during
+        construction. What begins is the machine servicing you.
+
+        Pass a loop as shorthand for assigning `bps.loop`, or assign that
+        yourself and call this bare. Either way it does not return: the run
+        ends by leaving the process, when the window closes or the game
+        calls `stop()`.
         """
-        Loop.run(self, callback)
+        if loop is not None:
+            self.loop = loop
+        Loop.run(self)
+
+    # -- lifecycle, forwarded ------------------------------------------------
+    # The verbs a game reaches for live on the object its tick is handed, but
+    # the machine behind them is the Lifecycle's. These are the whole public
+    # surface of it; nothing else should reach `_lifecycle`.
 
     @property
-    def tick(self) -> Optional[Callable[["BlitsPerSecond"], None]]:
-        """The current scene's fixed-step function, or None.
+    def state(self) -> EngineState:
+        return self._lifecycle.state
 
-        Rebinding during a tick takes effect on the following tick, so scene
-        transitions never replace code halfway through one simulation step.
+    @property
+    def backgrounded(self) -> bool:
+        """Whether presentation is hidden or being withheld by the compositor."""
+        return self._lifecycle.backgrounded
+
+    def suspend(self) -> None:
+        """Request suspension: simulation ticks freeze, but the loop keeps
+        pumping events and presenting (the last composed frame stays up).
+        Takes effect at the next loop boundary; safe to call from a game
+        callback or an event handler. Backgrounding never calls this
+        automatically; games choose whether visibility changes imply pause."""
+        self._lifecycle.suspend()
+
+    def resume(self) -> None:
+        """Clear a suspend() request at the next lifecycle boundary."""
+        self._lifecycle.resume()
+
+    def stop(self) -> None:
+        """Request engine shutdown. Idempotent; safe from callbacks and
+        event handlers."""
+        self._lifecycle.stop("stop() called by game code")
+
+    @property
+    def loop(self) -> Callable[[], None]:
+        """The current scene's fixed step, as a zero-argument callable.
+
+        Reading this back gives you what the engine will actually call, which
+        is not always what you assigned: a GameLoop comes back as its bound
+        `run`, and a GameLoop subclass comes back as the bound `run` of an
+        instance built at assignment. Rebinding during a step takes effect on
+        the following one, so scene transitions never replace code halfway
+        through a simulation step.
         """
-        return self._tick
+        return self._loop
 
-    @tick.setter
-    def tick(self, callback: Optional[Callable[["BlitsPerSecond"], None]]) -> None:
-        if callback is not None and not callable(callback):
-            raise TypeError("tick must be callable or None")
-        self._tick = callback
+    @loop.setter
+    def loop(self, loop: object) -> None:
+        self._loop = _as_loop(loop)
