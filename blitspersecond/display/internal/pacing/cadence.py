@@ -40,6 +40,34 @@ class PresentationCadence:
 
         # Rotate the cadence so the first presentation carries an immediate
         # simulation tick.  Subsequent ticks are spread by the phase accumulator.
+        #
+        # Two separate things fall out of this line, and only one of them
+        # is what a reader expects. MEASURED, not inferred -- see
+        # `tests/test_cadence.py`.
+        #
+        # 1. The GAP SEQUENCE is the ceiling rotation. Ticks are spaced as
+        #    ceil(k * refresh / target) would space them: 60-on-144 gives
+        #    3,2,3,2,2 and 60-on-165 gives 3,3,3,2. Floor would give
+        #    2,2,3,2,3 and 2,3,3,3 -- same average rate, different phase.
+        #    Do not "simplify" this to a zero initial phase; it is the same
+        #    amount of code and a different pacing policy.
+        #
+        # 2. The ORIGIN is one full frame early, and that is NOT the ceiling
+        #    schedule. Ceiling would place game frame 1 at presentation 3;
+        #    this places it at presentation 1, so the whole schedule runs
+        #    1-2 presentations ahead of ceiling forever. Every frame
+        #    therefore presents EARLY of its ideal target-rate deadline --
+        #    by 4.17ms to 9.72ms at 144Hz, 6.06ms to 10.61ms at 165Hz -- and
+        #    the error is bounded but never converges.
+        #
+        # So the "cumulative deadline is never early" property that ceiling
+        # is usually chosen FOR does not hold here. Nothing currently depends
+        # on it: the deadline grid in `session.py` advances by 1/refresh
+        # uniformly, so no per-game-frame deadline exists to be early
+        # against, and presentation timing is independent of simulation
+        # timing by design. It would start to matter the day deadline pacing
+        # is expressed on a per-game-frame grid, which is exactly when
+        # someone should revisit this line rather than trust its name.
         self._initial_phase = self.ratio.denominator - self.ratio.numerator
         self._phase = self._initial_phase
 

@@ -17,10 +17,18 @@ across all three, and concatenates rather than merges.
 **Distribution and tail are honest to different depths.** 1024 raw frames
 support a p99.9 claim (1 in 1024 is the 99.902nd percentile); a p99.99 drawn
 from level 0 alone would be one sample pretending to be a percentile. The
-TAIL, though, never decays: `max` folds losslessly, so level 1's 512
+TAIL decays far more slowly: `max` folds losslessly, so level 1's 512
 second-maxima cover 30,720 frames exactly and level 2's cover 1.8 million.
 So this module quotes percentiles from level 0 and worst-case from
 everywhere, and says which is which.
+
+But `session_worst` IS eventually finite, and the name oversells it past
+that point. Level 2 fills after 512 minutes and then discards its oldest
+minute on every close, so at 60fps a run longer than about 8.7 hours has
+forgotten its earliest peaks. Everything the rings still hold is exact --
+there is no drift and no decay WITHIN the window -- but the window is a
+window. Nothing here retains a whole session, deliberately, because that is
+the same promise as unbounded memory.
 """
 
 from typing import List, Optional, Sequence

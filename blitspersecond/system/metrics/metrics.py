@@ -54,6 +54,23 @@ class Metrics(metaclass=SingletonMeta):
         # "what does this engine measure" should find the list in one place.
         # Subsystems with their own vocabulary (audio, input) declare theirs
         # next to the code that pushes them, via `counter()`/`gauge()`.
+        #
+        # NOT YET WIRED, as of 2026-08-26 -- both read as all-NaN, which is
+        # the honest answer for a metric nothing has measured, so declaring
+        # ahead of the push site costs nothing and misleads no one:
+        #
+        #   display.compose.ms   -- push site is `Display._compose`, still
+        #                           commented out by the graphics rebuild.
+        #                           The call is written and parked there.
+        #   display.deadline.ms  -- the value exists as `deadline_error` in
+        #                           `display.internal.pacing.session.present`
+        #                           but is only handed to the frame-pacing
+        #                           tracer. Wiring it means deciding how
+        #                           `pacing` reaches metrics: it takes its
+        #                           tracer through the `FramePacingSink`
+        #                           protocol precisely so `display/` imports
+        #                           no instrumentation, and that inversion
+        #                           should not be quietly abandoned for this.
         self._frame_ms = self.gauge(
             "engine.frame.ms",
             "Wall time attributed to one game frame. Spread evenly across a "

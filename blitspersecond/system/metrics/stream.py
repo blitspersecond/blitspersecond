@@ -6,6 +6,16 @@ modulo. At 60fps that is ~17 seconds of per-frame detail, 8m32s of
 per-second and 8h32m of per-minute, and it never grows: a gauge is 64 KiB
 forever, a counter 24 KiB.
 
+**Losing the oldest data is accepted, not a defect awaiting a fix.** (Kris,
+2026-08-26: *"if it continues to work and loses the earliest data that's
+acceptable."*) Level 2 fills after 512 minutes -- about 8.7 hours at 60fps
+-- and then discards its oldest minute on every close. Verified past that
+point: sums stay exact, nothing drifts, nothing corrupts, the window simply
+moves. So a later reader who notices the earliest peaks are gone should NOT
+grow the rings or bolt on a session-wide accumulator to "fix" it. That
+trades the one property this design exists to provide -- memory that is
+fixed and known -- for history nobody asked for.
+
 **The levels cascade; they do not run in parallel.** A slot folds into the
 level below it at the moment it is EVICTED, so eviction is the only roll-up
 trigger -- no timer, no scheduler, no wall clock anywhere in this file. Each

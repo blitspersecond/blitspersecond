@@ -20,6 +20,7 @@ from blitspersecond.common import SingletonMeta
 from blitspersecond.system.metrics import Metrics, carry_forward
 from blitspersecond.system.metrics.stream import (
     FRAMES,
+    MINUTES,
     SECONDS,
     SECONDS_PER_MINUTE,
     frame_slot,
@@ -275,3 +276,60 @@ def test_frame_counter_is_shared_so_slots_align(metrics):
     measured = np.where(~np.isnan(sparse_values[:50]))[0]
     assert list(measured) == list(range(0, 50, 5))
     assert list(dense_values[measured]) == [float(i) for i in measured]
+
+
+# -- the long run --------------------------------------------------------
+
+
+def test_level_two_wraps_without_drift_or_corruption():
+    """Past the point where the oldest level-2 slots start being discarded.
+
+    Level 2 fills after 512 minutes -- about 8.7 hours at 60fps -- and then
+    overwrites its oldest minute on every close. This drives a stream well
+    past that with `framerate=1`, so a "second" is one frame and the whole
+    cascade is exercised in ~65,000 frames rather than ~3 million.
+
+    What must hold afterwards: sums exact (no float drift accumulating
+    across a million folds), no NaN where a slot was written, indices still
+    in range, and the retained total equal to the window rather than to
+    everything ever pushed. Nothing here keeps a whole session -- that is
+    the same promise as unbounded memory -- so the correct behaviour is to
+    forget the oldest, exactly and quietly.
+    """
+    SingletonMeta._instances.pop(Metrics, None)
+    metrics = Metrics(framerate=1)
+    try:
+        counter = metrics.counter("test.long", "One unit per frame")
+        # 512 minutes need 512*60 second-evictions, and those only begin
+        # once level 1 has filled. Double it to wrap level 2 outright.
+        frames = 2 * (FRAMES + (SECONDS + MINUTES * SECONDS_PER_MINUTE))
+        _run(metrics, frames, lambda n: counter.push(1.0))
+
+        stream = metrics._streams[metrics.names.index("test.long")]
+        seconds, minutes = stream.closed
+        assert minutes > MINUTES, "level 2 never wrapped; test is not testing"
+
+        # Every closed second folded exactly one frame (framerate=1), and
+        # every closed minute exactly 60 seconds. Drift would show here.
+        second_sums = np.frombuffer(stream.levels[1][0], dtype=np.float64)
+        minute_sums = np.frombuffer(stream.levels[2][0], dtype=np.float64)
+        assert not np.isnan(second_sums).any()
+        assert not np.isnan(minute_sums).any()
+        assert second_sums.min() == second_sums.max() == 1.0
+        assert minute_sums.min() == minute_sums.max() == float(SECONDS_PER_MINUTE)
+
+        # The total is the RETAINED window, not the whole run, and it is
+        # short by exactly one frame: the slot the final advance opened.
+        (pending_second, _), (pending_minute, _) = stream.pending
+        window = (
+            FRAMES
+            + min(seconds, SECONDS)
+            + min(minutes, MINUTES) * SECONDS_PER_MINUTE
+        )
+        summary = metrics.report().summarise("test.long")
+        assert summary.total == pytest.approx(
+            window + pending_second + pending_minute - 1
+        )
+        assert summary.total < frames, "a finite window cannot hold the run"
+    finally:
+        SingletonMeta._instances.pop(Metrics, None)
