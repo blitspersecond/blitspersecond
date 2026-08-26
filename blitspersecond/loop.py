@@ -86,7 +86,7 @@ class Loop:
                     if lifecycle.backgrounded and not was_backgrounded:
                         presentation.backgrounded()
                         last_tick = perf_counter()
-                        engine._metrics.pace.rebase()
+                        engine._metrics.rebase()
                     elif was_backgrounded and not lifecycle.backgrounded:
                         presentation.foregrounded()
                         priming_this_frame = False
@@ -97,7 +97,7 @@ class Loop:
                     # no tick accounted for -- so they rebase rather than treat
                     # the gap as a catch-up debt.
                     if lifecycle.settle() is EngineState.RUNNING:
-                        engine._metrics.pace.rebase()
+                        engine._metrics.rebase()
                         presentation.resumed()
                         last_tick = perf_counter()
 
@@ -119,10 +119,24 @@ class Loop:
                             # Never None -- an unset loop is a do-nothing
                             # lambda -- so this is a bare call, not a test.
                             game_loop = engine._loop
-                            engine._metrics.pace.push(per_tick)
+                            # Turn the frame index FIRST. Everything staged
+                            # since the last tick belongs to the frame now
+                            # closing -- which includes the presentation that
+                            # followed it, so a tick and the 2 or 3 swaps that
+                            # presented it share one slot.
+                            engine._metrics.advance()
+                            engine._metrics.frame_ms.push(per_tick * 1000.0)
                             engine._kbm._update()
                             engine._pads.update()
+                            tick_started = perf_counter()
                             game_loop()
+                            # Measured around the call rather than derived from
+                            # per_tick: a catch-up batch spreads wall time
+                            # evenly, so frame_ms can only ever see a spike
+                            # smeared across the batch. This sees the spike.
+                            engine._metrics.gameloop_ms.push(
+                                (perf_counter() - tick_started) * 1000.0
+                            )
                             # Clips advance after the game has had its say,
                             # so a play() issued this tick starts on this
                             # tick's frame -- and a catch-up batch advances
@@ -143,7 +157,14 @@ class Loop:
                         presentation.wait_backgrounded()
                         continue
 
-                    if presentation.present(tick_count):
+                    stalled = presentation.present(tick_count)
+                    # One per presentation, so a game frame's total is the
+                    # cadence itself: 2,2,3,2,3 for 60fps on a 144Hz display.
+                    engine._metrics.presents.push()
+                    engine._metrics.swap_ms.push(
+                        engine._display.swap_duration * 1000.0
+                    )
+                    if stalled:
                         # Display reports the condition; the lifecycle publishes
                         # visibility and deliberately chooses no pause policy.
                         lifecycle.set_backgrounded(
@@ -152,7 +173,7 @@ class Loop:
                         )
                         presentation.backgrounded()
                         last_tick = perf_counter()
-                        engine._metrics.pace.rebase()
+                        engine._metrics.rebase()
 
                     clock.tick()
                 except Exception as error:
@@ -166,9 +187,11 @@ class Loop:
             lifecycle.stop("KeyboardInterrupt", 130)
 
         presentation.finish()
-        # Report while logging is alive, not from atexit after test runners
-        # have already closed their handlers.
-        engine._metrics.pace.report()
+        # Reported while logging is alive, not from atexit after test runners
+        # have already closed their handlers. Advance first, or the last
+        # tick's work is still in the staging buffer and goes unreported.
+        engine._metrics.advance()
+        engine._metrics.report().log(engine._logger)
         engine._logger.info("Main loop has exited.")
         # Terminal: publishes STOPPED now that the epilogue is done, then
         # leaves the process with the status the shutdown earned. `run()`

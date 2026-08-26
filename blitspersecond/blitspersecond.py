@@ -2,7 +2,7 @@ from typing import Callable, Optional, cast
 
 
 from blitspersecond.common import SingletonMeta
-from blitspersecond.system import Logger, Config, EventBus
+from blitspersecond.system import Logger, Config, EventBus, Metrics
 from blitspersecond.display import Display
 
 from .lifecycle import EngineState, Lifecycle
@@ -67,6 +67,12 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         self._logger = Logger()
         self._config = Config()
         self._event_bus = EventBus()
+        # Built before warm-up so subsystems can declare their metrics while
+        # they are constructed. Nothing is recorded yet: the frame index
+        # only turns once Loop starts servicing, which is what keeps slow
+        # hardware startup from reading as a stalled first frame -- the same
+        # rule the presentation baselines follow.
+        self._metrics = Metrics(framerate=self.framerate)
         # The state machine is its own object, not a scatter of flags on the
         # engine. It owns the states, the transitions between them, and the
         # requests that drive them -- including the window-system events that
@@ -142,6 +148,12 @@ class BlitsPerSecond(metaclass=SingletonMeta):
     @property
     def events(self) -> EventBus:
         return self._event_bus
+
+    @property
+    def metrics(self) -> Metrics:
+        """What the engine has measured about itself. Read it for a HUD,
+        declare your own counters and gauges on it, or ask it for a report."""
+        return self._metrics
 
     def start(self, loop: object = None) -> None:
         """Start the game: service `bps.loop` on the display's cadence.

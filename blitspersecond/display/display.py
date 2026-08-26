@@ -101,7 +101,9 @@ class Display:
     #             layer._composite()  # drawable syncs GPU state + executes its own batch
     #     fbo.unbind()
     #     # Compose cost only -- excludes the post-process draw + vsync/present.
-    #     Metrics().render.push(perf_counter() - start)
+    #     # Declared as `display.compose.ms` and already carried by Metrics;
+    #     # it reads as NaN -- not measured -- until this pass comes back.
+    #     Metrics().compose_ms.push((perf_counter() - start) * 1000.0)
 
     @property
     def swap_duration(self) -> float:
