@@ -4,7 +4,7 @@ import pyglet
 import pyglet.image.buffer
 from pyglet.graphics import shader
 
-from blitspersecond.common import HEIGHT, PACKAGE_ROOT, WIDTH
+from blitspersecond.common import PACKAGE_ROOT
 
 from .viewport import integer_viewport
 
@@ -42,15 +42,10 @@ _QUAD_INDICES = [0, 1, 2, 0, 2, 3]
 class Framebuffer(pyglet.image.buffer.Framebuffer):
     def __init__(
         self,
-        width: int | None = None,
-        height: int | None = None,
+        width: int,
+        height: int,
     ):
         super().__init__()
-        # The internal screen is the engine's fixed shape, not config -- see
-        # common/constants.py. Kept as overridable parameters only so a
-        # caller can build an off-size FBO deliberately.
-        width = WIDTH if width is None else width
-        height = HEIGHT if height is None else height
         self._color_buffer = pyglet.image.Texture.create(
             width,
             height,

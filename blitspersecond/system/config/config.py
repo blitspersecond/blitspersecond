@@ -14,27 +14,12 @@
 # user-set input, self-contained (an env var, nothing measured or derived),
 # and already has its own contract pinned in tests/test_config.py.
 
-import os
+from blitspersecond.common import SingletonMeta, environment_flag
 
 
-def _environment_flag(name: str, default: bool = False) -> bool:
-    raw = os.environ.get(name)
-    if raw is None or not raw:
-        return default
-    if raw.casefold() in {"1", "true", "yes", "on"}:
-        return True
-    if raw.casefold() in {"0", "false", "no", "off"}:
-        return False
-    raise ValueError(f"{name} must be a boolean flag")
-
-
-class Config:
-    """NOT a singleton -- `BlitsPerSecond` is the singleton, and `bps.config`
-    is the intended way to reach one; a bare `Config()` is a normal object,
-    with no identity to enforce here on top of the engine's own."""
-
+class Config(metaclass=SingletonMeta):
     def __init__(self):
-        self._fullscreen = _environment_flag("BPS_FULLSCREEN")
+        self._fullscreen = environment_flag("BPS_FULLSCREEN")
 
     @property
     def fullscreen(self) -> bool:

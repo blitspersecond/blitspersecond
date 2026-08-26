@@ -10,6 +10,14 @@ from blitspersecond import BlitsPerSecond
 from blitspersecond.system import Config, Logger
 
 
+def test_engine_defines_the_fixed_machine_shape():
+    assert (
+        BlitsPerSecond.width,
+        BlitsPerSecond.height,
+        BlitsPerSecond.framerate,
+    ) == (640, 360, 60)
+
+
 def test_engine_constructs():
     assert isinstance(BlitsPerSecond(), BlitsPerSecond)
 

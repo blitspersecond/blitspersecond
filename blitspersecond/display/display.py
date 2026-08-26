@@ -1,12 +1,7 @@
 from time import perf_counter
 from typing import Optional
 
-from pyglet.gl import glViewport
-from pyglet.math import Mat4
-
-
-from blitspersecond.common import FRAMERATE, HEIGHT, WIDTH
-from blitspersecond.system import Config, Logger, EventBus  # Metrics
+from blitspersecond.system import Logger, EventBus  # Metrics
 
 from blitspersecond.display.internal import Framebuffer, Surface
 
@@ -20,17 +15,26 @@ from blitspersecond.display.internal import Framebuffer, Surface
 
 
 class Display:
+    """Realise an engine's logical screen on a physical display."""
+
     def __init__(
         self,
+        width: int,
+        height: int,
+        framerate: int,
         events: Optional[EventBus] = None,
     ) -> None:
+        self.width = width
+        self.height = height
+        self.framerate = framerate
         self._surface = Surface(
+            self.width,
+            self.height,
             events=events,
         )
-        # display = Config().display
         self._framebuffer = Framebuffer(
-            WIDTH,
-            HEIGHT,
+            self.width,
+            self.height,
         )
         # self._layers = Layers()
         self._logger = Logger()
@@ -66,11 +70,10 @@ class Display:
 
     # def _presentation_session(self) -> PresentationSession:
     #     """Build the display-owned pacing state for one engine run."""
-    #     config = Config().display
     #     return PresentationSession(
     #         self,
-    #         target_rate=config.fps,
-    #         spin_pacing=config.spin_pacing,  # FIXME: this is what we wanted to test - do we need this anymore?
+    #         target_rate=self.framerate,
+    #         spin_pacing=True,  # FIXME: this is what we wanted to test - do we need this anymore?
     #         logger=self._logger,
     #         frame_pacing_factory=FramePacingRecorder.from_environment,
     #         diagnostic_deadline=start_deadline_from_environment(),

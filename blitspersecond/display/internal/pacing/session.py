@@ -1,10 +1,9 @@
 """Per-run presentation cadence, pacing, health, and instrumentation."""
 
 from math import isfinite
-from pathlib import Path
 import sys
 from time import perf_counter, perf_counter_ns, sleep
-from typing import Protocol, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from blitspersecond.system import Logger
 
@@ -12,56 +11,10 @@ from .cadence import PresentationCadence
 from .health import FlipHealth, PresentationMonitor
 from .path import detect_presentation_path
 from .rate import DeliveredRate
+from .sink import FramePacingSinkFactory
 
 if TYPE_CHECKING:
     from blitspersecond.display.display import Display
-
-
-class FramePacingSink(Protocol):
-    """Completed-frame event sink used by presentation instrumentation."""
-
-    path: Path
-
-    @property
-    def count(self) -> int: ...
-
-    @property
-    def dropped(self) -> int: ...
-
-    def begin_iteration(self) -> None: ...
-
-    def after_dispatch(self) -> None: ...
-
-    def after_simulation(self) -> None: ...
-
-    def after_prepare(self) -> None: ...
-
-    def record_present(
-        self,
-        *,
-        presented_ns: int,
-        ticks: int,
-        recomposed: bool,
-        swap_seconds: float,
-        deadline_seconds: float | None,
-        pacing_mode: str,
-        flip_health: str,
-    ) -> None: ...
-
-    def save(self) -> None: ...
-
-
-class FramePacingSinkFactory(Protocol):
-    """Construct an optional sink once presentation metadata is known."""
-
-    def __call__(
-        self,
-        *,
-        target_fps: float,
-        refresh_hz: float | None,
-        cadence: str,
-        presentation_path: str,
-    ) -> FramePacingSink | None: ...
 
 
 # How early a coarse sleep hands over to spin-polling when swap does not pace

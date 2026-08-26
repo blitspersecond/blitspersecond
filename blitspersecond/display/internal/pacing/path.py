@@ -12,8 +12,18 @@ import os
 import sys
 from typing import Mapping
 
+from blitspersecond.common import environment_flag
+
 
 ENV_GAMESCOPE_BACKEND = "BPS_GAMESCOPE_BACKEND"
+
+#: Diagnostic override: force the deadline grid from frame one on a path
+#: that would otherwise start on a blocking swap. Set by
+#: `util/capture_frame_pacing.py`. It keeps its BPS_FRAMEPACE_ name --
+#: that is the experiment it belongs to -- but it lives HERE rather than
+#: with the recorder, because it changes how the engine paces rather than
+#: what gets recorded, and instrumentation must not steer the engine.
+ENV_START_DEADLINE = "BPS_FRAMEPACE_START_DEADLINE"
 
 
 @dataclass(frozen=True)
@@ -105,3 +115,14 @@ def detect_presentation_path(
         session=session,
         compositor=desktop or "X11 window manager",
     )
+
+
+def start_deadline_from_environment() -> bool:
+    """Whether a diagnostic capture asked for deadline pacing from frame one.
+
+    The manual counterpart to `PresentationPath.starts_on_deadline_grid`:
+    that property answers "does this path's swap already fail to pace us",
+    this answers "has someone asked us to behave as though it does". Used to
+    measure the deadline grid on a path that would otherwise never select it.
+    """
+    return environment_flag(ENV_START_DEADLINE)

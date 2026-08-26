@@ -2,8 +2,7 @@ import pyglet
 import sys
 from typing import Optional
 
-from blitspersecond.common import WIDTH, HEIGHT
-from blitspersecond.system import Config, Logger, EventBus
+from blitspersecond.system import Logger, EventBus
 
 from .pacing.path import detect_presentation_path
 from .pacing.refresh_rate import get_refresh_rate
@@ -22,6 +21,8 @@ else:
 class Surface(pyglet.window.Window):
     def __init__(
         self,
+        internal_width: int,
+        internal_height: int,
         events: Optional[EventBus] = None,
     ) -> None:
         # Set before super().__init__ -- pyglet dispatches events (e.g.
@@ -45,8 +46,8 @@ class Surface(pyglet.window.Window):
             style = self.WINDOW_STYLE_BORDERLESS
             visible = False
         else:
-            width = int(WIDTH * self._scale)
-            height = int(HEIGHT * self._scale)
+            width = int(internal_width * self._scale)
+            height = int(internal_height * self._scale)
             style = self.WINDOW_STYLE_DEFAULT
             visible = True
 
