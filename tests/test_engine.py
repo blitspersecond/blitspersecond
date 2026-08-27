@@ -6,16 +6,30 @@ not just how you make one -- so identity across calls is the promise, not an
 implementation detail of the metaclass.
 """
 
-from blitspersecond import BlitsPerSecond
+import pytest
+
+from blitspersecond import BlitsPerSecond, fps
 from blitspersecond.system import Config, Logger
 
 
 def test_engine_defines_the_fixed_machine_shape():
-    assert (
-        BlitsPerSecond.width,
-        BlitsPerSecond.height,
-        BlitsPerSecond.framerate,
-    ) == (640, 360, 60)
+    """Width and height only. `framerate` used to sit here and no longer does
+    -- it became an authoring choice rather than part of the machine."""
+    assert (BlitsPerSecond.width, BlitsPerSecond.height) == (640, 360)
+
+
+def test_framerate_defaults_to_sixty():
+    assert BlitsPerSecond().framerate is fps.SIXTY
+
+
+def test_framerate_cannot_be_changed_afterwards():
+    """No setter, deliberately. Every tuned constant in a game is counted in
+    frames, so there is no coherent thing a setter could do -- changing the
+    rate mid-run would silently redefine jump arcs, input windows and
+    animation timing all at once."""
+    engine = BlitsPerSecond()
+    with pytest.raises(AttributeError):
+        engine.framerate = fps.THIRTY
 
 
 def test_engine_constructs():

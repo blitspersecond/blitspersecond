@@ -1,12 +1,22 @@
 from typing import Callable, Optional, cast
 
 
-from blitspersecond.common import SingletonMeta
+from blitspersecond.common import SingletonMeta, fps
 from blitspersecond.system import Logger, Config, EventBus, Metrics
 from blitspersecond.display import Display
 
 from .lifecycle import EngineState, Lifecycle
 from .loop import Loop
+
+
+#: The rate every game is authored at until there is a config to say
+#: otherwise. A constant rather than a constructor argument: `BlitsPerSecond()`
+#: is the idempotent "engine exists" barrier -- calling it is how you GET the
+#: engine, from anywhere -- so an argument there reads as configuration and
+#: would be quietly dropped by every call after the first. Rather than guard
+#: against that, the shape simply does not allow it. Config replaces this line;
+#: see the board card "Let the game author declare its tick rate".
+_FRAMERATE = fps.SIXTY
 
 
 def _NOTHING() -> None:
@@ -56,7 +66,6 @@ def _as_loop(loop: object) -> Callable[[], None]:
 class BlitsPerSecond(metaclass=SingletonMeta):
     width = 640
     height = 360
-    framerate = 60
 
     @classmethod
     def current(cls) -> Optional["BlitsPerSecond"]:
@@ -64,6 +73,13 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         return SingletonMeta._instances.get(cls)
 
     def __init__(self):
+        # Read once, here. No setter and no override hook: every tuned
+        # constant in a game -- jump arcs, input windows, animation timing --
+        # is counted in frames, so changing the rate mid-run would silently
+        # redefine all of them at once. There is no coherent thing a setter
+        # could do, which is why there is not one. `Metrics` and `Display`
+        # are handed it below and keep it for the life of the process.
+        self._framerate = _FRAMERATE
         self._logger = Logger()
         self._config = Config()
         self._event_bus = EventBus()
@@ -72,7 +88,7 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         # only turns once Loop starts servicing, which is what keeps slow
         # hardware startup from reading as a stalled first frame -- the same
         # rule the presentation baselines follow.
-        self._metrics = Metrics(framerate=self.framerate)
+        self._metrics = Metrics(framerate=self._framerate)
         # The state machine is its own object, not a scatter of flags on the
         # engine. It owns the states, the transitions between them, and the
         # requests that drive them -- including the window-system events that
@@ -106,7 +122,7 @@ class BlitsPerSecond(metaclass=SingletonMeta):
             self._display = Display(
                 width=self.width,
                 height=self.height,
-                framerate=self.framerate,
+                framerate=self._framerate,
                 events=self._event_bus,
             )
         except Exception as error:
@@ -136,6 +152,13 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         """
         if self._display is not None and not self._display.closed:
             self._display.close()
+
+    @property
+    def framerate(self) -> fps:
+        """The rate this game was authored at. Read-only for the reasons in
+        `common.framerate`: it is the unit every tuned constant is expressed
+        in, so it is settled at construction and never after."""
+        return self._framerate
 
     @property
     def logger(self) -> Logger:

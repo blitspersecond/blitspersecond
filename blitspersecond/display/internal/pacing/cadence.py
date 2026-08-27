@@ -19,7 +19,7 @@ class PresentationCadence:
         self,
         target_rate: float,
         refresh_rate: float,
-        max_denominator: int = 20,
+        max_denominator: int = 40,
     ) -> None:
         if target_rate <= 0:
             raise ValueError("target_rate must be positive")
@@ -30,6 +30,15 @@ class PresentationCadence:
 
         self.target_rate = float(target_rate)
         self.refresh_rate = float(refresh_rate)
+        # 40, not 20. A bound of 20 cannot express 60/175 = 12/35 or
+        # 60/500 = 3/25, and `limit_denominator` does not fail when it cannot
+        # -- it silently returns the nearest rational it CAN build. That put
+        # 175Hz panels (the stock factory overclock on a 165Hz part, so real
+        # shipping hardware) at 7/20, running the simulation at 61.25fps:
+        # 2% fast forever, every timer and tween off by the same amount, and
+        # nothing logged. Measured 2026-08-26; 35 is the smallest bound that
+        # covers both, and every other rate tested resolves to an identical
+        # ratio at 20, 25, 35, 40 and 60, so the headroom is free.
         self.ratio = Fraction(self.target_rate / self.refresh_rate).limit_denominator(max_denominator)
         if self.ratio.numerator == 0:
             # limit_denominator rounded a very slow target down to "never
@@ -38,37 +47,46 @@ class PresentationCadence:
             # than silently freezing the simulation forever.
             self.ratio = Fraction(1, max_denominator)
 
-        # Rotate the cadence so the first presentation carries an immediate
-        # simulation tick.  Subsequent ticks are spread by the phase accumulator.
-        #
-        # Two separate things fall out of this line, and only one of them
-        # is what a reader expects. MEASURED, not inferred -- see
+        # Zero phase IS the ceiling schedule: game frame k presents at
+        # ceil(k * refresh / target) -- frame 1 at presentation 3 on a 144Hz
+        # display, not presentation 1. MEASURED, not inferred; see
         # `tests/test_cadence.py`.
         #
-        # 1. The GAP SEQUENCE is the ceiling rotation. Ticks are spaced as
-        #    ceil(k * refresh / target) would space them: 60-on-144 gives
-        #    3,2,3,2,2 and 60-on-165 gives 3,3,3,2. Floor would give
-        #    2,2,3,2,3 and 2,3,3,3 -- same average rate, different phase.
-        #    Do not "simplify" this to a zero initial phase; it is the same
-        #    amount of code and a different pacing policy.
+        # Two properties follow, and the engine now depends on both:
         #
-        # 2. The ORIGIN is one full frame early, and that is NOT the ceiling
-        #    schedule. Ceiling would place game frame 1 at presentation 3;
-        #    this places it at presentation 1, so the whole schedule runs
-        #    1-2 presentations ahead of ceiling forever. Every frame
-        #    therefore presents EARLY of its ideal target-rate deadline --
-        #    by 4.17ms to 9.72ms at 144Hz, 6.06ms to 10.61ms at 165Hz -- and
-        #    the error is bounded but never converges.
+        # 1. NEVER EARLY. A present lands at ceil(k * R / target) / R, which
+        #    is always >= k / target. The frame is on or after its ideal
+        #    deadline, never ahead of it.
         #
-        # So the "cumulative deadline is never early" property that ceiling
-        # is usually chosen FOR does not hold here. Nothing currently depends
-        # on it: the deadline grid in `session.py` advances by 1/refresh
-        # uniformly, so no per-game-frame deadline exists to be early
-        # against, and presentation timing is independent of simulation
-        # timing by design. It would start to matter the day deadline pacing
-        # is expressed on a per-game-frame grid, which is exactly when
-        # someone should revisit this line rather than trust its name.
-        self._initial_phase = self.ratio.denominator - self.ratio.numerator
+        # 2. INSIDE THE WINDOW. That same expression is < k / target + 1/R,
+        #    so the frame lands within its own interval whenever
+        #    1/R <= 1/target -- i.e. for any refresh at or above the target
+        #    rate.
+        #    Below the target the bound exceeds the window and this
+        #    guarantee lapses -- but that is a description, not a fault. On a
+        #    40Hz display (a Steam Deck battery cap, not an exotic panel) the
+        #    ratio exceeds 1, ticks batch, and showing 40 frames of a 60Hz
+        #    simulation is exactly what was asked for.
+        #
+        # The startup prime falls out of the same arithmetic rather than
+        # being built: the first ceil(refresh / target) - 1 presentations
+        # carry no tick, so the loop dispatches, simulates nothing, and
+        # re-presents. Frame one therefore gets a full frame interval instead
+        # of whatever was left of one, and the deadline grid is phased off a
+        # real completed present. Two slots at 144Hz and 165Hz, one at 120Hz,
+        # and none at 60Hz -- where ratio 1/1 makes this line a no-op and the
+        # engine is in lockstep with nothing to spare, as it should be.
+        #
+        # This replaced a `denominator - numerator` rotation on 2026-08-26.
+        # That kept the same cyclic gap sequence but started it two slots
+        # early, so every frame presented ahead of its deadline -- by 4.17ms
+        # to 9.72ms at 144Hz, 6.06ms to 10.61ms at 165Hz -- and none landed
+        # inside its own window. Harmless while presentation timing was
+        # independent of simulation timing; wrong the moment pacing was
+        # expressed on a per-game-frame grid, which is what happened. Do not
+        # reintroduce the rotation to "make the first frame tick sooner":
+        # that first tick is the one this schedule deliberately gives room.
+        self._initial_phase = 0
         self._phase = self._initial_phase
 
     @property
@@ -76,11 +94,37 @@ class PresentationCadence:
         """Nominal simulation ticks per second produced by this cadence."""
         return self.refresh_rate * float(self.ratio)
 
+    @property
+    def rate_error(self) -> float:
+        """Signed fraction by which the cadence misses the requested rate.
+
+        Two different things show up here and only one is a fault, so read the
+        MAGNITUDE, not the sign:
+
+        * **A panel that is not a multiple of the target.** 59.94Hz gives
+          -0.001 and that is the engine working correctly -- the ratio is
+          1/1, no smaller rational is closer (the exact one is 1000/999), and
+          a notional second on that display is genuinely 1001ms. Hiding it
+          would mean double-ticking onto adjacent presentations, which is the
+          precise thing this class exists to avoid.
+        * **A ratio the denominator bound could not express.** 175Hz under
+          the old bound of 20 gave +0.021, because 12/35 was available and
+          excluded. That is a fault: a representable ratio was refused.
+
+        Real panels land at or under 0.001 (59.94 -> -0.001, a measured
+        143.98 -> -0.0001). A bound failure lands near 0.02. Anything in
+        between is unexplored territory and worth a look rather than a
+        silent run, which is why the caller warns on a threshold well inside
+        that gap rather than on any deviation at all.
+        """
+        return (self.effective_rate - self.target_rate) / self.target_rate
+
     def reset(self) -> None:
         """Restart the phase pattern, e.g. when resuming after a suspension.
 
-        The next presentation carries an immediate tick, exactly like the
-        first presentation after construction.
+        Re-enters the ceiling schedule at its origin, exactly like
+        construction -- so a resume gets the same startup prime a cold start
+        does, and the first tick after it gets a full frame interval.
         """
         self._phase = self._initial_phase
 

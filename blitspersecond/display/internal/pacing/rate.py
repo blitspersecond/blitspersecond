@@ -24,6 +24,48 @@ re-cadence. The second is a slow game, and ``PresentationCadence`` is
 deliberately built so that a slow presentation stream makes the game slow
 rather than hiding it.
 
+The match is tight -- 0.3% -- because a real display barely moves.
+
+A refresh rate is not declared, it is derived: ``pixel_clock / (htotal *
+vtotal)``, with the pixel clock quantised to 10kHz in EDID and htotal/vtotal
+integers. The "60Hz" in a settings dialog is a rounded label on that
+arithmetic, not a claim the panel can then miss. So the only legitimate spread
+is label rounding: the 1000/1001 family (60 -> 59.940, 144 -> 143.856) at
+0.1%, with timing granularity below that. So 0.3% is roughly triple the
+largest legitimate deviation there is.
+
+What sets the delivered rate is the SOURCE's pixel clock, and it survives the
+link intact. DisplayPort does not carry a video clock; the sink regenerates
+one as ``Mvid/Nvid * link_symbol_clock``, with Mvid dynamically counted
+against that same incoming link clock and trimmed by a FIFO fill-level servo.
+Spread-spectrum clocking was the obvious way this could have gone wrong -- DP
+SSC is a down-spread of around 0.5%, comfortably outside this tolerance -- but
+the modulation appears in both terms of that ratio and cancels, which is the
+mechanism's whole point. Checked 2026-08-26 rather than assumed. So the rate
+arriving at the panel is oscillator-grade accurate to the timing the source
+generated, and the label is the only thing that rounds.
+
+No spec clause stating a refresh-rate accuracy percentage turned up, so treat
+0.3% as an engineering line rather than a conformance test -- but a display
+outside it is the source generating different timing or frames not being
+delivered, not a panel legitimately running slow.
+
+The failure modes are asymmetric, which is what settles the direction to err
+in. Too tight and no candidate matches: ``_match`` returns None, the engine
+keeps the rate it already has, and the only cost is a re-cadence that does
+not happen. Too loose and it re-cadences onto a display the window is not on
+-- at the previous 5% a game running 137-151fps on a 165Hz display matched a
+connected 144Hz output and rebuilt the simulation grid around it, which is the
+exact bug ``_retune`` exists to prevent, inverted. It also brought the
+165/170/175/180 modes within one tolerance of each other.
+
+**Variable refresh is out of scope, not unhandled.** A VRR display has a range
+rather than a rate, which would dissolve every assumption here. It does not
+arise: the engine never takes exclusive fullscreen -- "fullscreen" is
+borderless at the active desktop mode (see ``Surface``) -- so adaptive sync is
+the compositor's business and the window is paced by the desktop mode either
+way.
+
 The estimator is only meaningful where the swap blocks on vsync. On a
 deadline-grid path -- Gamescope, Win32/DWM -- the interval is the engine's own
 deadline and proves nothing about the display, so the caller must not feed it
@@ -47,7 +89,7 @@ class DeliveredRate:
         window: int = 20,
         steady_tolerance: float = 0.08,
         agreement: float = 0.8,
-        match_tolerance: float = 0.05,
+        match_tolerance: float = 0.003,
         implausible_interval: float = 0.25,
         recheck_after: int = 180,
     ) -> None:

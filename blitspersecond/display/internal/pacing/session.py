@@ -21,6 +21,14 @@ if TYPE_CHECKING:
 # presentation. The spin burns at most this much CPU time per frame.
 _SPIN_MARGIN = 0.002
 
+# How far the cadence may miss the requested rate before it is reported.
+# Sits in the gap between the two things `PresentationCadence.rate_error`
+# measures: a real panel that is not a multiple of 60 lands at or under
+# 0.001, a ratio the denominator bound could not express lands near 0.02.
+# Deliberately closer to the panels, so an unexplored middle is reported
+# rather than assumed benign.
+_RATE_TOLERANCE = 0.005
+
 
 def _log_deadline_grid_pacing(
     logger: Logger,
@@ -141,6 +149,7 @@ class PresentationSession:
                 f"Display refresh unavailable; starting wall-time fallback "
                 f"({target_rate} FPS sim)."
             )
+        self._report_rate_error()
 
         self._deadline_grid_reported = False
         self._unthrottled_pacing = self._start_deadline
@@ -379,6 +388,31 @@ class PresentationSession:
 
         return self._flip_health is FlipHealth.STALLED
 
+    def _report_rate_error(self) -> None:
+        """Say so when the cadence cannot actually deliver the target rate.
+
+        The failure this catches is silent by construction: `Fraction` returns
+        the nearest ratio it can build rather than refusing, so a display the
+        bound cannot express produces a simulation running steadily fast or
+        slow with nothing else to show for it. What the engine should DO about
+        that -- degrade loudly, or refuse the display outright -- is still
+        open; being able to see it is the prerequisite either way.
+        """
+        if self._cadence is None:
+            return
+        error = self._cadence.rate_error
+        if abs(error) <= _RATE_TOLERANCE:
+            return
+        self._logger.warning(
+            f"Cadence cannot deliver {self._target_rate} FPS on a "
+            f"{self._cadence.refresh_rate:.3f}Hz display: ratio "
+            f"{self._cadence.ratio.numerator}/"
+            f"{self._cadence.ratio.denominator} runs the simulation at "
+            f"{self._cadence.effective_rate:.3f} FPS ({error * 100:+.2f}%). "
+            f"The exact ratio needs a denominator above "
+            f"{self._cadence.ratio.denominator}."
+        )
+
     def _retune(self, refresh_rate: float) -> None:
         """Adopt a measured display rate, rebuilding the simulation cadence.
 
@@ -403,6 +437,7 @@ class PresentationSession:
             f"{self._cadence.ratio.numerator}/{self._cadence.ratio.denominator} "
             f"(effective {self._cadence.effective_rate:.3f} FPS)."
         )
+        self._report_rate_error()
         # The old deadline belongs to the old period.
         self._next_present = perf_counter() + self._presentation_period
 
