@@ -3,6 +3,14 @@
 This is deliberately a classification of facts the child can actually know.
 In particular, a client inside Gamescope cannot discover Gamescope's outer
 backend; the Linux launcher records that choice in ``BPS_GAMESCOPE_BACKEND``.
+
+It no longer STEERS anything. Every path now presents on a deadline grid with
+client vsync off, so there is nothing left to classify a path in order to
+decide -- `starts_on_deadline_grid`, `requests_vsync` and the
+`BPS_FRAMEPACE_START_DEADLINE` override all went with that decision. What
+survives is description: the path is worth logging, and worth recording in a
+frame-pacing capture, because a capture is only comparable against another if
+it says what produced it.
 """
 
 from __future__ import annotations
@@ -17,15 +25,6 @@ from blitspersecond.common import environment_flag
 
 ENV_GAMESCOPE_BACKEND = "BPS_GAMESCOPE_BACKEND"
 
-#: Diagnostic override: force the deadline grid from frame one on a path
-#: that would otherwise start on a blocking swap. Set by
-#: `util/capture_frame_pacing.py`. It keeps its BPS_FRAMEPACE_ name --
-#: that is the experiment it belongs to -- but it lives HERE rather than
-#: with the recorder, because it changes how the engine paces rather than
-#: what gets recorded, and instrumentation must not steer the engine.
-ENV_START_DEADLINE = "BPS_FRAMEPACE_START_DEADLINE"
-
-
 @dataclass(frozen=True)
 class PresentationPath:
     """Stable launch-time presentation facts used by pacing and diagnostics."""
@@ -35,22 +34,6 @@ class PresentationPath:
     session: str
     compositor: str
     outer_backend: str | None = None
-
-    @property
-    def starts_on_deadline_grid(self) -> bool:
-        """Whether this path has a known non-blocking client-side swap."""
-        return self.name in {"gamescope", "xwayland", "win32"}
-
-    @property
-    def requests_vsync(self) -> bool:
-        """Whether the client should ask its window system to pace swaps.
-
-        Mutter's XWayland GLX path charges a whole additional refresh when a
-        prepared frame narrowly misses vblank. BPS therefore owns the deadline
-        there. Gamescope keeps its existing request: its nested swap is already
-        non-blocking and the explicit marker starts the same deadline policy.
-        """
-        return self.name != "xwayland"
 
     @property
     def description(self) -> str:
@@ -115,14 +98,3 @@ def detect_presentation_path(
         session=session,
         compositor=desktop or "X11 window manager",
     )
-
-
-def start_deadline_from_environment() -> bool:
-    """Whether a diagnostic capture asked for deadline pacing from frame one.
-
-    The manual counterpart to `PresentationPath.starts_on_deadline_grid`:
-    that property answers "does this path's swap already fail to pace us",
-    this answers "has someone asked us to behave as though it does". Used to
-    measure the deadline grid on a path that would otherwise never select it.
-    """
-    return environment_flag(ENV_START_DEADLINE)

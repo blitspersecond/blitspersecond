@@ -13,7 +13,7 @@ import sys
 from threading import Thread
 from time import strftime
 
-from blitspersecond.system.monitor.frame_pacing import FramePacingRecorder
+from blitspersecond.system.frame_pacing import FramePacingRecorder
 
 
 def _drain_fifo(fifo: Path, output: Path) -> None:
@@ -63,8 +63,6 @@ def main(argv: list[str] | None = None) -> int:
     internal_path = (run_dir / "bps-frame-pacing.csv").resolve()
     environment["BPS_FRAMEPACE_CSV"] = str(internal_path)
     environment["BPS_FRAMEPACE_DURABLE"] = "1"
-    if args.start_deadline:
-        environment["BPS_FRAMEPACE_START_DEADLINE"] = "1"
 
     gamescope_fifo: Path | None = None
     gamescope_output: Path | None = None

@@ -28,9 +28,12 @@ we record per frame, not the axis we record against. Keying on frames makes
 both folds fixed integers (`framerate` frames to a second, 60 seconds to a
 minute) and makes "a second" mean a GAME second, the only unit in which a
 fixed-tick simulation can be honestly scored. Keying on loop ITERATIONS was
-rejected: the fold ratio would become the measured display rate, which
-`DeliveredRate` retunes mid-session, so "a second" would silently change
-length when the window moved to another output.
+rejected: the fold ratio would become a display-derived rate rather than the
+authored one, so "a second" would change length whenever presentation did.
+That was originally argued against a cadence that retuned mid-session; it
+holds more simply now, because the loop iterates on presentation and the
+simulation does not, so iterations and frames are no longer even the same
+count.
 
 Ring sizes need no relationship to the fold ratio -- folds are driven by
 eviction COUNT, not by ring capacity -- so nobody should "fix" 1024 to 960

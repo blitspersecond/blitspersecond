@@ -16,11 +16,16 @@ A closed set rather than an int, for two reasons:
   and the engine has no standing to have an opinion about which of them a game
   wants. But an author reaching for 37 has misunderstood what this is, and a
   closed set says so at the call site.
-* **It keeps the cadence arithmetic checkable.** `PresentationCadence` derives
-  a tick-to-present ratio whose exact denominator is
-  ``panel / gcd(rate, panel)``, and that grows without bound as panel rates
-  climb. With five known rates the whole matrix can be enumerated against real
-  hardware and verified; with an arbitrary int it cannot.
+There USED to be a second reason, and it was the stronger one: a tick-to-
+present ratio whose exact denominator is ``panel / gcd(rate, panel)`` grows
+without bound as panel rates climb, so a closed set was what kept the matrix
+enumerable against real hardware. That argument died with the presentation
+cadence -- nothing divides ticks into presentation slots any more, and the
+clock would hold 37fps as readily as 60. The set is now an authoring
+judgement rather than a technical constraint, which is a weaker footing and
+should be recognised as such rather than defended with the old reason. See
+`docs/bps/DECOUPLED_PRESENTATION.md`, and the board card "Let the game author
+declare its tick rate", whose denominator analysis this retires.
 
 15, 20, 30 and 60 are the classic divisions of 60 -- one tick per 4, 3, 2 and
 1 slots on a 60Hz panel -- and predate all of this by decades.
@@ -31,9 +36,9 @@ displays made it exact: 120/40 is a uniform three slots per tick. PS5
 popularised 40 on that basis, which is where players will have met it. It is
 not the source of the set.
 
-``IntEnum`` deliberately: every consumer -- `Metrics` folding frames to
-seconds, `Display`, `PresentationCadence` taking a target rate -- treats this
-as a number and needs no conversion.
+``IntEnum`` deliberately: every consumer -- `Clock` deriving its timestep,
+`Metrics` folding frames to seconds -- treats this as a number and needs no
+conversion.
 """
 
 from enum import IntEnum

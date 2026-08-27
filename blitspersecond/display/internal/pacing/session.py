@@ -1,79 +1,52 @@
-"""Per-run presentation cadence, pacing, health, and instrumentation."""
+"""Presentation pacing for one run of the machine loop.
+
+The simulation clock used to live here, and most of this file was it:
+dividing presentation slots into game ticks, measuring the delivered rate to
+keep that division honest, and detecting whether the swap was pacing the loop
+at all. None of that is presentation's business any more. The engine holds
+the authored rate on `blitspersecond.clock.Clock`, and this owns the one
+question that is genuinely display's: **when does the next frame go up?**
+
+Every path presents on a deadline grid with client vsync off. That used to be
+a per-platform decision -- Gamescope and Win32 by nature, direct XWayland
+because Mutter charges a whole additional refresh when a prepared frame
+narrowly misses vblank, which measured as roughly 45ms frames and a game
+running at 75% of its authored rate. The defect was never the penalty; it was
+that a doubled presentation interval became a doubled simulation interval,
+because they were the same clock. They are not any more, so the special case
+became the general rule. See `docs/bps/DECOUPLED_PRESENTATION.md`.
+
+What this means for the panel rate: it is used ONLY to pace presentation.
+Being 0.1% wrong about it is invisible, where being 0.1% wrong about the
+simulation rate was what the deleted machinery existed to prevent.
+"""
 
 from math import isfinite
-import sys
 from time import perf_counter, perf_counter_ns, sleep
 from typing import TYPE_CHECKING
 
 from blitspersecond.system import Logger
 
-from .cadence import PresentationCadence
 from .health import FlipHealth, PresentationMonitor
 from .path import detect_presentation_path
-from .rate import DeliveredRate
 from .sink import FramePacingSinkFactory
 
 if TYPE_CHECKING:
     from blitspersecond.display.display import Display
 
 
-# How early a coarse sleep hands over to spin-polling when swap does not pace
-# presentation. The spin burns at most this much CPU time per frame.
+# How early a coarse sleep hands over to spin-polling. The spin burns at most
+# this much CPU per frame and buys the accuracy `sleep` will not give.
 _SPIN_MARGIN = 0.002
 
-# How far the cadence may miss the requested rate before it is reported.
-# Sits in the gap between the two things `PresentationCadence.rate_error`
-# measures: a real panel that is not a multiple of 60 lands at or under
-# 0.001, a ratio the denominator bound could not express lands near 0.02.
-# Deliberately closer to the panels, so an unexplored middle is reported
-# rather than assumed benign.
-_RATE_TOLERANCE = 0.005
-
-
-def _log_deadline_grid_pacing(
-    logger: Logger,
-    *,
-    initial_reason: str | None = None,
-) -> None:
-    """Report the non-blocking-swap path at platform-appropriate severity."""
-    if initial_reason == "gamescope":
-        logger.info(
-            "Gamescope presentation path selected deadline-grid pacing "
-            "from the first frame."
-        )
-        return
-    if initial_reason == "xwayland":
-        logger.info(
-            "Direct XWayland presentation disabled client vsync and selected "
-            "deadline-grid pacing from the first frame."
-        )
-        return
-    if initial_reason == "win32":
-        logger.info(
-            "Win32/DWM presentation selected expected deadline-grid pacing "
-            "from the first frame."
-        )
-        return
-    if initial_reason == "experiment":
-        logger.info(
-            "Frame-pacing experiment requested deadline-grid presentation "
-            "from the first frame."
-        )
-        return
-    if sys.platform == "win32":
-        logger.info(
-            "Win32/DWM returned non-blocking flips; using expected "
-            "deadline-grid presentation pacing."
-        )
-    else:
-        logger.warning(
-            "flip() is not blocking on vsync; presentation switched to "
-            "deadline-grid pacing."
-        )
+# Presentation rate assumed when the platform will not say what the panel
+# runs at. Only presentation cadence depends on it, so a wrong guess costs
+# an uneven present pattern rather than a game running at the wrong speed.
+_ASSUMED_REFRESH = 60.0
 
 
 class PresentationSession:
-    """Display-owned state for one invocation of the machine loop."""
+    """Display-owned presentation pacing for one invocation of the loop."""
 
     def __init__(
         self,
@@ -83,10 +56,8 @@ class PresentationSession:
         spin_pacing: bool,
         logger: Logger,
         frame_pacing_factory: FramePacingSinkFactory,
-        diagnostic_deadline: bool,
     ) -> None:
         self._display = display
-        self._target_rate = target_rate
         self._spin_pacing = spin_pacing
         self._logger = logger
 
@@ -98,348 +69,151 @@ class PresentationSession:
         ):
             logger.error(
                 f"Display reported an unusable refresh rate ({refresh_rate!r}); "
-                f"falling back to wall-time pacing."
+                f"presenting at {_ASSUMED_REFRESH:.0f}Hz instead."
             )
             refresh_rate = None
-        self._refresh_rate = refresh_rate
-        self._cadence = (
-            PresentationCadence(target_rate, refresh_rate)
-            if refresh_rate
-            else None
-        )
-        cadence_label = (
-            f"{self._cadence.ratio.numerator}/{self._cadence.ratio.denominator}"
-            if self._cadence is not None
-            else "wall-time"
-        )
+        self._refresh_rate = refresh_rate or _ASSUMED_REFRESH
 
         presentation_path = detect_presentation_path()
         logger.info(f"Presentation path: {presentation_path.description}.")
+        # Win32 reports the current monitor for a window rather than the one
+        # it was created on, so a window dragged to another output can still
+        # have its PRESENTATION cadence corrected. It no longer corrects
+        # anything about the simulation, which is why nothing else needs it.
         self._tracks_window_output = presentation_path.name == "win32"
         self._frame_pacing = frame_pacing_factory(
             target_fps=target_rate,
             refresh_hz=refresh_rate,
-            cadence=cadence_label,
+            cadence="decoupled",
             presentation_path=presentation_path.description,
         )
-        self._start_deadline_reason = (
-            presentation_path.name
-            if presentation_path.starts_on_deadline_grid
-            else "experiment"
-            if diagnostic_deadline
-            else None
-        )
-        self._start_deadline = self._start_deadline_reason is not None
-        self._presentation_period = 1.0 / (refresh_rate or target_rate)
-        self._fallback_period = 1.0 / target_rate
-        self._fallback_max_debt = self._fallback_period * 3
-        self._fallback_accumulator = self._fallback_period
-        self._fallback_last = perf_counter()
 
-        if self._cadence is not None:
-            logger.info(
-                f"Starting presentation-locked loop ({target_rate} FPS sim, "
-                f"{self._cadence.refresh_rate:.3f}Hz display, cadence "
-                f"{self._cadence.ratio.numerator}/"
-                f"{self._cadence.ratio.denominator}, effective "
-                f"{self._cadence.effective_rate:.3f} FPS)."
-            )
-        else:
-            logger.info(
-                f"Display refresh unavailable; starting wall-time fallback "
-                f"({target_rate} FPS sim)."
-            )
-        self._report_rate_error()
+        self._period = 1.0 / self._refresh_rate
+        self._next_present = perf_counter() + self._period
+        self._monitor = PresentationMonitor()
+        self._health = FlipHealth.OK
+        self._background_next = perf_counter()
+        self._background_period = 1.0 / target_rate
 
-        self._deadline_grid_reported = False
-        self._unthrottled_pacing = self._start_deadline
-        self._next_present = perf_counter() + self._presentation_period
-        self._monitor = PresentationMonitor(
-            initial_health=(
-                FlipHealth.UNTHROTTLED
-                if self._start_deadline
-                else FlipHealth.PROBING
-            )
+        logger.info(
+            f"Presenting on a {self._refresh_rate:.3f}Hz deadline grid "
+            f"({'measured' if refresh_rate else 'assumed'})."
         )
-        # Permit the first simulation tick before flip gives the monitor any
-        # evidence. A subsequent PROBING verdict holds simulation.
-        self._flip_health = (
-            FlipHealth.UNTHROTTLED
-            if self._start_deadline
-            else FlipHealth.OK
-        )
-        self._prime_deadline = False
-        self._background_next_tick = perf_counter()
-
-        # The display pacing a window is a property of where the window is,
-        # not of the run: moving between a 144Hz and a 60Hz output silently
-        # multiplies the simulation rate by the ratio of the two. Nothing
-        # reports that change, so it is measured. Only meaningful while the
-        # swap blocks -- see rate.py.
-        self._delivered_rate = DeliveredRate(display.output_refresh_rates)
-        # Read the outputs now, during engine startup, rather than paying for
-        # it inside the first frame that needs an answer.
-        self._delivered_rate.refresh_outputs()
-        self._last_present = 0.0
 
     @property
-    def fallback_period(self) -> float:
-        """Target-rate period used while presentation is withheld."""
-        return self._fallback_period
+    def deadline(self) -> float:
+        """`perf_counter` value at which the next presentation is due.
 
-    def begin_iteration(self) -> bool:
-        """Begin instrumentation and return whether simulation must be held."""
+        Published so the loop can wait on whichever of its two deadlines --
+        this one or the clock's -- falls first. Neither divides the other.
+        """
+        return self._next_present
+
+    def due(self) -> bool:
+        """Whether a presentation is owed now."""
+        return perf_counter() >= self._next_present
+
+    def wait(self) -> None:
+        """Hold until the next presentation is due: coarse sleep, then spin."""
+        remaining = self._next_present - perf_counter()
+        if self._spin_pacing:
+            if remaining > _SPIN_MARGIN:
+                sleep(remaining - _SPIN_MARGIN)
+            while perf_counter() < self._next_present:
+                pass
+        elif remaining > 0:
+            sleep(remaining)
+
+    def begin_iteration(self) -> None:
         if self._frame_pacing is not None:
             self._frame_pacing.begin_iteration()
-        priming = self._prime_deadline
-        self._prime_deadline = False
-        return priming
 
     def after_dispatch(self) -> None:
         if self._tracks_window_output:
-            self._adopt_window_output_refresh()
+            refresh_rate = self._display.poll_refresh_rate()
+            if refresh_rate is not None:
+                self._adopt(refresh_rate)
         if self._frame_pacing is not None:
             self._frame_pacing.after_dispatch()
-
-    def _adopt_window_output_refresh(self, *, force: bool = False) -> None:
-        """Retune a deadline grid from Win32's current HWND monitor."""
-        refresh_rate = self._display.poll_refresh_rate(force=force)
-        if refresh_rate is not None:
-            self._retune(refresh_rate)
-
-    def backgrounded(self) -> None:
-        """Start a fresh target-rate deadline while frames are withheld."""
-        self._background_next_tick = perf_counter()
-        # No presentations are being delivered, so nothing measures the rate.
-        self._delivered_rate.reset()
-        self._last_present = 0.0
-
-    def foregrounded(self) -> None:
-        """Restart presentation without stale cadence or health evidence."""
-        if self._tracks_window_output:
-            self._adopt_window_output_refresh(force=True)
-        self._monitor.reset()
-        self._flip_health = (
-            FlipHealth.UNTHROTTLED
-            if self._start_deadline
-            else FlipHealth.OK
-        )
-        self._unthrottled_pacing = self._start_deadline
-        self._prime_deadline = False
-        if self._cadence is not None:
-            self._cadence.reset()
-        self._next_present = perf_counter() + self._presentation_period
-        # Restoration is exactly when a display may have been added, removed,
-        # or reconfigured, so both the evidence and the candidate outputs go.
-        self._delivered_rate.reset()
-        self._delivered_rate.refresh_outputs()
-        self._last_present = 0.0
-
-    def resumed(self) -> None:
-        """Discard suspended wall-time debt and re-prime the tick cadence."""
-        if self._cadence is not None:
-            self._cadence.reset()
-        self._fallback_accumulator = self._fallback_period
-        self._fallback_last = perf_counter()
-        # The interval spanning a suspension describes the pause, not the
-        # display.
-        self._delivered_rate.reset()
-        self._last_present = 0.0
-
-    def ticks_due(
-        self,
-        *,
-        running: bool,
-        priming: bool,
-        backgrounded: bool,
-    ) -> int:
-        """Return fixed simulation ticks due before the next presentation."""
-        if not running:
-            return 0
-        if priming or self._flip_health is FlipHealth.PROBING:
-            return 0
-        if backgrounded:
-            # Presentation is no longer granting cadence. The background wait
-            # below makes this one tick occur at the target wall-clock rate.
-            return 1
-        if self._cadence is not None:
-            return self._cadence.advance()
-
-        now = perf_counter()
-        self._fallback_accumulator = min(
-            self._fallback_accumulator + (now - self._fallback_last),
-            self._fallback_max_debt,
-        )
-        self._fallback_last = now
-        tick_count = 0
-        while self._fallback_accumulator >= self._fallback_period:
-            self._fallback_accumulator -= self._fallback_period
-            tick_count += 1
-        return tick_count
 
     def after_simulation(self) -> None:
         if self._frame_pacing is not None:
             self._frame_pacing.after_simulation()
 
+    def _adopt(self, refresh_rate: float) -> None:
+        """Re-pace presentation for a window that moved to another output."""
+        if refresh_rate == self._refresh_rate or refresh_rate < 1:
+            return
+        previous = self._refresh_rate
+        self._refresh_rate = refresh_rate
+        self._period = 1.0 / refresh_rate
+        # The old deadline belongs to the old period.
+        self._next_present = perf_counter() + self._period
+        self._logger.info(
+            f"Presentation rate changed ({previous:.3f} -> "
+            f"{refresh_rate:.3f}Hz); presenting on the new grid. Simulation "
+            f"is unaffected."
+        )
+
+    def backgrounded(self) -> None:
+        """Stop presenting; pace the hidden loop off its own deadline."""
+        self._background_next = perf_counter()
+
+    def foregrounded(self) -> None:
+        """Restart presentation without stale health evidence."""
+        if self._tracks_window_output:
+            refresh_rate = self._display.poll_refresh_rate(force=True)
+            if refresh_rate is not None:
+                self._adopt(refresh_rate)
+        self._monitor.reset()
+        self._health = FlipHealth.OK
+        self._next_present = perf_counter() + self._period
+
+    def resumed(self) -> None:
+        """Re-phase the presentation grid after a suspension."""
+        self._next_present = perf_counter() + self._period
+
     def wait_backgrounded(self) -> None:
         """Pace a hidden loop without submitting to a stalled swap chain."""
-        self._background_next_tick += self._fallback_period
+        self._background_next += self._background_period
         now = perf_counter()
-        if self._background_next_tick < now:
-            self._background_next_tick = now + self._fallback_period
-        wait = self._background_next_tick - now
+        if self._background_next < now:
+            self._background_next = now + self._background_period
+        wait = self._background_next - now
         if wait > 0:
             sleep(wait)
 
-    def present(self, tick_count: int) -> bool:
-        """Present one frame and return whether the swap stream is stalled."""
-        recomposed = tick_count > 0
-        self._display.prepare(recompose=recomposed)
+    def present(self) -> bool:
+        """Present the frame display is holding; return whether it stalled."""
+        self._display.prepare()
         if self._frame_pacing is not None:
             self._frame_pacing.after_prepare()
 
-        if self._unthrottled_pacing:
-            # The frame is fully prepared. Hold it until its fixed deadline,
-            # using a coarse sleep followed by an optional short spin.
-            wait = self._next_present - perf_counter()
-            if self._spin_pacing:
-                if wait > _SPIN_MARGIN:
-                    sleep(wait - _SPIN_MARGIN)
-                while perf_counter() < self._next_present:
-                    pass
-            elif wait > 0:
-                sleep(wait)
-
-        deadline_error = (
-            perf_counter() - self._next_present
-            if self._unthrottled_pacing
-            else None
-        )
-        pacing_mode = (
-            "deadline"
-            if self._unthrottled_pacing
-            else (
-                "probing"
-                if self._flip_health is FlipHealth.PROBING
-                else "vsync"
-            )
-        )
+        deadline_error = perf_counter() - self._next_present
         self._display.present()
-        completed = perf_counter()
         presented_ns = (
             perf_counter_ns() if self._frame_pacing is not None else 0
         )
 
         # If a long frame or debugger pause missed more than one deadline,
         # resync rather than sprinting to catch up.
-        self._next_present += self._presentation_period
+        self._next_present += self._period
         if self._next_present < perf_counter():
-            self._next_present = perf_counter() + self._presentation_period
+            self._next_present = perf_counter() + self._period
 
         swap_elapsed = self._display.swap_duration
-        previous_health = self._flip_health
-        self._flip_health = self._monitor.observe(swap_elapsed)
+        self._health = self._monitor.observe(swap_elapsed)
         if self._frame_pacing is not None:
             self._frame_pacing.record_present(
                 presented_ns=presented_ns,
-                ticks=tick_count,
-                recomposed=recomposed,
+                ticks=0,
+                recomposed=True,
                 swap_seconds=swap_elapsed,
                 deadline_seconds=deadline_error,
-                pacing_mode=pacing_mode,
-                flip_health=self._flip_health.name.lower(),
+                pacing_mode="deadline",
+                flip_health=self._health.name.lower(),
             )
-
-        entering_unthrottled = (
-            self._flip_health is FlipHealth.UNTHROTTLED
-            and previous_health is not FlipHealth.UNTHROTTLED
-        )
-        if entering_unthrottled:
-            # Establish one real held-frame deadline before simulation resumes.
-            self._next_present = perf_counter() + self._presentation_period
-            self._prime_deadline = True
-
-        self._unthrottled_pacing = (
-            self._flip_health is FlipHealth.UNTHROTTLED
-        )
-        if (
-            self._unthrottled_pacing
-            and self._cadence is not None
-            and not self._deadline_grid_reported
-        ):
-            self._deadline_grid_reported = True
-            _log_deadline_grid_pacing(
-                self._logger,
-                initial_reason=self._start_deadline_reason,
-            )
-
-        # A blocking swap is the only interval that measures the display; on
-        # the deadline grid it measures this loop's own timer. Fed last, so a
-        # re-cadence owns the deadline bookkeeping above rather than racing it.
-        if self._flip_health is FlipHealth.STALLED:
-            self._delivered_rate.reset()
-        elif pacing_mode == "vsync" and self._last_present:
-            measured = self._delivered_rate.observe(
-                completed - self._last_present
-            )
-            if measured is not None:
-                self._retune(measured)
-        self._last_present = completed
-
-        return self._flip_health is FlipHealth.STALLED
-
-    def _report_rate_error(self) -> None:
-        """Say so when the cadence cannot actually deliver the target rate.
-
-        The failure this catches is silent by construction: `Fraction` returns
-        the nearest ratio it can build rather than refusing, so a display the
-        bound cannot express produces a simulation running steadily fast or
-        slow with nothing else to show for it. What the engine should DO about
-        that -- degrade loudly, or refuse the display outright -- is still
-        open; being able to see it is the prerequisite either way.
-        """
-        if self._cadence is None:
-            return
-        error = self._cadence.rate_error
-        if abs(error) <= _RATE_TOLERANCE:
-            return
-        self._logger.warning(
-            f"Cadence cannot deliver {self._target_rate} FPS on a "
-            f"{self._cadence.refresh_rate:.3f}Hz display: ratio "
-            f"{self._cadence.ratio.numerator}/"
-            f"{self._cadence.ratio.denominator} runs the simulation at "
-            f"{self._cadence.effective_rate:.3f} FPS ({error * 100:+.2f}%). "
-            f"The exact ratio needs a denominator above "
-            f"{self._cadence.ratio.denominator}."
-        )
-
-    def _retune(self, refresh_rate: float) -> None:
-        """Adopt a measured display rate, rebuilding the simulation cadence.
-
-        Called when presentation has been proven to be arriving at a rate the
-        session was not built for -- the window moved to another output, or a
-        display was reconfigured underneath it. Without this the cadence keeps
-        dividing ticks by the launch display's rate while presentations arrive
-        at the current one, and the simulation runs fast or slow by exactly
-        the ratio between them.
-        """
-        if refresh_rate == self._refresh_rate:
-            return
-        previous = self._refresh_rate
-        self._refresh_rate = refresh_rate
-        self._presentation_period = 1.0 / refresh_rate
-        self._cadence = PresentationCadence(self._target_rate, refresh_rate)
-        self._delivered_rate.reset()
-        self._logger.info(
-            f"Presentation rate changed "
-            f"({previous if previous else 'unknown'} -> {refresh_rate:.3f}Hz); "
-            f"cadence re-derived to "
-            f"{self._cadence.ratio.numerator}/{self._cadence.ratio.denominator} "
-            f"(effective {self._cadence.effective_rate:.3f} FPS)."
-        )
-        self._report_rate_error()
-        # The old deadline belongs to the old period.
-        self._next_present = perf_counter() + self._presentation_period
+        return self._health is FlipHealth.STALLED
 
     def finish(self) -> None:
         """Persist optional frame-pacing instrumentation after loop exit."""

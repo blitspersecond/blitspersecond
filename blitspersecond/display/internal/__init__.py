@@ -10,10 +10,9 @@ package front door.
                 post-pass that presents it.
   viewport.py   WHERE the internal screen lands on the window -- the
                 centred integer enlargement, mapped in both directions.
-  pacing/       WHEN to tick and WHEN to swap. The hard half, and a package
-                of its own: each fact the platform will not reliably report
-                gets a module, evidence, and a guard. Read its docstring
-                before changing anything in it.
+  pacing/       WHEN to swap. Display's own presentation deadline; the
+                simulation clock it used to share a package with now lives
+                on the engine. Read its docstring before changing it.
 
 All are kept out of the public surface exactly like `graphics.internal`; the
 general machine ordering belongs to `blitspersecond.loop`.
@@ -21,7 +20,6 @@ general machine ordering belongs to `blitspersecond.loop`.
 
 from .surface import Surface
 from .framebuffer import Framebuffer
-from .pacing.cadence import PresentationCadence
 from .pacing.health import FlipHealth, PresentationMonitor
 from .pacing.path import PresentationPath, detect_presentation_path
 from .pacing.session import PresentationSession
@@ -29,7 +27,6 @@ from .pacing.session import PresentationSession
 __all__ = [
     "Surface",
     "Framebuffer",
-    "PresentationCadence",
     "FlipHealth",
     "PresentationMonitor",
     "PresentationPath",

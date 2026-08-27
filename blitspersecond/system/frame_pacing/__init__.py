@@ -22,12 +22,10 @@ Two things that used to live here left on 2026-08-25:
     `system.config` already had. Now `common.environment_flag`, shared, so
     the two cannot disagree about how a BPS_* flag is spelled.
   * `start_deadline_from_environment` (BPS_FRAMEPACE_START_DEADLINE) moved
-    to `display.internal.pacing.path`. It is the one thing in this module
-    that CHANGED ENGINE BEHAVIOUR rather than recording it -- it forces
-    deadline-grid pacing from frame one for an experiment -- so it belongs
-    with the code that decides pacing, not with the code that measures it.
-    The variable keeps its name: `util/capture_frame_pacing.py` sets it, and
-    it is a frame-pacing experiment knob whatever module reads it.
+    to `display.internal.pacing.path`, and has since been deleted outright.
+    It forced deadline-grid pacing from frame one on a path that would not
+    otherwise select it; every path starts there now, so it had nothing left
+    to force.
 """
 
 from .recorder import FORMAT, FramePacingRecorder

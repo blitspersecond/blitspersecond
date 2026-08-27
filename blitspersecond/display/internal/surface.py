@@ -63,7 +63,9 @@ class Surface(pyglet.window.Window):
             # extra refresh, so PresentationSession owns a monotonic deadline
             # grid there just as it does for the validated Gamescope path.
             # TODO: Is this actually true or did we cargocult it?
-            vsync=presentation_path.requests_vsync,
+            # Never. BPS owns presentation timing on every path now, and a
+            # blocking swap would fight its deadline rather than serve it.
+            vsync=False,
             config=pyglet.gl.Config(double_buffer=True),
         )
         self.set_caption("BlitsPerSecond")
@@ -89,26 +91,6 @@ class Surface(pyglet.window.Window):
     @property
     def refresh_rate(self) -> float | None:
         return self._refresh_rate
-
-    def output_refresh_rates(self) -> tuple[float, ...]:
-        """Current mode rate of every connected output, freshly enumerated.
-
-        This is the candidate set a measured presentation rate is checked
-        against, so it must be re-read rather than cached here: displays are
-        plugged in and modes are changed while the engine runs. Enumerating
-        screens is a round trip to the window system -- callers treat it as
-        expensive and ask rarely.
-
-        Under Gamescope this is the single synthetic screen, which is correct:
-        that path owns the mapping to real outputs and never exposes them.
-        """
-        try:
-            screens = pyglet.display.get_display().get_screens()
-        except Exception as error:  # pragma: no cover -- platform dependent
-            Logger().error(f"Could not enumerate display outputs: {error}")
-            return ()
-        rates = (get_refresh_rate(screen) for screen in screens)
-        return tuple(rate for rate in rates if rate)
 
     def poll_refresh_rate(self, *, force: bool = False) -> float | None:
         """Return the Win32 window's current output rate when it needs a check.
