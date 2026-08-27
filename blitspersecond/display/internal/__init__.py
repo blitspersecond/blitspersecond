@@ -19,7 +19,7 @@ general machine ordering belongs to `blitspersecond.loop`.
 """
 
 from .surface import Surface
-from .framebuffer import Framebuffer
+from .framebuffer import Framebuffer, FramebufferPair
 from .pacing.health import FlipHealth, PresentationMonitor
 from .pacing.path import PresentationPath, detect_presentation_path
 from .pacing.session import PresentationSession
@@ -27,6 +27,7 @@ from .pacing.session import PresentationSession
 __all__ = [
     "Surface",
     "Framebuffer",
+    "FramebufferPair",
     "FlipHealth",
     "PresentationMonitor",
     "PresentationPath",

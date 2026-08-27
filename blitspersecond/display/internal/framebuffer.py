@@ -123,3 +123,110 @@ class Framebuffer(pyglet.image.buffer.Framebuffer):
         vertex_list.draw(pyglet.gl.GL_TRIANGLES)
         vertex_list.delete()
         self._program.stop()
+
+
+class FramebufferPair:
+    """The handoff between a free-running engine and a display on its own grid.
+
+    The engine composes into `next` and calls `complete()`. Display calls
+    `promote()` and draws `current`. That is the entire contract between the
+    two sides -- they share this buffer pair and nothing else. Neither asks
+    the other for permission, which is what keeps a late present from
+    becoming a late simulation.
+
+    **Both sides of the rate crossover fall out of it, with no policy code.**
+    Engine faster than the panel (60fps on 40Hz): `next` is overwritten
+    before it is ever promoted, so the engine decimates by DISCARD -- and
+    because the producer never batches, every tick still gets its own event
+    pump and input snapshot regardless of what the panel can show. Panel
+    faster than the engine (60fps on 144Hz): `next` is not ready, so
+    `current` is drawn again. That held-frame re-present is what retires the
+    old `recompose` flag; re-showing the last picture stops being a special
+    case and becomes the default.
+
+    **Promotion is deliberately late** -- inside the present path, immediately
+    before the draw, never at the moment the engine flags completion.
+    Promoting on completion would make a finished frame wait for the NEXT
+    present rather than the current one, costing up to a full engine frame of
+    latency (16.7ms at 60fps). Single-threaded, late promotion is free and
+    strictly better. This is invisible until someone measures input lag, so
+    it is a rule rather than a preference.
+
+    The second buffer also lets the driver pipeline properly. With one FBO,
+    composing frame N+1 writes to a texture that a queued post-process draw
+    may still be reading, which the driver resolves by stalling or shadow-
+    copying. Alternating gives a full present of separation. About a megabyte
+    at 640x360.
+    """
+
+    def __init__(self, width: int, height: int) -> None:
+        self._next = Framebuffer(width, height)
+        self._current = Framebuffer(width, height)
+        # Cleared at construction so the first presents show black rather
+        # than whatever the driver left in the texture. Presentation starts
+        # before the first tick completes -- the clock owes frame one a full
+        # step -- so something IS shown before anything is composed.
+        self._next.clear()
+        self._current.clear()
+        self._ready = False
+        self._primed = False
+        self._dropped = 0
+        self._repeated = 0
+
+    @property
+    def next(self) -> Framebuffer:
+        """The buffer the engine composes into. Never the one being shown."""
+        return self._next
+
+    @property
+    def dropped(self) -> int:
+        """Frames composed but never shown -- `next` overwritten unpromoted.
+
+        The visible artefact of running above the crossover. Expected to be
+        zero whenever the panel is faster than the authored rate, so a
+        non-zero count on a fast panel is a real finding rather than noise.
+        """
+        return self._dropped
+
+    @property
+    def repeated(self) -> int:
+        """Presents that re-showed `current` because no new frame was ready.
+
+        Expected and healthy below the crossover: on a 144Hz panel at 60fps
+        roughly three presents in five carry no new content. Counted because
+        it is the other half of the same mechanism, not because it is a fault.
+        """
+        return self._repeated
+
+    def complete(self) -> bool:
+        """Engine: the frame in `next` is finished. True if one was dropped.
+
+        A drop means the PREVIOUS frame was never promoted and has just been
+        composed over. That is decimation working as designed, but it is
+        still a frame the player never saw, so it is reported rather than
+        swallowed.
+        """
+        dropped = self._ready
+        if dropped:
+            self._dropped += 1
+        self._ready = True
+        self._primed = True
+        return dropped
+
+    def promote(self) -> bool:
+        """Display: take the newest finished frame. True if the picture moved.
+
+        Swapping rather than copying means the engine's next compose targets
+        the buffer that just stopped being shown -- correct, and free.
+        """
+        if not self._ready:
+            if self._primed:
+                self._repeated += 1
+            return False
+        self._next, self._current = self._current, self._next
+        self._ready = False
+        return True
+
+    def draw(self, surface: "Surface") -> None:
+        """Queue the post-process draw of the frame currently being shown."""
+        self._current.draw(surface)

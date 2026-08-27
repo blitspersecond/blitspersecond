@@ -95,6 +95,7 @@ class PresentationSession:
         self._next_present = perf_counter() + self._period
         self._monitor = PresentationMonitor()
         self._health = FlipHealth.OK
+        self._promoted = False
 
         logger.info(
             f"Presenting on a {self._refresh_rate:.3f}Hz deadline grid "
@@ -113,6 +114,12 @@ class PresentationSession:
     def due(self) -> bool:
         """Whether a presentation is owed now."""
         return perf_counter() >= self._next_present
+
+    @property
+    def promoted(self) -> bool:
+        """Whether the last present carried a new frame rather than the held
+        one. False is the ordinary case above the crossover, not a fault."""
+        return self._promoted
 
     def wait(self) -> None:
         """Hold until the next presentation is due: coarse sleep, then spin."""
@@ -177,12 +184,14 @@ class PresentationSession:
 
     def present(self) -> bool:
         """Present the frame display is holding; return whether it stalled."""
-        self._display.prepare()
         if self._frame_pacing is not None:
             self._frame_pacing.after_prepare()
 
         deadline_error = perf_counter() - self._next_present
-        self._display.present()
+        # Composition no longer happens here: the engine builds frames on its
+        # own clock and this promotes whatever is finished. `promoted` is
+        # False when the held frame was re-presented.
+        promoted = self._promoted = self._display.present()
         presented_ns = (
             perf_counter_ns() if self._frame_pacing is not None else 0
         )
@@ -199,7 +208,7 @@ class PresentationSession:
             self._frame_pacing.record_present(
                 presented_ns=presented_ns,
                 ticks=0,
-                recomposed=True,
+                recomposed=promoted,
                 swap_seconds=swap_elapsed,
                 deadline_seconds=deadline_error,
                 pacing_mode="deadline",

@@ -102,8 +102,26 @@ class Metrics(metaclass=SingletonMeta):
         self._presents = self.counter(
             "display.presents",
             "Presentations completed during one game frame. On a 144Hz "
-            "display running a 60fps simulation this reads 2,2,3,2,3 -- the "
-            "cadence itself, not a derived statistic.",
+            "display running a 60fps simulation this reads 2 or 3 -- with "
+            "independent timebases the pattern is a phase accident, not a "
+            "fixed cycle, so read the distribution and not the peak.",
+        )
+        # Named `display.frames.*` in full: a bare "dropped" on a metrics
+        # object reads as dropped frames, and there is already a different
+        # quantity here that the same word fits -- pushes lost to a full
+        # staging buffer, now `observations_dropped`. Two unrelated things
+        # sharing one short word is how a reader trusts the wrong number.
+        self._frames_dropped = self.counter(
+            "display.frames.dropped",
+            "Frames composed but never shown -- the engine overwrote a "
+            "finished frame before display promoted it. Decimation by "
+            "discard, expected only below the crossover.",
+        )
+        self._frames_repeated = self.counter(
+            "display.frames.repeated",
+            "Presentations that re-showed the held frame because no new one "
+            "was ready. Expected and healthy above the crossover: at 60fps "
+            "on 144Hz roughly three presents in five carry no new content.",
         )
 
     # -- declaration ---------------------------------------------------------
@@ -192,9 +210,15 @@ class Metrics(metaclass=SingletonMeta):
         self._buffer.clear()
 
     @property
-    def dropped(self) -> int:
-        """Observations lost to a full frame buffer. Non-zero means some hot
-        path is pushing far more per frame than the buffer was sized for."""
+    def observations_dropped(self) -> int:
+        """Metric pushes lost to a full staging buffer, not dropped FRAMES.
+
+        Non-zero means some hot path is pushing far more per frame than the
+        buffer was sized for, so the readings themselves are incomplete --
+        a fault in the instrument, not in what it measures. Frames the engine
+        composed and never showed are `display.frames.dropped`, which is an
+        entirely different fact about an entirely different thing.
+        """
         return self._buffer.dropped
 
     def report(self) -> Report:
@@ -226,3 +250,11 @@ class Metrics(metaclass=SingletonMeta):
     @property
     def presents(self) -> Counter:
         return self._presents
+
+    @property
+    def frames_dropped(self) -> Counter:
+        return self._frames_dropped
+
+    @property
+    def frames_repeated(self) -> Counter:
+        return self._frames_repeated

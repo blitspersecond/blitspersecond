@@ -254,7 +254,7 @@ def test_buffer_bounds_a_runaway_and_counts_what_it_dropped(metrics):
     for _ in range(20):
         gauge.push(1.0)
 
-    assert small.dropped == 12          # 20 pushed, 8 staged
+    assert small.observations_dropped == 12   # 20 pushed, 8 staged
     small.advance()
     # What was staged still landed; only the overflow was lost.
     assert small.report().summarise("test.flood").observed == 1

@@ -111,6 +111,7 @@ class Loop:
                 try:
                     _wait_until(min(clock.deadline, presentation.deadline))
                     presentation.begin_iteration()
+                    ticked = False
                     # Latched by hand because the loop needs the EDGE, not the
                     # level. Reporting that edge is the Lifecycle's job to take
                     # over when the loop's own shape is settled.
@@ -159,12 +160,31 @@ class Loop:
                         metrics.gameloop_ms.push(
                             (perf_counter() - started) * 1000.0
                         )
+                        ticked = True
 
                     presentation.after_simulation()
 
                     # A game tick may have called stop(), closing the surface.
                     if not lifecycle.running or display.closed:
                         break
+
+                    # The tick built a world state; turn it into a picture and
+                    # hand it to display. Once per TICK, never per present --
+                    # composition bills at game rate whatever the panel is
+                    # doing, which is what the old `recompose` flag existed to
+                    # arrange. Deliberately AFTER the shutdown guard above: a
+                    # tick that called stop() has already torn the surface
+                    # down, and composing into a dead GL context raises rather
+                    # than draws.
+                    if ticked:
+                        if display.compose():
+                            # The previous frame was overwritten before it was
+                            # ever shown. Expected below the crossover; a real
+                            # finding on a panel faster than the game.
+                            metrics.frames_dropped.push()
+                        metrics.compose_ms.push(
+                            display.compose_duration * 1000.0
+                        )
 
                     # Never feed an occlusion-throttled swap chain. The
                     # simulation carries on regardless, on its own clock.
@@ -173,6 +193,11 @@ class Loop:
 
                     stalled = presentation.present()
                     metrics.presents.push()
+                    if not presentation.promoted:
+                        # The held frame went up again because the engine had
+                        # nothing new ready. Expected above the crossover --
+                        # at 60fps on 144Hz most presents are repeats.
+                        metrics.frames_repeated.push()
                     metrics.swap_ms.push(display.swap_duration * 1000.0)
                     if stalled:
                         # Display reports the condition; the lifecycle

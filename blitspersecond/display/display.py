@@ -7,7 +7,7 @@ from blitspersecond.system import Logger, EventBus  # Metrics
 from blitspersecond.system.frame_pacing import FramePacingRecorder
 
 from blitspersecond.display.internal import (
-    Framebuffer,
+    FramebufferPair,
     PresentationSession,
     Surface,
 )
@@ -31,13 +31,14 @@ class Display:
             self.height,
             events=events,
         )
-        self._framebuffer = Framebuffer(
+        self._framebuffer = FramebufferPair(
             self.width,
             self.height,
         )
         # self._layers = Layers()
         self._logger = Logger()
         self._swap_duration = 0.0
+        self._compose_duration = 0.0
         # Stands in for the layer compose pass while the graphics rebuild is
         # out. Every frame is this colour; a game that sets it is the
         # simplest possible proof that ticks reach the panel.
@@ -110,7 +111,7 @@ class Display:
     #     projection is a 1:1 ortho over it and the viewport matches it exactly --
     #     independent of the on-screen window size or scale.
     #     """
-    #     fbo = self._framebuffer
+    #     fbo = self._framebuffer.next
     #     w, h = fbo.width, fbo.height
 
     #     start = perf_counter()
@@ -135,26 +136,65 @@ class Display:
         to masquerade as a presentation stall."""
         return self._swap_duration
 
-    def prepare(self, recompose: bool = True) -> None:
-        """Compose the layers and queue the post-process draw. After this,
-        the frame is fully built and only the swap remains -- so the caller
-        can hold a prepared frame and present() it on its own schedule
-        (the engine's unthrottled fallback waits out its deadline between
-        the two calls).
+    @property
+    def compose_duration(self) -> float:
+        """Seconds the last compose took, excluding the present path entirely.
 
-        recompose=False skips the layer pass and queues the post-process
-        draw from the framebuffer's existing contents. That's the path for
-        presentations that carried no simulation tick: the picture can only
-        change at tick boundaries, so a 60-on-120 cadence re-presents the
-        held frame and composition bills at GAME rate, not display rate."""
-        # if recompose:
+        Billed at game rate: one compose per tick, whatever the panel does.
+        """
+        return self._compose_duration
+
+    @property
+    def dropped(self) -> int:
+        """Frames composed but never shown. See `FramebufferPair.dropped`."""
+        return self._framebuffer.dropped
+
+    @property
+    def repeated(self) -> int:
+        """Presents that re-showed the held frame. See `FramebufferPair`."""
+        return self._framebuffer.repeated
+
+    def compose(self) -> bool:
+        """Engine side: build one frame into `next` and flag it complete.
+
+        Returns whether a finished frame was discarded unshown -- the engine
+        outran the panel and overwrote a frame display never promoted.
+
+        Called once per simulation tick, never per present. Composition
+        therefore bills at GAME rate whatever the panel is doing, which is
+        what the old `recompose=False` flag existed to arrange and now falls
+        out of the buffer pair instead.
+
+        The engine does not wait for this frame to be shown, and does not
+        learn whether it ever was. Overwriting an unpromoted frame is
+        decimation working as designed above the crossover.
+        """
+        start = perf_counter()
+        # if layers:
         #     self._compose()
-        self._framebuffer.clear(self._background)
-        self._framebuffer.draw(self._surface)
+        self._framebuffer.next.clear(self._background)
+        self._compose_duration = perf_counter() - start
+        return self._framebuffer.complete()
 
-    def present(self) -> None:
-        """Swap the prepared frame to the screen. Blocks on vsync when the
-        driver throttles; the block is measured as swap_duration."""
+    def present(self) -> bool:
+        """Display side: promote the newest finished frame, draw it, swap.
+
+        Returns whether the picture actually moved -- False means the held
+        frame was re-presented because the engine had nothing new ready.
+
+        Promotion happens HERE, immediately before the draw, rather than when
+        the engine flagged completion -- see `FramebufferPair` for why that
+        costs a frame of latency if moved earlier. If no new frame is ready
+        the held one is drawn again, which is the whole of the above-crossover
+        behaviour.
+
+        The swap is measured as `swap_duration`. Nothing blocks in it now
+        that client vsync is off on every path; a long one means the
+        compositor is withholding presentations.
+        """
+        promoted = self._framebuffer.promote()
+        self._framebuffer.draw(self._surface)
         swap_started = perf_counter()
         self._surface.flip()
         self._swap_duration = perf_counter() - swap_started
+        return promoted
