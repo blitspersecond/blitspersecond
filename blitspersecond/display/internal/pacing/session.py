@@ -58,6 +58,9 @@ class PresentationSession:
         frame_pacing_factory: FramePacingSinkFactory,
     ) -> None:
         self._display = display
+        # Kept only as capture metadata: a frame-pacing CSV is comparable
+        # against another only if it says what rate it was recording.
+        # Presentation itself no longer knows or needs the authored rate.
         self._spin_pacing = spin_pacing
         self._logger = logger
 
@@ -92,8 +95,6 @@ class PresentationSession:
         self._next_present = perf_counter() + self._period
         self._monitor = PresentationMonitor()
         self._health = FlipHealth.OK
-        self._background_next = perf_counter()
-        self._background_period = 1.0 / target_rate
 
         logger.info(
             f"Presenting on a {self._refresh_rate:.3f}Hz deadline grid "
@@ -156,8 +157,9 @@ class PresentationSession:
         )
 
     def backgrounded(self) -> None:
-        """Stop presenting; pace the hidden loop off its own deadline."""
-        self._background_next = perf_counter()
+        """Stop presenting. The loop keeps ticking on the engine clock, which
+        is the whole point of the clock not living here: a hidden window
+        changes what is DISPLAYED, not what the simulation rate is."""
 
     def foregrounded(self) -> None:
         """Restart presentation without stale health evidence."""
@@ -172,16 +174,6 @@ class PresentationSession:
     def resumed(self) -> None:
         """Re-phase the presentation grid after a suspension."""
         self._next_present = perf_counter() + self._period
-
-    def wait_backgrounded(self) -> None:
-        """Pace a hidden loop without submitting to a stalled swap chain."""
-        self._background_next += self._background_period
-        now = perf_counter()
-        if self._background_next < now:
-            self._background_next = now + self._background_period
-        wait = self._background_next - now
-        if wait > 0:
-            sleep(wait)
 
     def present(self) -> bool:
         """Present the frame display is holding; return whether it stalled."""

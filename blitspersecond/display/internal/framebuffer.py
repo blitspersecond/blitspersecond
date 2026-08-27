@@ -66,9 +66,10 @@ class Framebuffer(pyglet.image.buffer.Framebuffer):
             shader.Shader(frag_raw, "fragment"),
         )
 
-    def clear(self) -> None:
+    def clear(self, colour: tuple[float, float, float] = (0.0, 0.0, 0.0)) -> None:
+        red, green, blue = colour
         self.bind()
-        pyglet.gl.glClearColor(0.0, 0.0, 0.0, 0.0)
+        pyglet.gl.glClearColor(red, green, blue, 1.0)
         pyglet.gl.glClear(pyglet.gl.GL_COLOR_BUFFER_BIT)
         self.unbind()
 

@@ -176,6 +176,11 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         return self._clock.rate
 
     @property
+    def display(self) -> Display:
+        """The screen this engine draws to."""
+        return self._display
+
+    @property
     def logger(self) -> Logger:
         return self._logger
 

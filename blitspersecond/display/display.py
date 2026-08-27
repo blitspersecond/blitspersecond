@@ -1,16 +1,17 @@
 from time import perf_counter
 from typing import Optional
 
+from pyglet import clock as pyglet_scheduler
+
 from blitspersecond.system import Logger, EventBus  # Metrics
+from blitspersecond.system.frame_pacing import FramePacingRecorder
 
-from blitspersecond.display.internal import Framebuffer, Surface
+from blitspersecond.display.internal import (
+    Framebuffer,
+    PresentationSession,
+    Surface,
+)
 
-# from blitspersecond.system.monitor.frame_pacing import (
-#     FramePacingRecorder,
-#     start_deadline_from_environment,
-# )
-
-# from .internal import Surface, Framebuffer, PresentationSession
 # from .layers import Layers
 
 
@@ -37,6 +38,10 @@ class Display:
         # self._layers = Layers()
         self._logger = Logger()
         self._swap_duration = 0.0
+        # Stands in for the layer compose pass while the graphics rebuild is
+        # out. Every frame is this colour; a game that sets it is the
+        # simplest possible proof that ticks reach the panel.
+        self._background = (0.0, 0.0, 0.0)
 
     # State Management
     @property
@@ -58,20 +63,43 @@ class Display:
     # def layers(self) -> Layers:
     #     return self._layers
 
+    @property
+    def background(self) -> tuple[float, float, float]:
+        """The colour the screen clears to, until layers return."""
+        return self._background
+
+    @background.setter
+    def background(self, colour: tuple[float, float, float]) -> None:
+        self._background = colour
+
     # event dispatcher stuff
     def dispatch_events(self):
-        self._surface.dispatch_events()
+        """Pump everything the window system has queued for us.
 
-    # def _presentation_session(self) -> PresentationSession:
-    #     """Build the display-owned pacing state for one engine run."""
-    #     return PresentationSession(
-    #         self,
-    #         target_rate=self.framerate,
-    #         spin_pacing=True,  # FIXME: this is what we wanted to test - do we need this anymore?
-    #         logger=self._logger,
-    #         frame_pacing_factory=FramePacingRecorder.from_environment,
-    #         diagnostic_deadline=start_deadline_from_environment(),
-    #     )
+        Both queues, deliberately in one call: the surface's own events, and
+        pyglet's scheduled callbacks. The latter used to be a bare
+        `clock.tick()` in the machine loop, which read as a second engine
+        clock sitting beside the real one. It is neither -- it is window-
+        system housekeeping, it belongs at iteration rate, and this is where
+        iteration-rate window chores live.
+        """
+        self._surface.dispatch_events()
+        pyglet_scheduler.tick()
+
+    def _presentation_session(self, *, target_rate: int) -> PresentationSession:
+        """Build the display-owned presentation pacing for one engine run.
+
+        `target_rate` is a per-run argument rather than display state: it is
+        capture metadata, not configuration. Display has no use for the
+        authored rate and deliberately does not keep one.
+        """
+        return PresentationSession(
+            self,
+            target_rate=target_rate,
+            spin_pacing=True,
+            logger=self._logger,
+            frame_pacing_factory=FramePacingRecorder.from_environment,
+        )
 
     # def _compose(self) -> None:
     #     """Draw each enabled layer into the framebuffer, background to foreground.
@@ -121,6 +149,7 @@ class Display:
         held frame and composition bills at GAME rate, not display rate."""
         # if recompose:
         #     self._compose()
+        self._framebuffer.clear(self._background)
         self._framebuffer.draw(self._surface)
 
     def present(self) -> None:

@@ -58,13 +58,11 @@ class Surface(pyglet.window.Window):
             style=style,
             fullscreen=False,
             visible=visible,
-            # Native X11 asks GLX to pace swaps. Direct XWayland deliberately
-            # does not: a narrowly missed Mutter vblank otherwise costs a full
-            # extra refresh, so PresentationSession owns a monotonic deadline
-            # grid there just as it does for the validated Gamescope path.
-            # TODO: Is this actually true or did we cargocult it?
             # Never. BPS owns presentation timing on every path now, and a
             # blocking swap would fight its deadline rather than serve it.
+            # This began as an XWayland-only measure -- Mutter charges a full
+            # extra refresh for a narrowly missed vblank -- and became the
+            # rule when simulation stopped being paced by the swap.
             vsync=False,
             config=pyglet.gl.Config(double_buffer=True),
         )
