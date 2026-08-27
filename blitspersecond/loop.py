@@ -183,9 +183,15 @@ class Loop:
                     if not lifecycle.running or display.closed:
                         break
 
-                    # The frame is up; the engine now has the whole interval
-                    # to the next slot it must make to build the next one.
+                    # The frame is up. Rather than build the next one now
+                    # and let it sit in the back buffer for the rest of the
+                    # interval, wait until the engine actually needs to start
+                    # -- input is then sampled close to the moment the frame
+                    # is shown. See `wait_before_tick`.
+                    presentation.wait_before_tick(clock.frame + 1)
+                    started = perf_counter()
                     _advance(engine, clock, metrics, display)
+                    presentation.observe_work(perf_counter() - started)
                 except Exception as error:
                     engine._logger.error(f"Error during main loop: {error}")
                     lifecycle.fail(

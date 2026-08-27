@@ -33,6 +33,7 @@ can do that: the pacer decides when a frame is SHOWN and never how many times
 the engine runs. See `docs/bps/DECOUPLED_PRESENTATION.md`.
 """
 
+from collections import deque
 from math import ceil, isfinite
 from time import perf_counter, perf_counter_ns, sleep
 from typing import TYPE_CHECKING
@@ -56,6 +57,27 @@ if TYPE_CHECKING:
 # the figure. PresentMon's MsBetweenDisplayChange is what can calibrate this
 # properly, which is why the board card carries the capture recipe.
 _LATCH_MARGIN = 0.001
+
+# Below this there is no point sleeping: the syscall and the wake cost more
+# than the wait is worth, and the engine may as well start now.
+_SLEEP_FLOOR = 0.001
+
+# Headroom over the worst recent frame. A frame that overruns its reserve
+# slips a slot, which the existing recovery handles, so this trades latency
+# against how often that happens.
+_RESERVE_FACTOR = 2.0
+
+# How many frames the worst-case estimate remembers. A windowed maximum
+# rather than a decay: a decay that forgets slowly enough to respect a spike
+# also takes hundreds of frames to give the latency back, which was measured
+# -- one 20ms stall pinned the reserve above a whole frame interval for the
+# rest of the run and the engine simply started immediately every time.
+_RESERVE_WINDOW = 90
+
+# The reserve may never exceed this fraction of a frame. Past it the engine
+# would start immediately every frame, which is merely the old behaviour with
+# extra arithmetic -- so cap it and keep half the interval as real sleep.
+_RESERVE_CEILING = 0.5
 
 # Presentation rate assumed when the platform will not say what the panel
 # runs at. Only the slot grid depends on it, so a wrong guess costs an uneven
@@ -113,6 +135,8 @@ class PresentationSession:
         self._slipped = 0
         self._last_shown = 0.0
         self._interval = 0.0
+        self._recent_work: deque[float] = deque(maxlen=_RESERVE_WINDOW)
+        self._late = 0
 
         logger.info(
             f"Pacing frames against a {self._refresh_rate:.3f}Hz slot grid "
@@ -191,6 +215,54 @@ class PresentationSession:
         if shown > ideal + self._period:
             self._slipped += 1
             self._origin = shown - frame * self._step
+
+    def observe_work(self, seconds: float) -> None:
+        """Feed how long the engine took to produce and compose one frame."""
+        self._recent_work.append(seconds)
+
+    def wait_before_tick(self, frame: int) -> None:
+        """Sleep until the engine needs to start building `frame`.
+
+        Without this the engine runs the instant the previous frame goes up,
+        finishes in a fraction of its budget, and the composed frame then
+        sits in the back buffer for the rest of the interval -- measured at
+        p50 13.9ms and p90 20.8ms on a 144Hz panel, essentially a whole frame
+        of input-to-photon latency spent waiting.
+
+        Starting late instead means input is sampled close to the moment the
+        frame is shown. **This deliberately gives up the whole-gap budget**
+        the engine otherwise has: it now gets the reserve, and a frame that
+        overruns the reserve slips a slot. That is a real trade and not a
+        free win -- the reserve is what buys it back, and `late` counts how
+        often the bet was wrong.
+
+        Does not sleep for less than `_SLEEP_FLOOR`; below that the wake
+        costs more than the wait is worth.
+        """
+        start_by = self.slot_for(frame) - _LATCH_MARGIN - self.reserve
+        remaining = start_by - perf_counter()
+        if remaining > _SLEEP_FLOOR:
+            sleep(remaining)
+        elif remaining < 0:
+            self._late += 1
+
+    @property
+    def reserve(self) -> float:
+        """Seconds held back for the engine to build a frame in.
+
+        The worst frame in the recent window plus headroom, capped so it can
+        never swallow the whole interval, and floored at the sleep floor
+        because a reserve smaller than that cannot be acted on anyway.
+        """
+        if not self._recent_work:
+            return _SLEEP_FLOOR
+        estimate = max(self._recent_work) * _RESERVE_FACTOR
+        return min(max(estimate, _SLEEP_FLOOR), self._step * _RESERVE_CEILING)
+
+    @property
+    def late(self) -> int:
+        """Times the engine was called with no reserve left before its slot."""
+        return self._late
 
     @property
     def interval(self) -> float:
