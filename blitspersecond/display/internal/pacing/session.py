@@ -1,24 +1,36 @@
-"""Presentation pacing for one run of the machine loop.
+"""The frame pacer: one question, asked once per presentation slot.
 
-The simulation clock used to live here, and most of this file was it:
-dividing presentation slots into game ticks, measuring the delivered rate to
-keep that division honest, and detecting whether the swap was pacing the loop
-at all. None of that is presentation's business any more. The engine holds
-the authored rate on `blitspersecond.clock.Clock`, and this owns the one
-question that is genuinely display's: **when does the next frame go up?**
+**Is this slot the one the pending frame belongs on?** Yes, and it goes up
+and the engine is called for the next one. No, and it is held. That is the
+whole algorithm. There is no cadence table, no rational, and nothing
+computed ahead of time -- the familiar 3,2,3,2,2 at 60fps on a 144Hz panel is
+what that question ANSWERS, not what it consults.
 
-Every path presents on a deadline grid with client vsync off. That used to be
-a per-platform decision -- Gamescope and Win32 by nature, direct XWayland
-because Mutter charges a whole additional refresh when a prepared frame
-narrowly misses vblank, which measured as roughly 45ms frames and a game
-running at 75% of its authored rate. The defect was never the penalty; it was
-that a doubled presentation interval became a doubled simulation interval,
-because they were the same clock. They are not any more, so the special case
-became the general rule. See `docs/bps/DECOUPLED_PRESENTATION.md`.
+A frame belongs on the first slot at or after its deadline, and its deadline
+is `origin + frame * step` -- exact, from the engine's own frame count. Two
+properties fall out of that and the engine depends on both:
 
-What this means for the panel rate: it is used ONLY to pace presentation.
-Being 0.1% wrong about it is invisible, where being 0.1% wrong about the
-simulation rate was what the deleted machinery existed to prevent.
+* **Never early.** A frame cannot be shown before its deadline, so the game
+  can never run fast, and a frame the engine finished early is HELD rather
+  than shown into the previous frame's slot.
+* **The engine gets the whole gap.** The engine is called immediately after
+  the swap, so its budget is the interval to the next slot it must make --
+  13.89 to 20.83ms at 60-on-144, never the 1.39ms of slack that hitting an
+  ideal instant would leave it.
+
+Overrun needs no rule. If the engine runs past the slot its frame was due
+on, that slot's answer was simply "not ready"; the next slot answers yes and
+the origin re-anchors to where the frame actually landed. The cycle restarts
+from there, which hands the recovering frame the FRONT gap -- `ceil(refresh /
+rate)`, provably the largest gap in the schedule, so the frame most likely to
+be in trouble gets the most room. Time lost stays lost: the engine measures
+in frames, and a slowdown is affordable where a compressed frame is not.
+
+This replaced a presentation-locked cadence that GRANTED ticks, where a
+withheld present withheld simulation and a compositor charging an extra
+refresh for a narrowly missed vblank ran the game at 75% speed. Nothing here
+can do that: the pacer decides when a frame is SHOWN and never how many times
+the engine runs. See `docs/bps/DECOUPLED_PRESENTATION.md`.
 """
 
 from math import ceil, isfinite
@@ -35,34 +47,41 @@ if TYPE_CHECKING:
     from blitspersecond.display.display import Display
 
 
-# How early a coarse sleep hands over to spin-polling. The spin burns at most
-# this much CPU per frame and buys the accuracy `sleep` will not give.
+# How early a coarse sleep hands over to spin-polling. `sleep` routinely
+# overshoots by a millisecond or more and an overshoot is a missed slot.
 _SPIN_MARGIN = 0.002
 
+# How far before a slot the compositor stops accepting content for it. A swap
+# landing inside this window is shown at the FOLLOWING slot, not this one, so
+# the pacer treats the slot as already gone.
+#
+# PROVISIONAL. 1ms is a conservative Linux placeholder, not a measurement --
+# DWM and Mutter both compose ahead of their own vblank and neither publishes
+# the figure. PresentMon's MsBetweenDisplayChange is what can calibrate this
+# properly, which is why the board card carries the capture recipe.
+_LATCH_MARGIN = 0.001
+
 # Presentation rate assumed when the platform will not say what the panel
-# runs at. Only presentation cadence depends on it, so a wrong guess costs
-# an uneven present pattern rather than a game running at the wrong speed.
+# runs at. Only the slot grid depends on it, so a wrong guess costs an uneven
+# present pattern rather than a game running at the wrong speed.
 _ASSUMED_REFRESH = 60.0
 
 
 class PresentationSession:
-    """Display-owned presentation pacing for one invocation of the loop."""
+    """Display-owned frame pacing for one invocation of the machine loop."""
 
     def __init__(
         self,
         display: "Display",
         *,
         target_rate: int,
-        spin_pacing: bool,
+        step: float,
         logger: Logger,
         frame_pacing_factory: FramePacingSinkFactory,
     ) -> None:
         self._display = display
-        # Kept only as capture metadata: a frame-pacing CSV is comparable
-        # against another only if it says what rate it was recording.
-        # Presentation itself no longer knows or needs the authored rate.
-        self._spin_pacing = spin_pacing
         self._logger = logger
+        self._step = step
 
         refresh_rate = display.refresh_rate
         # A reported mode is only trustworthy if it is finite and at least
@@ -72,17 +91,17 @@ class PresentationSession:
         ):
             logger.error(
                 f"Display reported an unusable refresh rate ({refresh_rate!r}); "
-                f"presenting at {_ASSUMED_REFRESH:.0f}Hz instead."
+                f"pacing against {_ASSUMED_REFRESH:.0f}Hz instead."
             )
             refresh_rate = None
         self._refresh_rate = refresh_rate or _ASSUMED_REFRESH
+        self._period = 1.0 / self._refresh_rate
 
         presentation_path = detect_presentation_path()
         logger.info(f"Presentation path: {presentation_path.description}.")
         # Win32 reports the current monitor for a window rather than the one
-        # it was created on, so a window dragged to another output can still
-        # have its PRESENTATION cadence corrected. It no longer corrects
-        # anything about the simulation, which is why nothing else needs it.
+        # it was created on, so a window dragged to another output can have
+        # its slot grid corrected. It corrects nothing about the simulation.
         self._tracks_window_output = presentation_path.name == "win32"
         self._frame_pacing = frame_pacing_factory(
             target_fps=target_rate,
@@ -91,72 +110,131 @@ class PresentationSession:
             presentation_path=presentation_path.description,
         )
 
-        self._period = 1.0 / self._refresh_rate
-        self._next_present = perf_counter() + self._period
+        self._origin = 0.0
         self._monitor = PresentationMonitor()
         self._health = FlipHealth.OK
         self._promoted = False
+        self._slipped = 0
+        self._last_shown = 0.0
+        self._interval = 0.0
 
         logger.info(
-            f"Presenting on a {self._refresh_rate:.3f}Hz deadline grid "
+            f"Pacing frames against a {self._refresh_rate:.3f}Hz slot grid "
             f"({'measured' if refresh_rate else 'assumed'})."
         )
 
+    # -- the grid ------------------------------------------------------------
+
+    def start(self) -> None:
+        """Anchor frame zero. Called by the loop as servicing begins.
+
+        Never during warm-up: opening a window can block on slow hardware and
+        an origin set then would already be far in the past, which reads as a
+        first-frame stall rather than as a slow start.
+        """
+        self._origin = perf_counter()
+
+    def deadline(self, frame: int) -> float:
+        """When frame `frame` is due: exact, from the engine's own count.
+
+        Never accumulated. `+= step` sixty times a second throws the grid
+        position away and lets it walk against the panel's; this cannot
+        drift, so ordinary jitter never moves the schedule.
+        """
+        return self._origin + frame * self._step
+
+    def next_slot(self, after: float) -> float:
+        """The first slot boundary at or after `after`."""
+        return ceil(after / self._period - 1e-9) * self._period
+
+    def ready(self, frame: int, now: float) -> bool:
+        """THE question: does the pending frame belong on the current slot?
+
+        True once the slot has reached the frame's deadline. False means hold
+        -- the frame is finished but showing it now would put it on screen
+        before it was due, stealing a slot from the frame in front of it.
+        """
+        return now + _LATCH_MARGIN >= self.deadline(frame)
+
+    def wait_next_slot(self) -> None:
+        """Hold until the next slot boundary: coarse sleep, then a short spin."""
+        target = self.next_slot(perf_counter() + _LATCH_MARGIN)
+        remaining = target - perf_counter()
+        if remaining > _SPIN_MARGIN:
+            sleep(remaining - _SPIN_MARGIN)
+        while perf_counter() < target:
+            pass
+
+    def anchor(self, frame: int, shown: float) -> None:
+        """Re-anchor the grid when a frame landed later than it was due.
+
+        Restarts the cycle from where the frame actually went up, rather than
+        leaving every subsequent deadline in the past -- which would make the
+        pacer answer "yes" at every slot and sprint at panel rate, the
+        catch-up this design exists to refuse.
+        """
+        ideal = self.deadline(frame)
+        if shown > ideal + self._period:
+            self._slipped += 1
+            self._origin = shown - frame * self._step
+
     @property
-    def deadline(self) -> float:
-        """`perf_counter` value at which the next presentation is due.
+    def interval(self) -> float:
+        """Wall seconds between the last two frames reaching the screen.
 
-        Published so the loop can wait on whichever of its two deadlines --
-        this one or the clock's -- falls first. Neither divides the other.
+        The honest answer to "how fast is this actually running", and the
+        only place it can be measured -- the clock counts frames and has no
+        wall clock to compare them against. Zero until two frames have gone
+        up.
         """
-        return self._next_present
+        return self._interval
 
-    def due(self) -> bool:
-        """Whether a presentation is owed now."""
-        return perf_counter() >= self._next_present
-
-    def slot_at_or_after(self, when: float) -> float:
-        """The first presentation slot boundary at or after `when`.
-
-        This is the budget the engine paces against. Display owns the grid
-        and publishes points on it; the engine decides what to do with them
-        and keeps counting its own frames either way -- so a withheld
-        present can never withhold a tick, which is the whole difference
-        between this and the cadence that used to grant them.
-
-        Snapping ticks to slot boundaries is what makes the present pattern
-        deterministic. Tick k lands on slot `ceil(k * step / period)`, so at
-        60fps on 144Hz the slots are 0, 3, 5, 8, 10, 12 -- a repeating
-        3,2,3,2,2. That is the old `PresentationCadence` arithmetic arriving
-        for free, out of the geometry rather than out of a `Fraction`, and it
-        is the same ceiling schedule that class settled on: frame one lands
-        at slot 3 because slots 1 and 2 would give it 6.94ms or 13.89ms
-        against a 16.67ms budget.
-
-        Measured from the live deadline rather than a stored origin, so a
-        grid re-phased by a resume or an output change carries the ticks
-        with it without anyone having to publish the change.
-        """
-        return self._next_present + ceil(
-            (when - self._next_present) / self._period
-        ) * self._period
+    @property
+    def slipped(self) -> int:
+        """Frames shown later than the slot they were due on."""
+        return self._slipped
 
     @property
     def promoted(self) -> bool:
-        """Whether the last present carried a new frame rather than the held
-        one. False is the ordinary case above the crossover, not a fault."""
+        """Whether the last swap carried a new frame rather than the held one."""
         return self._promoted
 
-    def wait(self) -> None:
-        """Hold until the next presentation is due: coarse sleep, then spin."""
-        remaining = self._next_present - perf_counter()
-        if self._spin_pacing:
-            if remaining > _SPIN_MARGIN:
-                sleep(remaining - _SPIN_MARGIN)
-            while perf_counter() < self._next_present:
-                pass
-        elif remaining > 0:
-            sleep(remaining)
+    @property
+    def refresh_rate(self) -> float:
+        return self._refresh_rate
+
+    # -- lifecycle edges -----------------------------------------------------
+
+    def backgrounded(self) -> None:
+        """Stop presenting. The engine keeps ticking on its own count: hiding
+        a window changes what is DISPLAYED, not what the simulation rate is."""
+
+    def foregrounded(self) -> None:
+        """Restart presentation without stale health evidence."""
+        if self._tracks_window_output:
+            refresh_rate = self._display.poll_refresh_rate(force=True)
+            if refresh_rate is not None:
+                self._adopt(refresh_rate)
+        self._monitor.reset()
+        self._health = FlipHealth.OK
+
+    def resumed(self, frame: int) -> None:
+        """Re-anchor after a suspension: the gap was not simulation."""
+        self._origin = perf_counter() - frame * self._step
+
+    def _adopt(self, refresh_rate: float) -> None:
+        """Re-pace for a window that moved to another output."""
+        if refresh_rate == self._refresh_rate or refresh_rate < 1:
+            return
+        previous = self._refresh_rate
+        self._refresh_rate = refresh_rate
+        self._period = 1.0 / refresh_rate
+        self._logger.info(
+            f"Presentation rate changed ({previous:.3f} -> "
+            f"{refresh_rate:.3f}Hz); new slot grid. Simulation is unaffected."
+        )
+
+    # -- instrumentation hooks ----------------------------------------------
 
     def begin_iteration(self) -> None:
         if self._frame_pacing is not None:
@@ -174,70 +252,36 @@ class PresentationSession:
         if self._frame_pacing is not None:
             self._frame_pacing.after_simulation()
 
-    def _adopt(self, refresh_rate: float) -> None:
-        """Re-pace presentation for a window that moved to another output."""
-        if refresh_rate == self._refresh_rate or refresh_rate < 1:
-            return
-        previous = self._refresh_rate
-        self._refresh_rate = refresh_rate
-        self._period = 1.0 / refresh_rate
-        # The old deadline belongs to the old period.
-        self._next_present = perf_counter() + self._period
-        self._logger.info(
-            f"Presentation rate changed ({previous:.3f} -> "
-            f"{refresh_rate:.3f}Hz); presenting on the new grid. Simulation "
-            f"is unaffected."
-        )
+    # -- the swap ------------------------------------------------------------
 
-    def backgrounded(self) -> None:
-        """Stop presenting. The loop keeps ticking on the engine clock, which
-        is the whole point of the clock not living here: a hidden window
-        changes what is DISPLAYED, not what the simulation rate is."""
-
-    def foregrounded(self) -> None:
-        """Restart presentation without stale health evidence."""
-        if self._tracks_window_output:
-            refresh_rate = self._display.poll_refresh_rate(force=True)
-            if refresh_rate is not None:
-                self._adopt(refresh_rate)
-        self._monitor.reset()
-        self._health = FlipHealth.OK
-        self._next_present = perf_counter() + self._period
-
-    def resumed(self) -> None:
-        """Re-phase the presentation grid after a suspension."""
-        self._next_present = perf_counter() + self._period
-
-    def present(self) -> bool:
-        """Present the frame display is holding; return whether it stalled."""
+    def present(self, frame: int) -> bool:
+        """Put the pending frame up. Returns whether the swap stream stalled."""
         if self._frame_pacing is not None:
             self._frame_pacing.after_prepare()
 
-        deadline_error = perf_counter() - self._next_present
-        # Composition no longer happens here: the engine builds frames on its
-        # own clock and this promotes whatever is finished. `promoted` is
-        # False when the held frame was re-presented.
-        promoted = self._promoted = self._display.present()
+        deadline_error = perf_counter() - self.deadline(frame)
+        # Promote-and-swap in one call: promotion is deliberately late, so
+        # the frame the engine just finished goes up on THIS slot rather than
+        # waiting for the next one.
+        self._promoted = self._display.present()
+        shown = perf_counter()
+        self._interval = shown - self._last_shown if self._last_shown else 0.0
+        self._last_shown = shown
         presented_ns = (
             perf_counter_ns() if self._frame_pacing is not None else 0
         )
-
-        # If a long frame or debugger pause missed more than one deadline,
-        # resync rather than sprinting to catch up.
-        self._next_present += self._period
-        if self._next_present < perf_counter():
-            self._next_present = perf_counter() + self._period
+        self.anchor(frame, shown)
 
         swap_elapsed = self._display.swap_duration
         self._health = self._monitor.observe(swap_elapsed)
         if self._frame_pacing is not None:
             self._frame_pacing.record_present(
                 presented_ns=presented_ns,
-                ticks=0,
-                recomposed=promoted,
+                ticks=1 if self._promoted else 0,
+                recomposed=self._promoted,
                 swap_seconds=swap_elapsed,
                 deadline_seconds=deadline_error,
-                pacing_mode="deadline",
+                pacing_mode="slot",
                 flip_health=self._health.name.lower(),
             )
         return self._health is FlipHealth.STALLED

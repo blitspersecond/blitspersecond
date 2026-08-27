@@ -1,41 +1,34 @@
 """The machine loop: service every subsystem in one controlled order.
 
-Two independent deadlines drive this loop and neither divides the other. The
-engine's `Clock` says when the next simulation tick is due, at the rate the
-game was authored at. Display's `PresentationSession` says when the next
-frame is due, at the rate the panel runs at. The loop waits on whichever
-falls sooner, then services whatever has come due.
+The loop walks presentation slots and asks the pacer one question at each:
+**does the pending frame belong on this slot?** Yes, and it goes up and the
+engine is called for the next one. No, and the frame is held and the slot
+passes. Everything the engine does happens in the "yes" branch, immediately
+after the swap, which is what gives it the whole interval to the next slot it
+must make rather than the sliver of slack before an ideal instant.
 
-That is the whole shape, and it is what the decoupling bought. Previously
-presentation GRANTED ticks -- the loop asked display how many simulation
-steps it was allowed this iteration -- so a presentation that arrived late
-was a simulation that ran late, and a compositor that charged an extra
-refresh for a narrowly missed vblank made the game run at 75% speed. The two
-clocks are separate now, so a late frame costs a late frame.
+The engine's clock counts frames and nothing else -- it has no deadline, no
+grid and no wall clock. WHEN a frame is due is `origin + frame * step`, held
+by the pacer because the pacer is the only thing that knows the grid it has
+to be reconciled against. What comes back the other way is just the count.
 
-Consequences worth knowing before changing anything here:
+That separation is the point. Presentation used to GRANT ticks: the loop
+asked display how many simulation steps it was allowed, so a late present was
+a late simulation, and a compositor charging a whole extra refresh for a
+narrowly missed vblank ran the game at 75% speed. Nothing here can do that
+now -- the pacer decides when a frame is SHOWN and never how often the engine
+runs.
 
-* **No catch-up batch.** The clock owes at most one tick at a time, so there
-  is no loop over `tick_count` and no wall time to spread across it. Every
-  tick gets its own event pump and input snapshot, which is what keeps input
-  edge detection at the authored rate rather than the panel's.
-* **Above the crossover** (panel faster than the game) the loop iterates on
-  presentation and simply does not tick on most iterations.
-* **Below it** (panel slower) the loop iterates on the clock and presents on
-  some iterations. Frames the panel cannot show are never composed. The
-  simulation is unaffected either way, which is the point.
-
-Audio commands issued by a game tick are consumed independently by the
-realtime audio worker; it is a third clock domain and it references neither
-of these two.
+Audio commands issued by a tick are consumed independently by the realtime
+audio worker; it is a third clock domain and references neither of these.
 
 The loop does not own the state machine. An engine is already RUNNING when it
 arrives here, having blocked through warm-up in its own constructor. The loop
 brackets its spell of servicing (`servicing`, `stopped`) and offers
-`Lifecycle` one boundary per iteration to apply deferred requests (`settle`).
+`Lifecycle` one boundary per slot to apply deferred requests (`settle`).
 """
 
-from time import perf_counter, sleep
+from time import perf_counter
 from typing import TYPE_CHECKING
 
 from blitspersecond.lifecycle import EngineState
@@ -44,24 +37,34 @@ if TYPE_CHECKING:
     from .blitspersecond import BlitsPerSecond
 
 
-# How early the coarse sleep hands over to spin-polling. Matches the margin
-# the clock and the presentation session each use for their own waits; this
-# is the combined wait, on whichever deadline is nearer.
-_SPIN_MARGIN = 0.002
+def _advance(engine, clock, metrics, display) -> None:
+    """Run one game tick and compose the frame it produced.
 
-
-def _wait_until(deadline: float) -> None:
-    """Hold until `deadline`: coarse sleep, then a short spin.
-
-    `sleep` alone routinely overshoots by a millisecond or more, and an
-    overshoot is a missed deadline. The spin costs at most `_SPIN_MARGIN` of
-    CPU and is paid on every platform now that nothing blocks in the swap.
+    Composition happens once per TICK, never per slot -- it bills at game
+    rate whatever the panel is doing, which is what the retired `recompose`
+    flag used to arrange. The frame index turns FIRST: everything staged
+    since the last tick belongs to the frame now closing, including the
+    swaps that showed it, so a tick and its presentations share one slot.
     """
-    remaining = deadline - perf_counter()
-    if remaining > _SPIN_MARGIN:
-        sleep(remaining - _SPIN_MARGIN)
-    while perf_counter() < deadline:
-        pass
+    metrics.advance()
+    clock.tick()
+    # Latch the scene before the call; rebinding `loop` therefore takes
+    # effect next complete tick. Never None -- an unset loop is a do-nothing
+    # lambda -- so this is a bare call, not a test.
+    game_loop = engine._loop
+    started = perf_counter()
+    game_loop()
+    elapsed = perf_counter() - started
+    metrics.gameloop_ms.push(elapsed * 1000.0)
+    if display.closed:
+        # The tick called stop(). Composing into a dead GL context raises
+        # rather than draws.
+        return
+    if display.compose():
+        # The previous frame was overwritten before it was ever shown.
+        # Expected below the crossover; above it, an overrun.
+        metrics.frames_dropped.push()
+    metrics.compose_ms.push(display.compose_duration * 1000.0)
 
 
 class Loop:
@@ -71,18 +74,17 @@ class Loop:
     def run(engine: "BlitsPerSecond") -> None:
         """Run input, game, lifecycle, and output at controlled boundaries.
 
-        Ordering contract, per iteration:
+        Ordering contract, per presentation slot:
 
-        1. Wait for the sooner of the two deadlines.
+        1. Wait for the next slot.
         2. Pump the window event queue.
         3. Apply lifecycle transitions.
-        4. If a tick is due, advance the clock and run one game step.
-        5. If a presentation is due, put the frame up.
+        4. Ask the pacer whether the pending frame belongs on this slot.
+        5. If it does: put it up, then run one game tick and compose the next.
 
-        A backgrounded display stops presenting but keeps ticking: hiding a
-        window changes what is DISPLAYED, not what the simulation rate is.
-        Suspension is the opposite -- events and presentation stay live while
-        game ticks stop.
+        A backgrounded display stops presenting but keeps ticking -- hiding a
+        window changes what is displayed, not the simulation rate. Suspension
+        is the opposite: events and presentation stay live while ticks stop.
         """
         lifecycle = engine._lifecycle
         clock = engine._clock
@@ -97,7 +99,7 @@ class Loop:
             # never during the constructor's warm-up -- that is what keeps
             # slow hardware startup from reading as a first-frame stall.
             presentation = display._presentation_session(
-                target_rate=int(clock.rate)
+                target_rate=int(clock.rate), step=clock.step
             )
         except BaseException as error:
             # The one shutdown that does not leave through `stopped()`: a
@@ -105,20 +107,18 @@ class Loop:
             lifecycle.fail(f"engine startup failed: {type(error).__name__}")
             raise
 
-        clock.start()
-        # Ticks land on display's presentation slots from here. Timing only:
-        # the clock still counts its own frames and still ticks when its
-        # deadline arrives whether or not anything was presented, so this
-        # cannot become presentation granting ticks again. What it buys is a
-        # deterministic present pattern -- two free-running grids shuffle
-        # their attribution, one grid cannot.
-        clock.pace_with(presentation.slot_at_or_after)
+        presentation.start()
+        # Frame one is composed before the loop can show anything: the pacer
+        # holds it until its deadline, which is one full step in. That is the
+        # ceiling prime, and it arrives out of the arithmetic rather than
+        # being arranged -- on a 144Hz panel the first slot at or after
+        # 16.67ms is slot 3, so frame one gets a whole interval on screen.
+        _advance(engine, clock, metrics, display)
         try:
             while lifecycle.running:
                 try:
-                    _wait_until(min(clock.deadline, presentation.deadline))
+                    presentation.wait_next_slot()
                     presentation.begin_iteration()
-                    ticked = False
                     # Latched by hand because the loop needs the EDGE, not the
                     # level. Reporting that edge is the Lifecycle's job to take
                     # over when the loop's own shape is settled.
@@ -137,84 +137,57 @@ class Loop:
                         presentation.foregrounded()
 
                     # Lifecycle requests land between event dispatch and the
-                    # tick, never part-way through a coherent game step.
-                    # Resuming invalidates the timing baselines -- wall time
-                    # passed that no tick accounted for -- so they rebase
-                    # rather than treat the gap as a catch-up debt.
+                    # swap, never part-way through a coherent game tick.
+                    # Resuming invalidates the grid -- wall time passed that
+                    # no tick accounted for -- so it re-anchors rather than
+                    # treating the gap as frames it owes.
                     if lifecycle.settle() is EngineState.RUNNING:
-                        clock.rebase()
                         metrics.rebase()
-                        presentation.resumed()
+                        presentation.resumed(clock.frame)
 
-                    if lifecycle.state is EngineState.RUNNING and clock.due():
-                        # Turn the frame index FIRST. Everything staged since
-                        # the last tick belongs to the frame now closing --
-                        # including the presentations that followed it, so a
-                        # tick and the swaps that showed it share one slot.
-                        metrics.advance()
-                        clock.tick()
-                        metrics.frame_ms.push(clock.dt * 1000.0)
-                        # Latch the scene before the call; rebinding `loop`
-                        # therefore takes effect next complete tick. Never
-                        # None -- an unset loop is a do-nothing lambda -- so
-                        # this is a bare call, not a test.
-                        game_loop = engine._loop
-                        started = perf_counter()
-                        game_loop()
-                        # Measured around the call rather than taken from
-                        # `clock.dt`: dt is the whole iteration including the
-                        # wait, so only this sees a game-side spike.
-                        metrics.gameloop_ms.push(
-                            (perf_counter() - started) * 1000.0
-                        )
-                        ticked = True
+                    if lifecycle.state is not EngineState.RUNNING:
+                        continue
+
+                    # THE question. Not yet due means hold: showing the frame
+                    # now would put it on screen before its deadline and steal
+                    # a slot from the frame in front of it.
+                    if not presentation.ready(clock.frame, perf_counter()):
+                        continue
 
                     presentation.after_simulation()
 
-                    # A game tick may have called stop(), closing the surface.
+                    # Never feed an occlusion-throttled swap chain. The engine
+                    # carries on regardless, on its own frame count.
+                    if not lifecycle.backgrounded:
+                        stalled = presentation.present(clock.frame)
+                        metrics.presents.push()
+                        if not presentation.promoted:
+                            metrics.frames_repeated.push()
+                        metrics.swap_ms.push(display.swap_duration * 1000.0)
+                        if presentation.interval:
+                            # Measured screen-to-screen, not derived from the
+                            # nominal step -- the clock counts frames and has
+                            # no wall clock to be asked about this.
+                            metrics.frame_ms.push(
+                                presentation.interval * 1000.0
+                            )
+                        if stalled:
+                            # Display reports the condition; the lifecycle
+                            # publishes visibility and deliberately chooses no
+                            # pause policy.
+                            lifecycle.set_backgrounded(
+                                True,
+                                "presentations withheld by compositor",
+                            )
+                            presentation.backgrounded()
+
+                    # A stop() from the WM or a prior tick closes the surface.
                     if not lifecycle.running or display.closed:
                         break
 
-                    # The tick built a world state; turn it into a picture and
-                    # hand it to display. Once per TICK, never per present --
-                    # composition bills at game rate whatever the panel is
-                    # doing, which is what the old `recompose` flag existed to
-                    # arrange. Deliberately AFTER the shutdown guard above: a
-                    # tick that called stop() has already torn the surface
-                    # down, and composing into a dead GL context raises rather
-                    # than draws.
-                    if ticked:
-                        if display.compose():
-                            # The previous frame was overwritten before it was
-                            # ever shown. Expected below the crossover; a real
-                            # finding on a panel faster than the game.
-                            metrics.frames_dropped.push()
-                        metrics.compose_ms.push(
-                            display.compose_duration * 1000.0
-                        )
-
-                    # Never feed an occlusion-throttled swap chain. The
-                    # simulation carries on regardless, on its own clock.
-                    if lifecycle.backgrounded or not presentation.due():
-                        continue
-
-                    stalled = presentation.present()
-                    metrics.presents.push()
-                    if not presentation.promoted:
-                        # The held frame went up again because the engine had
-                        # nothing new ready. Expected above the crossover --
-                        # at 60fps on 144Hz most presents are repeats.
-                        metrics.frames_repeated.push()
-                    metrics.swap_ms.push(display.swap_duration * 1000.0)
-                    if stalled:
-                        # Display reports the condition; the lifecycle
-                        # publishes visibility and deliberately chooses no
-                        # pause policy.
-                        lifecycle.set_backgrounded(
-                            True,
-                            "presentations withheld by compositor",
-                        )
-                        presentation.backgrounded()
+                    # The frame is up; the engine now has the whole interval
+                    # to the next slot it must make to build the next one.
+                    _advance(engine, clock, metrics, display)
                 except Exception as error:
                     engine._logger.error(f"Error during main loop: {error}")
                     lifecycle.fail(

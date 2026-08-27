@@ -87,7 +87,9 @@ class Display:
         self._surface.dispatch_events()
         pyglet_scheduler.tick()
 
-    def _presentation_session(self, *, target_rate: int) -> PresentationSession:
+    def _presentation_session(
+        self, *, target_rate: int, step: float
+    ) -> PresentationSession:
         """Build the display-owned presentation pacing for one engine run.
 
         `target_rate` is a per-run argument rather than display state: it is
@@ -97,7 +99,7 @@ class Display:
         return PresentationSession(
             self,
             target_rate=target_rate,
-            spin_pacing=True,
+            step=step,
             logger=self._logger,
             frame_pacing_factory=FramePacingRecorder.from_environment,
         )
