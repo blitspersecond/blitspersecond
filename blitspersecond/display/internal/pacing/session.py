@@ -69,6 +69,19 @@ _RESERVE_WINDOW = 90
 # extra arithmetic -- so cap it and keep half the interval as real sleep.
 _RESERVE_CEILING = 0.5
 
+# Phase search. The notional grid's offset from the real one is unknown and
+# unmeasurable, and almost all offsets are fine. The bad case is landing
+# within timing jitter of a real vblank, where frames cross the boundary
+# intermittently and land a slot early or late. Roughly 2.3% of the phase
+# space at the jitter we measure, so it will happen eventually.
+#
+# It is detectable without any external reference: a present whose interval
+# is a whole slot away from the gap we intended is a frame that went to the
+# wrong vblank. Enough of those in a window and the grid moves.
+_PHASE_WINDOW = 120
+_PHASE_TRIGGER = 6
+_PHASE_STEP = 0.25  # of a period
+
 # Presentation rate assumed when the platform will not say what the panel
 # runs at. Only the slot grid depends on it, so a wrong guess costs an uneven
 # present pattern rather than a game running at the wrong speed.
@@ -125,6 +138,10 @@ class PresentationSession:
         self._slipped = 0
         self._last_shown = 0.0
         self._interval = 0.0
+        self._phase = 0.0
+        self._last_slot_index = None
+        self._off_pattern: deque[bool] = deque(maxlen=_PHASE_WINDOW)
+        self._phase_shifts = 0
         self._recent_work: deque[float] = deque(maxlen=_RESERVE_WINDOW)
         self._late = 0
 
@@ -177,7 +194,9 @@ class PresentationSession:
         to shift this grid by an arbitrary fraction of a period. Not measured
         as a problem: p99 20.878 against a 20.833 expectation, no outliers.
         """
-        return ceil(after / self._period - 1e-9) * self._period
+        return self._phase + ceil(
+            (after - self._phase) / self._period - 1e-9
+        ) * self._period
 
     def slot_for(self, frame: int) -> float:
         """The slot this frame belongs on: the first one at or after its due
@@ -290,6 +309,50 @@ class PresentationSession:
         return self._late
 
     @property
+    def phase_shifts(self) -> int:
+        """Times the grid has been nudged off a suspected vblank boundary.
+
+        A handful over a long session is the mechanism working. Frequent
+        shifting means something else: the grid is DRIFTING against the real
+        one, which is a wrong period rather than a wrong phase, and no amount
+        of phase nudging fixes it. Read a rising count as "the refresh rate
+        we were told is not the rate this panel runs at".
+        """
+        return self._phase_shifts
+
+    def _watch_phase(self, slot_index: int, slipped: bool) -> None:
+        """Notice frames landing on the wrong vblank, and move if enough do.
+
+        The intended gap between two presents is known exactly -- it is the
+        difference between their slot indices. If the measured interval is
+        most of a slot away from that, the frame went somewhere we did not
+        send it, and sitting within jitter of a real boundary is the reason
+        that happens. A slipped frame is excluded: that gap is late because
+        the engine overran, which is a different fault and already counted.
+        """
+        previous, self._last_slot_index = self._last_slot_index, slot_index
+        if previous is None or slipped or not self._interval:
+            return
+        expected = (slot_index - previous) * self._period
+        self._off_pattern.append(
+            abs(self._interval - expected) > self._period * 0.5
+        )
+        if sum(self._off_pattern) < _PHASE_TRIGGER:
+            return
+        # Move a quarter period and start the evidence again. Any offset is
+        # as valid as any other -- see `next_slot` -- so this costs nothing
+        # but the one frame it lands on.
+        self._phase += self._period * _PHASE_STEP
+        self._phase_shifts += 1
+        self._off_pattern.clear()
+        self._logger.info(
+            f"Presentation grid appeared to sit on a vblank boundary "
+            f"({_PHASE_TRIGGER} frames landed off-pattern); shifted phase by "
+            f"{self._period * _PHASE_STEP * 1000:.2f}ms "
+            f"(shift {self._phase_shifts})."
+        )
+
+    @property
     def interval(self) -> float:
         """Wall seconds between the last two frames reaching the screen.
 
@@ -381,7 +444,12 @@ class PresentationSession:
         presented_ns = (
             perf_counter_ns() if self._frame_pacing is not None else 0
         )
+        slipped_before = self._slipped
         self.anchor(frame, shown)
+        self._watch_phase(
+            round(self.slot_for(frame) / self._period),
+            self._slipped != slipped_before,
+        )
 
         swap_elapsed = self._display.swap_duration
         self._health = self._monitor.observe(swap_elapsed)
