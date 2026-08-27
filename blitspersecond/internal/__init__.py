@@ -1,12 +1,22 @@
-"""The machine: everything the engine runs on, and nothing a game names.
+"""The machine: everything the engine runs on, and nothing a game imports.
 
-The test for living here is not importance, it is naming. A game says
-`BlitsPerSecond()`, `bps.loop`, `bps.metrics`, and reaches for drawing
-through `graphics` -- it never says a word from this package. Instruments
-are the deliberate exception: a probe measuring the engine reaches through
-`bps._display` on purpose, and the private spelling is exactly what marks it
-as measuring the engine rather than playing a game on it.
+The test for living here is not importance, it is who builds the thing. A
+game says `BlitsPerSecond()` and gets an engine that already holds all of
+this; it never imports one of these names or constructs one itself.
 
+When something out here needs to read in, `BlitsPerSecond` forwards it --
+either the object (`bps.clock`) or just the value (`bps.background`),
+whichever the game actually wants. The engine is the front door, and it
+decides what shows.
+
+Instruments are the deliberate exception: a probe measuring the engine
+reaches through `bps._display` on purpose, and the private spelling is
+exactly what marks it as measuring the engine rather than playing a game
+on it.
+
+  clock.py        the ledger: `frame`, and `time` as `frame * step` exactly.
+                  Imports nothing from `time`, which is the test of whether
+                  the engine really does measure in frames.
   loop.py         the machine loop: every subsystem serviced in one
                   controlled order, once per presentation slot.
   lifecycle.py    the state machine -- CREATED through STOPPED, plus the
@@ -20,6 +30,13 @@ as measuring the engine rather than playing a game on it.
   window/         WHERE the picture lands.
   pacing/         WHEN it lands. Read its docstring before changing it.
 
+Living here is not the same as being unreachable. `Display` went private
+outright -- a game has no call to name the screen at all. `Clock` and
+`Lifecycle` did not: a game reads `bps.clock.frame` and calls
+`bps.suspend()`. What none of them is, is something a game IMPORTS or
+CONSTRUCTS. That is the line, and the forward is how the far side of it
+gets served.
+
 This was `display.internal`, one level deeper, back when `Display` was the
 public face of drawing. Layers moving into `graphics` left `Display` with
 nothing a game calls, and `display/` -- two hundred lines wrapped around
@@ -27,6 +44,7 @@ fifteen hundred -- had no reason left to sit between the engine and its own
 machinery.
 """
 
+from .clock import Clock
 from .lifecycle import EngineState, Lifecycle
 from .loop import Loop
 from .framebuffer import Framebuffer, FramebufferPair
@@ -37,6 +55,7 @@ from .pacing.session import PresentationSession
 from .display import Display
 
 __all__ = [
+    "Clock",
     "Display",
     "EngineState",
     "FlipHealth",
