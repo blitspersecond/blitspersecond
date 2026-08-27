@@ -106,6 +106,13 @@ class Loop:
             raise
 
         clock.start()
+        # Ticks land on display's presentation slots from here. Timing only:
+        # the clock still counts its own frames and still ticks when its
+        # deadline arrives whether or not anything was presented, so this
+        # cannot become presentation granting ticks again. What it buys is a
+        # deterministic present pattern -- two free-running grids shuffle
+        # their attribution, one grid cannot.
+        clock.pace_with(presentation.slot_at_or_after)
         try:
             while lifecycle.running:
                 try:

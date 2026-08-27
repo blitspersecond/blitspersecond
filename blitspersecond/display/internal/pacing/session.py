@@ -21,7 +21,7 @@ Being 0.1% wrong about it is invisible, where being 0.1% wrong about the
 simulation rate was what the deleted machinery existed to prevent.
 """
 
-from math import isfinite
+from math import ceil, isfinite
 from time import perf_counter, perf_counter_ns, sleep
 from typing import TYPE_CHECKING
 
@@ -114,6 +114,29 @@ class PresentationSession:
     def due(self) -> bool:
         """Whether a presentation is owed now."""
         return perf_counter() >= self._next_present
+
+    def slot_at_or_after(self, when: float) -> float:
+        """The first presentation slot boundary at or after `when`.
+
+        This is the budget the engine paces against. Display owns the grid
+        and publishes points on it; the engine decides what to do with them
+        and keeps counting its own frames either way -- so a withheld
+        present can never withhold a tick, which is the whole difference
+        between this and the cadence that used to grant them.
+
+        Snapping ticks to slot boundaries is what makes the present pattern
+        deterministic. Tick k lands on slot `ceil(k * step / period)`, so at
+        60fps on 144Hz the slots are 0, 2, 5, 7, 10, 12 -- a repeating
+        2,3,2,3,2. That is the old `PresentationCadence` arithmetic arriving
+        for free, out of the geometry rather than out of a `Fraction`.
+
+        Measured from the live deadline rather than a stored origin, so a
+        grid re-phased by a resume or an output change carries the ticks
+        with it without anyone having to publish the change.
+        """
+        return self._next_present + ceil(
+            (when - self._next_present) / self._period
+        ) * self._period
 
     @property
     def promoted(self) -> bool:

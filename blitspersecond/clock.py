@@ -43,6 +43,7 @@ be constructed first.
 """
 
 from time import perf_counter, sleep
+from typing import Callable
 
 from blitspersecond.common import fps
 
@@ -61,6 +62,13 @@ class Clock:
         self._rate = rate
         self._step = 1.0 / float(rate)
         self._frame = 0
+        # Wall time of frame zero. Deadlines are computed from this and the
+        # frame INDEX, never accumulated -- `origin + frame * step` cannot
+        # drift, where `+= step` sixty times a second for an hour can.
+        self._origin = 0.0
+        # Optional external grid to snap deadlines onto. Free-running until
+        # the loop hands one over; see `pace_with`.
+        self._snap: Callable[[float], float] | None = None
         # Deliberately NOT started here. Construction happens during warm-up,
         # which opens a window and may block on slow hardware; a deadline set
         # now would be long past by the time the loop began and would read as
@@ -137,9 +145,57 @@ class Clock:
         than drift, but a standing one.
         """
         now = perf_counter()
-        self._next_tick = now + self._step
+        self._origin = now
         self._last_tick = now
         self._running = True
+        self._schedule(now)
+
+    def pace_with(self, snap: Callable[[float], float] | None) -> None:
+        """Adopt an external grid to place ticks on. Called once, by the loop.
+
+        `snap(t)` returns the first grid point at or after `t`. Display's
+        presentation grid is the one that matters, and snapping to it is what
+        makes the present pattern deterministic: two free-running timers with
+        an exact rational rate relationship still shuffle their attribution,
+        because each re-phases on its own jitter. One grid cannot.
+
+        This is a TIMING cue and nothing more. The clock still counts its own
+        frames, still owes at most one tick, and still ticks when its deadline
+        arrives whether or not anything was presented. A withheld present
+        therefore costs lateness, never a frame of simulation -- which is the
+        entire difference between this and the cadence that granted ticks.
+
+        Pass None to free-run, which is also the state before this is called.
+        """
+        self._snap = snap
+        if self._running:
+            self._schedule(perf_counter())
+
+    def _schedule(self, now: float) -> None:
+        """Place the next deadline, re-anchoring only on a genuine overrun.
+
+        The ideal deadline is exact -- `origin + (frame + 1) * step` -- so
+        ordinary jitter never moves the grid and the pattern repeats. What
+        used to happen instead was `now + step` on every tick, which threw
+        the position away sixty times a second and let the tick grid walk
+        against display's; every time it crossed a slot boundary a present
+        was attributed to the neighbouring frame. Measured at 144Hz as a
+        rock-steady 2.4 presents per frame whose ORDER kept changing.
+
+        **No catch-up.** If the ideal deadline is already past, the frame
+        overran, and the answer is to carry on as though nothing happened
+        rather than to fire immediately and squeeze the next frame into
+        what is left of its interval. The origin shifts so the next tick is
+        a full step away and the whole cycle simply runs one slot later from
+        here. A slowdown is affordable -- the engine measures in frames --
+        where a compressed frame is the defect the ceiling origin exists to
+        prevent.
+        """
+        nominal = self._origin + (self._frame + 1) * self._step
+        if nominal < now:
+            self._origin = now - self._frame * self._step
+            nominal = self._origin + (self._frame + 1) * self._step
+        self._next_tick = self._snap(nominal) if self._snap else nominal
 
     def rebase(self) -> None:
         """Discard wall time that no tick accounted for.
@@ -157,9 +213,12 @@ class Clock:
         now = perf_counter()
         # Re-enters at the cycle origin exactly as `start()` does, so a resume
         # gets the same full first interval a cold start gets. One policy.
-        self._next_tick = now + self._step
+        # Re-anchoring the origin rather than the deadline keeps the frame
+        # index authoritative: `time` is still `frame * step` across the gap.
+        self._origin = now - self._frame * self._step
         self._last_tick = now
         self._dt = 0.0
+        self._schedule(now)
 
     @property
     def deadline(self) -> float:
@@ -197,18 +256,19 @@ class Clock:
     def tick(self) -> None:
         """Advance one fixed step. The imperative; `bps.loop` is what runs.
 
-        The next deadline is one step from NOW, not one step along a fixed
-        grid. A tick that overrun does not leave a debt for the next one to
-        pay: time that was lost stays lost, and every frame is guaranteed a
-        whole step to run in. See the module docstring -- this is the ceiling
-        origin applied to every frame rather than only to the first.
+        The next deadline comes off an exact grid anchored at the origin, and
+        is snapped onto display's presentation slots when one has been
+        adopted. A tick that overran does not leave a debt for the next one
+        to pay -- see `_schedule`, which re-anchors instead of catching up,
+        so every frame is guaranteed a whole step to run in.
 
-        The cost is that the frame grid slides against the wall clock by any
-        overshoot, including the sub-microsecond one the spin exit carries.
-        That is deliberate and it is why the engine measures in frames.
+        The cost is that the frame grid slides against the wall clock by each
+        genuine overrun. That is deliberate and it is why the engine measures
+        in frames: a second is sixty of them whatever the hardware did to
+        earn them.
         """
         now = perf_counter()
         self._dt = now - self._last_tick
         self._last_tick = now
         self._frame += 1
-        self._next_tick = now + self._step
+        self._schedule(now)

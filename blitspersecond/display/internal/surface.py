@@ -2,6 +2,7 @@ import pyglet
 import sys
 from typing import Optional
 
+from blitspersecond.common import environment_flag
 from blitspersecond.system import Logger, EventBus
 
 from .pacing.path import detect_presentation_path
@@ -58,12 +59,29 @@ class Surface(pyglet.window.Window):
             style=style,
             fullscreen=False,
             visible=visible,
-            # Never. BPS owns presentation timing on every path now, and a
-            # blocking swap would fight its deadline rather than serve it.
-            # This began as an XWayland-only measure -- Mutter charges a full
-            # extra refresh for a narrowly missed vblank -- and became the
-            # rule when simulation stopped being paced by the swap.
-            vsync=False,
+            # Off by default. Began as an XWayland measure -- Mutter charges
+            # a full extra refresh for a narrowly missed vblank -- and became
+            # the rule when simulation stopped being paced by the swap.
+            #
+            # `BPS_VSYNC=1` turns it back on, and exists because a blocking
+            # flip returns AT a vblank and is therefore a free phase
+            # reference, which BPS otherwise has none of.
+            #
+            # MEASURED 2026-08-27, Win32/WGL under DWM: it does nothing here.
+            # pyglet applies it (`window.vsync` reads True) but `swap.ms` is
+            # unchanged at 0.032ms, because the present mode is "Composed:
+            # Copy with GPU GDI" -- DWM composites on its own vblank and the
+            # client SwapBuffers returns immediately. There is no blocking
+            # swap to be had on this path, so no phase reference from it.
+            # `DwmGetCompositionTimingInfo` is no help either; it refuses
+            # with 0x88980090 for both a NULL and a real HWND.
+            #
+            # Kept switchable because native X11 genuinely does block, and
+            # that path is still unvalidated. It is NOT the fix for the
+            # present-attribution shuffle: that comes from the engine's own
+            # tick deadline re-phasing against display's absolute grid, and
+            # is fixed by deriving one from the other.
+            vsync=environment_flag("BPS_VSYNC"),
             config=pyglet.gl.Config(double_buffer=True),
         )
         self.set_caption("BlitsPerSecond")
