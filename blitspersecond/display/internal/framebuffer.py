@@ -182,9 +182,11 @@ class FramebufferPair:
     def dropped(self) -> int:
         """Frames composed but never shown -- `next` overwritten unpromoted.
 
-        The visible artefact of running above the crossover. Expected to be
-        zero whenever the panel is faster than the authored rate, so a
-        non-zero count on a fast panel is a real finding rather than noise.
+        The visible artefact of running BELOW the crossover -- a panel slower
+        than the authored rate, so the engine composes frames faster than
+        they can be shown. Expected to be zero whenever the panel is faster
+        than the authored rate, so a non-zero count on a fast panel is a real
+        finding rather than noise.
         """
         return self._dropped
 
@@ -192,8 +194,9 @@ class FramebufferPair:
     def repeated(self) -> int:
         """Presents that re-showed `current` because no new frame was ready.
 
-        Expected and healthy below the crossover: on a 144Hz panel at 60fps
-        roughly three presents in five carry no new content. Counted because
+        Expected and healthy ABOVE the crossover -- a panel faster than the
+        authored rate: on a 144Hz panel at 60fps roughly three presents in
+        five carry no new content. Counted because
         it is the other half of the same mechanism, not because it is a fault.
         """
         return self._repeated
