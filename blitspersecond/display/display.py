@@ -21,12 +21,10 @@ class Display:
         self,
         width: int,
         height: int,
-        framerate: int,
         events: Optional[EventBus] = None,
     ) -> None:
         self.width = width
         self.height = height
-        self.framerate = framerate
         self._surface = Surface(
             self.width,
             self.height,

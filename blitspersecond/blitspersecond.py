@@ -5,6 +5,7 @@ from blitspersecond.common import SingletonMeta, fps
 from blitspersecond.system import Logger, Config, EventBus, Metrics
 from blitspersecond.display import Display
 
+from .clock import Clock
 from .lifecycle import EngineState, Lifecycle
 from .loop import Loop
 
@@ -73,13 +74,18 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         return SingletonMeta._instances.get(cls)
 
     def __init__(self):
-        # Read once, here. No setter and no override hook: every tuned
-        # constant in a game -- jump arcs, input windows, animation timing --
-        # is counted in frames, so changing the rate mid-run would silently
-        # redefine all of them at once. There is no coherent thing a setter
-        # could do, which is why there is not one. `Metrics` and `Display`
-        # are handed it below and keep it for the life of the process.
-        self._framerate = _FRAMERATE
+        # FIRST, before anything else the engine owns. The clock is a rate
+        # and a timer -- no window, no GL context, no refresh rate -- so it
+        # has nothing to wait for and everything that needs the authored rate
+        # can read it from here instead of holding a copy. That is what
+        # retires the `Metrics` ordering trap below rather than guarding it.
+        #
+        # Read once. No setter and no override hook: every tuned constant in
+        # a game -- jump arcs, input windows, animation timing -- is counted
+        # in frames, so changing the rate mid-run would silently redefine all
+        # of them at once. There is no coherent thing a setter could do,
+        # which is why there is not one.
+        self._clock = Clock(_FRAMERATE)
         self._logger = Logger()
         self._config = Config()
         self._event_bus = EventBus()
@@ -88,7 +94,7 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         # only turns once Loop starts servicing, which is what keeps slow
         # hardware startup from reading as a stalled first frame -- the same
         # rule the presentation baselines follow.
-        self._metrics = Metrics(framerate=self._framerate)
+        self._metrics = Metrics(framerate=self._clock.rate)
         # The state machine is its own object, not a scatter of flags on the
         # engine. It owns the states, the transitions between them, and the
         # requests that drive them -- including the window-system events that
@@ -122,7 +128,6 @@ class BlitsPerSecond(metaclass=SingletonMeta):
             self._display = Display(
                 width=self.width,
                 height=self.height,
-                framerate=self._framerate,
                 events=self._event_bus,
             )
         except Exception as error:
@@ -154,11 +159,21 @@ class BlitsPerSecond(metaclass=SingletonMeta):
             self._display.close()
 
     @property
+    def clock(self) -> Clock:
+        """The simulation clock: `frame`, `time`, `step`, and the rate.
+
+        The engine measures in elapsed frames, not wall seconds -- `time` is
+        `frame * step` exactly. See `blitspersecond.clock`.
+        """
+        return self._clock
+
+    @property
     def framerate(self) -> fps:
         """The rate this game was authored at. Read-only for the reasons in
         `common.framerate`: it is the unit every tuned constant is expressed
-        in, so it is settled at construction and never after."""
-        return self._framerate
+        in, so it is settled at construction and never after. Held by the
+        clock, which owns it; this is a forward for convenience."""
+        return self._clock.rate
 
     @property
     def logger(self) -> Logger:
