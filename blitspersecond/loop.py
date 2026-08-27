@@ -76,11 +76,15 @@ class Loop:
 
         Ordering contract, per presentation slot:
 
-        1. Wait for the next slot.
+        1. Sleep until the pending frame's slot, less the latch margin.
         2. Pump the window event queue.
         3. Apply lifecycle transitions.
-        4. Ask the pacer whether the pending frame belongs on this slot.
-        5. If it does: put it up, then run one game tick and compose the next.
+        4. Put the frame up.
+        5. Run one game tick and compose the next.
+
+        The pacer's question -- which slot does this frame belong on -- is
+        answered by the sleep target rather than polled at each slot, so the
+        loop runs at the FRAME rate, not the panel rate.
 
         A backgrounded display stops presenting but keeps ticking -- hiding a
         window changes what is displayed, not the simulation rate. Suspension
@@ -117,7 +121,7 @@ class Loop:
         try:
             while lifecycle.running:
                 try:
-                    presentation.wait_next_slot()
+                    presentation.wait_for(clock.frame)
                     presentation.begin_iteration()
                     # Latched by hand because the loop needs the EDGE, not the
                     # level. Reporting that edge is the Lifecycle's job to take
@@ -146,12 +150,6 @@ class Loop:
                         presentation.resumed(clock.frame)
 
                     if lifecycle.state is not EngineState.RUNNING:
-                        continue
-
-                    # THE question. Not yet due means hold: showing the frame
-                    # now would put it on screen before its deadline and steal
-                    # a slot from the frame in front of it.
-                    if not presentation.ready(clock.frame, perf_counter()):
                         continue
 
                     presentation.after_simulation()

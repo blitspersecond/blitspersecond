@@ -47,10 +47,6 @@ if TYPE_CHECKING:
     from blitspersecond.display.display import Display
 
 
-# How early a coarse sleep hands over to spin-polling. `sleep` routinely
-# overshoots by a millisecond or more and an overshoot is a missed slot.
-_SPIN_MARGIN = 0.002
-
 # How far before a slot the compositor stops accepting content for it. A swap
 # landing inside this window is shown at the FOLLOWING slot, not this one, so
 # the pacer treats the slot as already gone.
@@ -147,23 +143,41 @@ class PresentationSession:
         """The first slot boundary at or after `after`."""
         return ceil(after / self._period - 1e-9) * self._period
 
-    def ready(self, frame: int, now: float) -> bool:
-        """THE question: does the pending frame belong on the current slot?
+    def slot_for(self, frame: int) -> float:
+        """The slot this frame belongs on: the first one at or after its due
+        time. THE question, answered arithmetically rather than polled."""
+        return self.next_slot(self.deadline(frame))
 
-        True once the slot has reached the frame's deadline. False means hold
-        -- the frame is finished but showing it now would put it on screen
-        before it was due, stealing a slot from the frame in front of it.
+    def wait_for(self, frame: int) -> None:
+        """Sleep until it is time to put `frame` on screen.
+
+        The target is the frame's slot MINUS the latch margin, because the
+        compositor stops accepting content for a slot some way before the
+        vblank itself. Submitting at the boundary would hand the frame to the
+        FOLLOWING slot -- a whole schedule silently one slot late, with every
+        submission-side metric reading identically clean.
+
+        **No spin.** `sleep` is a high-resolution wait on both platforms of
+        interest, and burning a core to sharpen it bought accuracy that was
+        already there. Measured on Linux/CPython 3.14: waking lands within
+        0.080ms of target worst case, and the submit still arrives 0.906ms
+        (p50) ahead of its slot out of the 1ms budget -- only ~90us of margin
+        is lost to wake error plus the work in between. The spin cost 13.4%
+        of a core against 1.9% without it, for no measurable accuracy.
+        Python has used a high-resolution waitable timer on Windows since
+        3.11, so the same should hold there; it has not been measured.
+
+        This also drops the wake rate from the PANEL rate to the FRAME rate
+        -- one wake per frame rather than one per slot to poll. At 60fps on a
+        144Hz panel, 60 wakes a second rather than 144.
+
+        Returns immediately when the slot has already passed, which is the
+        overrun case: the frame goes up at once and `anchor` restarts the
+        cycle from where it actually landed.
         """
-        return now + _LATCH_MARGIN >= self.deadline(frame)
-
-    def wait_next_slot(self) -> None:
-        """Hold until the next slot boundary: coarse sleep, then a short spin."""
-        target = self.next_slot(perf_counter() + _LATCH_MARGIN)
-        remaining = target - perf_counter()
-        if remaining > _SPIN_MARGIN:
-            sleep(remaining - _SPIN_MARGIN)
-        while perf_counter() < target:
-            pass
+        remaining = self.slot_for(frame) - _LATCH_MARGIN - perf_counter()
+        if remaining > 0:
+            sleep(remaining)
 
     def anchor(self, frame: int, shown: float) -> None:
         """Re-anchor the grid when a frame landed later than it was due.
