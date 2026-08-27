@@ -48,16 +48,6 @@ if TYPE_CHECKING:
     from blitspersecond.display.display import Display
 
 
-# How far before a slot the compositor stops accepting content for it. A swap
-# landing inside this window is shown at the FOLLOWING slot, not this one, so
-# the pacer treats the slot as already gone.
-#
-# PROVISIONAL. 1ms is a conservative Linux placeholder, not a measurement --
-# DWM and Mutter both compose ahead of their own vblank and neither publishes
-# the figure. PresentMon's MsBetweenDisplayChange is what can calibrate this
-# properly, which is why the board card carries the capture recipe.
-_LATCH_MARGIN = 0.001
-
 # Below this there is no point sleeping: the syscall and the wake cost more
 # than the wait is worth, and the engine may as well start now.
 _SLEEP_FLOOR = 0.001
@@ -164,7 +154,29 @@ class PresentationSession:
         return self._origin + frame * self._step
 
     def next_slot(self, after: float) -> float:
-        """The first slot boundary at or after `after`."""
+        """The first slot boundary at or after `after`.
+
+        **A NOTIONAL grid, and that is sufficient.** Its period comes from the
+        panel; its phase is wherever `perf_counter` zero happened to fall and
+        has no relationship to a real vertical retrace. It does not need one:
+        the cadence is carried by the INTERVALS, so two submits two notional
+        slots apart are two real periods apart and land two real vblanks
+        apart, whatever the offset between the grids happens to be.
+
+        There is no way to do better on this path in any case. GLX's
+        `glXGetSyncValuesOML` looked like a vblank clock and is not: polled
+        460 times across 0.5s without swapping, UST and MSC each returned a
+        single distinct value (Mesa/radeonsi, XWayland, 2026-08-27). Both are
+        tied to swaps, so neither locates a retrace.
+
+        A consequence worth keeping in mind rather than acting on: if this
+        grid happens to sit ON the real one, ordinary timing jitter would push
+        individual frames across a boundary and they would land a slot early
+        or late intermittently. That shows up as intervals off the 2/3
+        pattern in `display.frame.ms` -- and the fix, if it ever appears, is
+        to shift this grid by an arbitrary fraction of a period. Not measured
+        as a problem: p99 20.878 against a 20.833 expectation, no outliers.
+        """
         return ceil(after / self._period - 1e-9) * self._period
 
     def slot_for(self, frame: int) -> float:
@@ -199,7 +211,7 @@ class PresentationSession:
         overrun case: the frame goes up at once and `anchor` restarts the
         cycle from where it actually landed.
         """
-        remaining = self.slot_for(frame) - _LATCH_MARGIN - perf_counter()
+        remaining = self.slot_for(frame) - perf_counter()
         if remaining > 0:
             sleep(remaining)
 
@@ -263,15 +275,13 @@ class PresentationSession:
     def reserve(self) -> float:
         """Seconds held back for the engine to build a frame in.
 
-        The worst frame in the recent window plus headroom, plus the latch
-        margin -- a deadline landing exactly on a slot leaves no room between
-        the two. Capped so it can never swallow the whole interval, and
-        floored at the sleep floor because a smaller reserve cannot be acted
-        on anyway.
+        The worst frame in the recent window plus headroom, capped so it can
+        never swallow the whole interval, and floored at the sleep floor
+        because a smaller reserve cannot be acted on anyway.
         """
         if not self._recent_work:
             return _SLEEP_FLOOR
-        estimate = max(self._recent_work) * _RESERVE_FACTOR + _LATCH_MARGIN
+        estimate = max(self._recent_work) * _RESERVE_FACTOR
         return min(max(estimate, _SLEEP_FLOOR), self._step * _RESERVE_CEILING)
 
     @property
