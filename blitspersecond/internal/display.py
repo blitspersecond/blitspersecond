@@ -6,13 +6,11 @@ from pyglet import clock as pyglet_scheduler
 from blitspersecond.system import Logger, EventBus  # Metrics
 from blitspersecond.system.frame_pacing import FramePacingRecorder
 
-from blitspersecond.display.internal import (
-    FramebufferPair,
-    PresentationSession,
-    Surface,
-)
+from .framebuffer import FramebufferPair
+from .pacing.session import PresentationSession
+from .window.surface import Surface
 
-# from .layers import Layers
+# from blitspersecond.graphics import Layers
 
 
 class Display:

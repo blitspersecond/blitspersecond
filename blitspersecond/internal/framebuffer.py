@@ -6,10 +6,10 @@ from pyglet.graphics import shader
 
 from blitspersecond.common import PACKAGE_ROOT
 
-from .viewport import integer_viewport
+from .window.viewport import integer_viewport
 
 if TYPE_CHECKING:
-    from .surface import Surface
+    from .window.surface import Surface
 
 
 # `blitspersecond.gl.Shader` exists to be SHARED -- tile and sprite each ask

@@ -5,8 +5,8 @@ from typing import Optional
 from blitspersecond.common import environment_flag
 from blitspersecond.system import Logger, EventBus
 
-from .pacing.path import detect_presentation_path
-from .pacing.refresh_rate import get_refresh_rate
+from ..pacing.path import detect_presentation_path
+from ..pacing.refresh_rate import get_refresh_rate
 
 if sys.platform == "win32":
     from pyglet.libs.win32.constants import WM_DISPLAYCHANGE

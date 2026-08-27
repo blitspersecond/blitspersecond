@@ -17,7 +17,7 @@ classification is due a retest against a real window now that one opens
 again; see claude.memories/bps-multi-display-pacing.md.
 """
 
-from blitspersecond.display.internal.pacing.path import detect_presentation_path
+from blitspersecond.internal.pacing.path import detect_presentation_path
 
 
 class TestClassification:

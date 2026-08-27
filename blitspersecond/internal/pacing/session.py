@@ -45,7 +45,7 @@ from .path import detect_presentation_path
 from .sink import FramePacingSinkFactory
 
 if TYPE_CHECKING:
-    from blitspersecond.display.display import Display
+    from blitspersecond.internal.display import Display
 
 
 # Below this there is no point sleeping: the syscall and the wake cost more

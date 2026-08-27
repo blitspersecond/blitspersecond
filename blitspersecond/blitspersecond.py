@@ -3,11 +3,9 @@ from typing import Callable, Optional, cast
 
 from blitspersecond.common import SingletonMeta, fps
 from blitspersecond.system import Logger, Config, EventBus, Metrics
-from blitspersecond.display import Display
 
 from .clock import Clock
-from .lifecycle import EngineState, Lifecycle
-from .loop import Loop
+from .internal import Display, EngineState, Lifecycle, Loop
 
 
 #: The rate every game is authored at until there is a config to say
@@ -175,10 +173,27 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         clock, which owns it; this is a forward for convenience."""
         return self._clock.rate
 
+    # No public `display`. A game starts the engine and the engine sorts the
+    # surface out; nothing a game does needs to name the screen, and once
+    # layers land in `graphics` there is nothing on Display a game would
+    # want. Instruments measuring the engine reach `_display` deliberately --
+    # see `internal/__init__.py`.
+
     @property
-    def display(self) -> Display:
-        """The screen this engine draws to."""
-        return self._display
+    def background(self) -> tuple[float, float, float]:
+        """The colour the screen clears to, until `graphics` lands.
+
+        A stand-in, and forwarded from here rather than reached through the
+        display, because clearing to a colour is a DRAWING instruction and
+        drawing is about to belong to `graphics`. Putting it on the engine
+        keeps the one thing a game can currently make happen off the private
+        machinery, and gives it somewhere to die when layers arrive.
+        """
+        return self._display.background
+
+    @background.setter
+    def background(self, colour: tuple[float, float, float]) -> None:
+        self._display.background = colour
 
     @property
     def logger(self) -> Logger:

@@ -31,10 +31,10 @@ brackets its spell of servicing (`servicing`, `stopped`) and offers
 from time import perf_counter
 from typing import TYPE_CHECKING
 
-from blitspersecond.lifecycle import EngineState
+from .lifecycle import EngineState
 
 if TYPE_CHECKING:
-    from .blitspersecond import BlitsPerSecond
+    from ..blitspersecond import BlitsPerSecond
 
 
 def _advance(engine, clock, metrics, display) -> None:

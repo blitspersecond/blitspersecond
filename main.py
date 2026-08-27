@@ -18,7 +18,7 @@ class Demo(GameLoop):
         # which is the engine's whole position on what time is.
         phase = (self.bps.clock.frame % 120) / 120
         level = 0.5 + 0.5 * sin(phase * tau)
-        self.bps.display.background = (level * 0.2, level * 0.1, level * 0.4)
+        self.bps.background = (level * 0.2, level * 0.1, level * 0.4)
 
 
 if __name__ == "__main__":
