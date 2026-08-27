@@ -44,11 +44,6 @@ def main(argv: list[str] | None = None) -> int:
         help="wrap the command and log external frame/telemetry samples",
     )
     parser.add_argument(
-        "--start-deadline",
-        action="store_true",
-        help="diagnostic: use BPS deadline pacing from the first frame",
-    )
-    parser.add_argument(
         "--gamescope-stats",
         action="store_true",
         help="add Gamescope -T output to a command beginning with gamescope",
