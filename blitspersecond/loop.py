@@ -112,6 +112,7 @@ class Loop:
             raise
 
         presentation.start()
+        last_tick = 0.0
         # Frame one is composed before the loop can show anything: the pacer
         # holds it until its deadline, which is one full step in. That is the
         # ceiling prime, and it arrives out of the arithmetic rather than
@@ -163,10 +164,11 @@ class Loop:
                             metrics.frames_repeated.push()
                         metrics.swap_ms.push(display.swap_duration * 1000.0)
                         if presentation.interval:
-                            # Measured screen-to-screen, not derived from the
-                            # nominal step -- the clock counts frames and has
-                            # no wall clock to be asked about this.
-                            metrics.frame_ms.push(
+                            # Screen-to-screen. Bimodal by design -- frames
+                            # land on slots -- and deliberately NOT the same
+                            # quantity as engine.frame.ms, which is the tick
+                            # interval and should be flat.
+                            metrics.display_frame_ms.push(
                                 presentation.interval * 1000.0
                             )
                         if stalled:
@@ -190,6 +192,11 @@ class Loop:
                     # is shown. See `wait_before_tick`.
                     presentation.wait_before_tick(clock.frame + 1)
                     started = perf_counter()
+                    if last_tick:
+                        # The engine clock itself, measured tick to tick. Flat
+                        # at the authored period; see the metric's own note.
+                        metrics.frame_ms.push((started - last_tick) * 1000.0)
+                    last_tick = started
                     _advance(engine, clock, metrics, display)
                     presentation.observe_work(perf_counter() - started)
                 except Exception as error:

@@ -236,10 +236,23 @@ class PresentationSession:
         free win -- the reserve is what buys it back, and `late` counts how
         often the bet was wrong.
 
+        **Anchored to the frame's DEADLINE, not to its slot.** The deadline
+        is `origin + frame * step`, evenly spaced by construction, so the
+        engine is pumped at even 16.67ms intervals. Anchoring to the slot
+        instead makes the pump inherit the grid's 2-and-3 alternation --
+        measured as a tick interval swinging between 13.84 and 20.89ms, which
+        is the game clock itself running unevenly. Sampling input on an even
+        cadence matters more than the frame's remaining wait, and that wait
+        cannot be made constant anyway: a frame can only be shown on a slot,
+        and the slots are not evenly spaced against the tick rate.
+
+        The reserve must therefore cover the work AND the latch margin, since
+        a deadline landing exactly on a slot leaves no slack between them.
+
         Does not sleep for less than `_SLEEP_FLOOR`; below that the wake
         costs more than the wait is worth.
         """
-        start_by = self.slot_for(frame) - _LATCH_MARGIN - self.reserve
+        start_by = self.deadline(frame) - self.reserve
         remaining = start_by - perf_counter()
         if remaining > _SLEEP_FLOOR:
             sleep(remaining)
@@ -250,13 +263,15 @@ class PresentationSession:
     def reserve(self) -> float:
         """Seconds held back for the engine to build a frame in.
 
-        The worst frame in the recent window plus headroom, capped so it can
-        never swallow the whole interval, and floored at the sleep floor
-        because a reserve smaller than that cannot be acted on anyway.
+        The worst frame in the recent window plus headroom, plus the latch
+        margin -- a deadline landing exactly on a slot leaves no room between
+        the two. Capped so it can never swallow the whole interval, and
+        floored at the sleep floor because a smaller reserve cannot be acted
+        on anyway.
         """
         if not self._recent_work:
             return _SLEEP_FLOOR
-        estimate = max(self._recent_work) * _RESERVE_FACTOR
+        estimate = max(self._recent_work) * _RESERVE_FACTOR + _LATCH_MARGIN
         return min(max(estimate, _SLEEP_FLOOR), self._step * _RESERVE_CEILING)
 
     @property

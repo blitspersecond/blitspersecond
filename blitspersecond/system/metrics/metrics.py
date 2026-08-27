@@ -73,9 +73,21 @@ class Metrics(metaclass=SingletonMeta):
         #                           should not be quietly abandoned for this.
         self._frame_ms = self.gauge(
             "engine.frame.ms",
-            "Wall time attributed to one game frame. Spread evenly across a "
-            "catch-up batch by the loop, so it measures sustained pace and "
-            "cannot see an individual spike -- gameloop.ms can.",
+            "Wall seconds between successive game ticks: the engine clock "
+            "itself. Should sit on the authored period -- 16.667ms at 60fps "
+            "-- with only scheduler resolution around it, because the pacer "
+            "anchors each tick to the frame's own evenly-spaced deadline. A "
+            "spread of several ms means ticks have picked up the display "
+            "grid's quantisation, which is a defect: see display.frame.ms "
+            "for the quantity that is SUPPOSED to be uneven.",
+        )
+        self._display_frame_ms = self.gauge(
+            "display.frame.ms",
+            "Wall seconds between successive frames reaching the screen. "
+            "Bimodal by design and not a fault: a frame can only be shown on "
+            "a presentation slot, so at 60fps on a 144Hz panel this "
+            "alternates two and three slots (13.9 and 20.8ms) around a "
+            "16.667ms mean. That is the cadence, measured.",
         )
         self._gameloop_ms = self.gauge(
             "engine.gameloop.ms",
@@ -230,6 +242,10 @@ class Metrics(metaclass=SingletonMeta):
     @property
     def frame_ms(self) -> Gauge:
         return self._frame_ms
+
+    @property
+    def display_frame_ms(self) -> Gauge:
+        return self._display_frame_ms
 
     @property
     def gameloop_ms(self) -> Gauge:
