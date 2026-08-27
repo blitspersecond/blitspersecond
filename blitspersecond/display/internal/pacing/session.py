@@ -126,9 +126,12 @@ class PresentationSession:
 
         Snapping ticks to slot boundaries is what makes the present pattern
         deterministic. Tick k lands on slot `ceil(k * step / period)`, so at
-        60fps on 144Hz the slots are 0, 2, 5, 7, 10, 12 -- a repeating
-        2,3,2,3,2. That is the old `PresentationCadence` arithmetic arriving
-        for free, out of the geometry rather than out of a `Fraction`.
+        60fps on 144Hz the slots are 0, 3, 5, 8, 10, 12 -- a repeating
+        3,2,3,2,2. That is the old `PresentationCadence` arithmetic arriving
+        for free, out of the geometry rather than out of a `Fraction`, and it
+        is the same ceiling schedule that class settled on: frame one lands
+        at slot 3 because slots 1 and 2 would give it 6.94ms or 13.89ms
+        against a 16.67ms budget.
 
         Measured from the live deadline rather than a stored origin, so a
         grid re-phased by a resume or an output change carries the ticks
