@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from ..blitspersecond import BlitsPerSecond
 
 
-def _advance(engine, clock, metrics, display) -> None:
+def _advance(engine, clock, metrics, display, layers) -> None:
     """Run one game tick and compose the frame it produced.
 
     Composition happens once per TICK, never per slot -- it bills at game
@@ -60,6 +60,12 @@ def _advance(engine, clock, metrics, display) -> None:
         # The tick called stop(). Composing into a dead GL context raises
         # rather than draws.
         return
+    # Playback advances AFTER the game's tick and BEFORE the compose that
+    # shows it, so a clip moved on by the engine and one moved on by the
+    # game land in the same frame. Outside `gameloop.ms` on purpose: this is
+    # the engine's work, and billing it to the game would make a scene that
+    # animates look like a scene that computes.
+    layers._advance()
     if display.compose():
         # The previous frame was overwritten before it was ever shown.
         # Expected below the crossover; above it, an overrun.
@@ -94,6 +100,7 @@ class Loop:
         clock = engine._clock
         metrics = engine._metrics
         display = engine._display
+        layers = engine._layers
         # Claim the machine before anything can fail: from here a stop request
         # waits for this loop to unwind rather than exiting out from under it.
         lifecycle.servicing()
@@ -118,7 +125,7 @@ class Loop:
         # ceiling prime, and it arrives out of the arithmetic rather than
         # being arranged -- on a 144Hz panel the first slot at or after
         # 16.67ms is slot 3, so frame one gets a whole interval on screen.
-        _advance(engine, clock, metrics, display)
+        _advance(engine, clock, metrics, display, layers)
         try:
             while lifecycle.running:
                 try:
@@ -197,7 +204,7 @@ class Loop:
                         # at the authored period; see the metric's own note.
                         metrics.frame_ms.push((started - last_tick) * 1000.0)
                     last_tick = started
-                    _advance(engine, clock, metrics, display)
+                    _advance(engine, clock, metrics, display, layers)
                     presentation.observe_work(perf_counter() - started)
                 except Exception as error:
                     engine._logger.error(f"Error during main loop: {error}")

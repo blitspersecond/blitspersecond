@@ -8,7 +8,7 @@ Close the window to quit.
 """
 
 from blitspersecond import BlitsPerSecond, key
-from blitspersecond.colors import WHITE, YELLOW
+from blitspersecond.graphics import WHITE, YELLOW
 from blitspersecond.console import Console
 from blitspersecond.graphics.glyph import CharSet
 

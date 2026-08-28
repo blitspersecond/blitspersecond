@@ -2,15 +2,16 @@ from time import perf_counter
 from typing import Optional
 
 from pyglet import clock as pyglet_scheduler
+from pyglet.gl import glViewport
+from pyglet.math import Mat4
 
-from blitspersecond.system import Logger, EventBus  # Metrics
+from blitspersecond.graphics.internal import Layers
+from blitspersecond.system import Logger, EventBus
 from blitspersecond.system.frame_pacing import FramePacingRecorder
 
 from .framebuffer import FramebufferPair
 from .pacing.session import PresentationSession
 from .window.surface import Surface
-
-# from blitspersecond.graphics import Layers
 
 
 class Display:
@@ -20,6 +21,7 @@ class Display:
         self,
         width: int,
         height: int,
+        layers: Layers,
         events: Optional[EventBus] = None,
     ) -> None:
         self.width = width
@@ -33,7 +35,12 @@ class Display:
             self.width,
             self.height,
         )
-        # self._layers = Layers()
+        # Handed in, not built here. `BlitsPerSecond` owns the one draw order
+        # there is and lends it out as `bps.layers`; display is where it gets
+        # WALKED, which is not the same as where it lives. Building it here
+        # would put the object a game reaches for behind a screen the game
+        # cannot name.
+        self._layers = layers
         self._logger = Logger()
         self._swap_duration = 0.0
         self._compose_duration = 0.0
@@ -57,10 +64,6 @@ class Display:
 
     def close(self):
         self._surface.close()
-
-    # @property
-    # def layers(self) -> Layers:
-    #     return self._layers
 
     @property
     def background(self) -> tuple[float, float, float]:
@@ -102,31 +105,35 @@ class Display:
             frame_pacing_factory=FramePacingRecorder.from_environment,
         )
 
-    # def _compose(self) -> None:
-    #     """Draw each enabled layer into the framebuffer, background to foreground.
+    def _compose(self) -> None:
+        """Draw each enabled layer into the framebuffer, background to foreground.
 
-    #     The render space is declared explicitly from the framebuffer's own size
-    #     rather than inherited from whatever projection/viewport the window last
-    #     left active. Layers are authored at this internal resolution, so the
-    #     projection is a 1:1 ortho over it and the viewport matches it exactly --
-    #     independent of the on-screen window size or scale.
-    #     """
-    #     fbo = self._framebuffer.next
-    #     w, h = fbo.width, fbo.height
+        The render space is declared explicitly from the framebuffer's own size
+        rather than inherited from whatever projection/viewport the window last
+        left active. Layers are authored at this internal resolution, so the
+        projection is a 1:1 ortho over it and the viewport matches it exactly --
+        independent of the on-screen window size or scale.
 
-    #     start = perf_counter()
-    #     fbo.clear()
-    #     fbo.bind()
-    #     self._surface.projection = Mat4.orthogonal_projection(0, w, 0, h, -1, 1)
-    #     glViewport(0, 0, w, h)
-    #     for layer in self._layers:
-    #         if layer.enabled:
-    #             layer._composite()  # drawable syncs GPU state + executes its own batch
-    #     fbo.unbind()
-    #     # Compose cost only -- excludes the post-process draw + vsync/present.
-    #     # Declared as `display.compose.ms` and already carried by Metrics;
-    #     # it reads as NaN -- not measured -- until this pass comes back.
-    #     Metrics().compose_ms.push((perf_counter() - start) * 1000.0)
+        An empty draw order returns after the clear, so a game that has added
+        no layers costs exactly what it did before this pass existed: one
+        clear. That is deliberate rather than incidental -- the frame-pacing
+        numbers in `docs/bps/DECOUPLED_PRESENTATION.md` were all measured
+        against a clear-and-swap, and they stay comparable only while the
+        no-layer case still IS a clear and a swap.
+        """
+        fbo = self._framebuffer.next
+        fbo.clear(self._background)
+        if not len(self._layers):
+            return
+
+        w, h = fbo.width, fbo.height
+        fbo.bind()
+        self._surface.projection = Mat4.orthogonal_projection(0, w, 0, h, -1, 1)
+        glViewport(0, 0, w, h)
+        for layer in self._layers:
+            if layer.enabled:
+                layer._composite()  # drawable syncs GPU state + executes its own batch
+        fbo.unbind()
 
     @property
     def swap_duration(self) -> float:
@@ -170,9 +177,7 @@ class Display:
         decimation working as designed above the crossover.
         """
         start = perf_counter()
-        # if layers:
-        #     self._compose()
-        self._framebuffer.next.clear(self._background)
+        self._compose()
         self._compose_duration = perf_counter() - start
         return self._framebuffer.complete()
 

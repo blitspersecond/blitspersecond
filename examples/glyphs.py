@@ -4,14 +4,17 @@ Run from the repository root:
 
     venv/bin/python examples/glyphs.py
 
-The advanced road. `bps.layers.glyph((8, 8))` gives 256 EMPTY glyphs at that
-cell size -- no font, nothing to say -- and you define what they draw. That is
-how the clouds demo turns a text grid into a chunky bitmap, and it is what
-this shows, in three parts:
+The advanced road. `Console((8, 8))` gives 256 EMPTY glyphs at that cell size
+-- no font, nothing to say -- and you define what they draw. That is how the
+clouds demo turns a text grid into a chunky bitmap, and it is what this shows,
+in three parts:
 
-    1. define      layer.glyph[n] = pattern
-    2. stamp       layer.cell[x, y] = n, and whole runs at once
-    3. write       a Console, on its own layer, over the top
+    1. define      panel.glyph[n] = pattern
+    2. stamp       panel.cell[x, y] = n, and whole runs at once
+    3. write       a second Console, with a font, over the top
+
+A Console with no charset is a bare glyph grid; one with a charset can also
+type. Same class either way -- the teletype half simply goes unused here.
 
 Three things vary per cell: the GLYPH, its FACING, and its COLOUR. Only the
 glyph is written directly -- facing and colour ride in from whichever pen is
@@ -24,10 +27,15 @@ Close the window to quit.
 import numpy as np
 
 from blitspersecond import BlitsPerSecond
-from blitspersecond.colors import CYAN, GRAY, WHITE, YELLOW, system_palette
-from blitspersecond.console import Console
-from blitspersecond.graphics.common import Orientation, Pen
-from blitspersecond.graphics.glyph import CharSet, GlyphLayer
+from blitspersecond.graphics import (
+    CYAN,
+    GRAY,
+    WHITE,
+    YELLOW,
+    system_palette,
+    Orientation,
+)
+from blitspersecond.graphics.console import CharSet, Console, Pen
 
 # Glyph ids we are about to invent. Byte values, nothing more -- on a blank
 # layer there is no character set to disagree with.
@@ -40,7 +48,7 @@ BARS = (0.35, 0.85, 0.55, 1.0, 0.7, 0.2, 0.9, 0.45, 0.95, 0.6, 0.3, 0.75)
 BAR_COLOURS = (CYAN, YELLOW, WHITE, GRAY)
 
 
-def define_glyphs(layer: GlyphLayer) -> None:
+def define_glyphs(layer: Console) -> None:
     """Invent the four shapes the panel is drawn from, plus eight bar fills.
 
     A pattern is a NumPy array of PLANE indices (0..3), one per pixel, saying
@@ -72,7 +80,7 @@ def define_glyphs(layer: GlyphLayer) -> None:
         layer.glyph[BAR + eighth] = bar
 
 
-def draw_panel(layer: GlyphLayer, pens) -> None:
+def draw_panel(layer: Console, pens) -> None:
     """A framed box, drawn from one corner glyph facing four ways.
 
     The edges are RUNS -- one write each, whatever their length -- because a
@@ -101,7 +109,7 @@ def draw_panel(layer: GlyphLayer, pens) -> None:
         layer.cell[x, y] = CORNER
 
 
-def draw_bars(layer: GlyphLayer) -> None:
+def draw_bars(layer: Console) -> None:
     """A bar per column, each in its own colour.
 
     THE AWKWARD ONE. A column is a run and could be a single write, but each
@@ -121,7 +129,7 @@ def draw_bars(layer: GlyphLayer) -> None:
         eighths = max(1, round(fraction * interior * 8))
         whole, remainder = divmod(eighths, 8)
 
-        pen.foreground = BAR_COLOURS[index % len(BAR_COLOURS)]
+        pen[1] = BAR_COLOURS[index % len(BAR_COLOURS)]
         layer.pen = pen
 
         # The solid part is a RUN: one write however tall the bar is.
@@ -135,10 +143,15 @@ def draw_bars(layer: GlyphLayer) -> None:
 def main() -> None:
     bps = BlitsPerSecond()
 
-    # A BLANK layer: 256 empty glyphs at 8x8, no character set. Everything it
-    # can ever draw is something we define below.
-    layer = bps.layers.glyph((8, 8), tag="panel")
+    # A BLANK console: 256 empty glyphs at 8x8, no character set. Everything
+    # it can ever draw is something we define below. Building it and placing
+    # it are two steps -- `add` puts a layer in the draw order and returns
+    # nothing, so the thing you keep is the thing you built.
+    layer = Console((8, 8))
+    layer.tag = "panel"
     layer.palette = system_palette()
+    bps.layers.add(layer)
+    # layer.after(other_layer)
     define_glyphs(layer)
 
     # Four pens, one per facing, made once. Sized to the layer so they are
@@ -159,14 +172,15 @@ def main() -> None:
     # Text goes on its own layer, because this one has no font -- a console
     # needs a character set and ours is 256 shapes we invented. Two layers,
     # one grid each, which is exactly how karaoke composes clouds and lyrics.
-    console = bps.layers.add(Console(CharSet.ASCII8X12))
+    console = Console(CharSet.ASCII8X12)
+    bps.layers.add(console)
     console.pen = Pen(0, WHITE)
     console.write("CUSTOM GLYPHS", at=(8, 2))
     console.pen = Pen(0, GRAY)
     console.write("one corner glyph, four facings", at=(8, 3))
     console.write("bars: a pen swap per colour", at=(8, 4))
 
-    bps.run()
+    bps.start()
 
 
 if __name__ == "__main__":

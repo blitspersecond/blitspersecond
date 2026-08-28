@@ -2,7 +2,7 @@
 
 Run from the repository root:
 
-    venv/bin/python examples/pen.py
+    venv/bin/python bps/examples/pen.py
 
 A pen carries four palette indices -- one per glyph plane -- and a facing. You
 do not set a mode to change either; you pick up a different pen. This shows
@@ -20,24 +20,25 @@ should decide on your behalf. `load_ramp` below is the whole of what that
 takes: interpolate the stops, burn them into a bank you chose, hand back the
 indices. Copy it into your own game; it is nine lines.
 
+Slot 0 is left transparent throughout, so what shows through the letters --
+and through the half the mask cuts away -- is whatever is behind this layer.
+Nothing is, yet: a backdrop wants a tile layer and the tile engine is not back.
+Until it is, the transparent parts are simply the empty screen, which proves
+the mask is cutting but does not make much of a picture.
+
 Close the window to quit.
 """
 
 import numpy as np
 
 from blitspersecond import BlitsPerSecond
-from blitspersecond.colors import WHITE, system_palette
-from blitspersecond.console import Console
-from blitspersecond.graphics.common import Orientation, Pen, PixelBuffer
-from blitspersecond.graphics.glyph import CharSet
-from blitspersecond.resources import ImageSpec
-
-SCREEN_W, SCREEN_H = 640, 360
+from blitspersecond.graphics import WHITE, Orientation, system_palette
+from blitspersecond.graphics.console import CharSet, Console, Pen
 
 # Where our ramp lives in palette RAM. Picked by hand, the ordinary way you
 # would budget an Amiga's colours -- the system palette uses the low indices,
 # so anything above them is ours.
-RAMP_BANK = 200
+RAMP_BANK = 200  # the chrome pen, one entry per scanline of a cell
 
 # Cyclic stops: the last is the first, so a scrolling ramp has no seam.
 COPPER = [
@@ -63,46 +64,26 @@ def load_ramp(palette, base, stops, steps):
     for offset, (red, green, blue) in enumerate(
         (stops[low] * (1.0 - blend) + stops[high] * blend).astype(np.uint8)
     ):
-        palette[base + offset] = (int(red), int(green), int(blue), 255)
+        palette[base + offset] = (int(red), int(green), int(blue))
     return np.arange(base, base + steps, dtype=np.uint8)
-
-
-def backdrop() -> np.ndarray:
-    """A plain vertical wash, so that transparency has something to reveal."""
-    amount = (np.arange(SCREEN_H, dtype=np.float32) / (SCREEN_H - 1))[:, None, None]
-    top = np.array((24, 28, 64), dtype=np.float32)
-    bottom = np.array((118, 62, 88), dtype=np.float32)
-    wash = top * (1.0 - amount) + bottom * amount
-    return np.broadcast_to(wash, (SCREEN_H, SCREEN_W, 3)).astype(np.uint8)
 
 
 def main() -> None:
     bps = BlitsPerSecond()
 
-    # Something behind the console. Slot 0 of every pen below is left on the
-    # transparent index, so this is what shows through -- including through
-    # the half a mask removes, which is the only way a mask demonstrates
-    # anything at all.
-    sky = bps.layers.tile(
-        PixelBuffer(ImageSpec(size=(SCREEN_W, SCREEN_H), mode="RGB", data=backdrop())),
-        w=SCREEN_W,
-        h=SCREEN_H,
-    )
-    sky.blit(0, 0, 0)
-
-    console = bps.layers.add(Console(CharSet.ASCII8X12))
-    layer = console.layer
+    console = Console(CharSet.ASCII8X12)
+    bps.layers.add(console)
 
     palette = system_palette()
     # One ramp entry per scanline of a cell: that is what makes a length-N
     # sequence read as a gradient running DOWN the cell. A pen is exactly one
     # cell, so its `size` is where the height comes from.
-    cell_width, cell_height = layer.pen.size
+    cell_width, cell_height = console.glyph.size
     ramp = load_ramp(palette, RAMP_BANK, COPPER, cell_height)
     console.palette = palette
 
     # 1. A flat pen -- four indices. The everyday case.
-    plain = Pen(0, WHITE)      # slot 0 transparent: the backdrop shows
+    plain = Pen(0, WHITE)  # slot 0 transparent: whatever is behind shows
     console.pen = plain
     console.write("A pen carries colour and facing.", at=(2, 2))
 
@@ -118,18 +99,17 @@ def main() -> None:
     # 3. A gradient. The ramp is a run of palette indices, so it goes into a
     #    slot exactly like a single index would -- `pen[1]` is slot 1 whether
     #    it holds one colour or one per scanline.
-    chrome = Pen(0, WHITE, size=layer.glyph.size)
+    chrome = Pen(0, WHITE, size=console.glyph.size)
     chrome[1] = ramp
     console.pen = chrome
     console.write("CHROME -- one colour per scanline", at=(2, 6))
 
     # 4. A mask is the same mechanism: a plane of indices, with 0 (the
     #    transparent entry) wherever you want nothing drawn. The bottom half
-    #    of every letter is cut away and the backdrop shows through it --
-    #    which is why this demo needs a backdrop to be a demo at all.
+    #    of every letter is cut away, showing whatever is behind this layer.
     top_half = np.zeros((cell_height, cell_width), dtype=np.uint8)
     top_half[: cell_height // 2, :] = WHITE
-    half = Pen(0, 0, size=layer.glyph.size)
+    half = Pen(0, 0, size=console.glyph.size)
     half[1] = top_half
     console.pen = half
     console.write("HALF -- the mask cuts the bottom away", at=(2, 8))
@@ -137,7 +117,7 @@ def main() -> None:
     console.pen = plain
     console.write("Close the window to quit.", at=(2, 11))
 
-    bps.run()
+    bps.start()
 
 
 if __name__ == "__main__":

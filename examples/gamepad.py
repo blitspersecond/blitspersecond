@@ -24,7 +24,7 @@ Close the window to quit.
 from pathlib import Path
 
 from blitspersecond import BlitsPerSecond
-from blitspersecond.colors import TRANSPARENT, WHITE
+from blitspersecond.graphics import TRANSPARENT, WHITE
 from blitspersecond.graphics.common import Pen
 from blitspersecond.console import Console
 from blitspersecond.graphics.glyph import CharSet

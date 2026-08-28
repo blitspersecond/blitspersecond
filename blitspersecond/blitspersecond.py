@@ -1,7 +1,8 @@
 from typing import Callable, Optional, cast
 
 
-from blitspersecond.common import SingletonMeta, fps
+from blitspersecond.common import SCREEN, SingletonMeta, fps
+from blitspersecond.graphics.internal import Layers
 from blitspersecond.system import Logger, Config, EventBus, Metrics
 
 from .internal import Clock, Display, EngineState, Lifecycle, Loop
@@ -62,8 +63,11 @@ def _as_loop(loop: object) -> Callable[[], None]:
 
 
 class BlitsPerSecond(metaclass=SingletonMeta):
-    width = 640
-    height = 360
+    #: Read from `common.SCREEN` rather than spelled again here. The console
+    #: divides the same number by a cell size and cannot ask the engine for
+    #: it -- the engine imports graphics -- so one owner or two that drift.
+    width = SCREEN.width
+    height = SCREEN.height
 
     @classmethod
     def current(cls) -> Optional["BlitsPerSecond"]:
@@ -101,6 +105,12 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         # Never None: an unset loop is a do-nothing lambda, so the hot path
         # calls it unconditionally instead of testing it sixty times a second.
         self._loop: Callable[[], None] = _NOTHING
+        # The draw order, built before warm-up because it needs nothing to
+        # exist -- it is an ordered list. Built HERE rather than by Display
+        # for the same reason the clock is: a game reaches it constantly, and
+        # the things a game reaches for should not be owned by the screen it
+        # is deliberately not allowed to name.
+        self._layers = Layers()
         # Declared before warm-up so teardown has something to look at if
         # warm-up dies half-built. Every subsystem added below gets the same
         # treatment: named here, built during STARTING, checked in _teardown.
@@ -125,6 +135,7 @@ class BlitsPerSecond(metaclass=SingletonMeta):
             self._display = Display(
                 width=self.width,
                 height=self.height,
+                layers=self._layers,
                 events=self._event_bus,
             )
         except Exception as error:
@@ -172,21 +183,52 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         clock, which owns it; this is a forward for convenience."""
         return self._clock.rate
 
+    @property
+    def layers(self) -> Layers:
+        """The draw order: what gets composited each frame, background to
+        foreground.
+
+            bps.layers.add(background)
+            bps.layers.add(actors)
+            actors.after(background)
+
+        There is one of these and this is it. No setter, deliberately:
+        replacing the collection would leave every layer in the old one
+        holding a back-reference to an order nothing draws, which is a black
+        screen with no error attached to it. Emptying the stack is
+        `remove()`, and hiding it for a frame is `layer.enabled = False`.
+
+        A game never constructs one -- see `graphics.internal`.
+        """
+        return self._layers
+
     # No public `display`. A game starts the engine and the engine sorts the
-    # surface out; nothing a game does needs to name the screen, and once
-    # layers land in `graphics` there is nothing on Display a game would
-    # want. Instruments measuring the engine reach `_display` deliberately --
-    # see `internal/__init__.py`.
+    # surface out; nothing a game does needs to name the screen, and with
+    # layers reached through `bps.layers` above there is nothing left on
+    # Display a game would want. Instruments measuring the engine reach
+    # `_display` deliberately -- see `internal/__init__.py`.
 
     @property
     def background(self) -> tuple[float, float, float]:
-        """The colour the screen clears to, until `graphics` lands.
+        """The colour the screen clears to. TEMPORARY -- delete this the
+        moment a real engine layer can draw.
 
-        A stand-in, and forwarded from here rather than reached through the
-        display, because clearing to a colour is a DRAWING instruction and
-        drawing is about to belong to `graphics`. Putting it on the engine
-        keeps the one thing a game can currently make happen off the private
-        machinery, and gives it somewhere to die when layers arrive.
+        DELETING IT: drop this property and its setter, drop
+        `Display._background`, and let `_compose` call `fbo.clear()` bare --
+        it already defaults to black. A game wanting a coloured backdrop then
+        makes a layer that draws one, which is the only thing that can
+        resolve a palette index in the first place. Nothing else reads it.
+
+        The trigger is a real ENGINE layer, not the layer machinery, which is
+        already here -- `Layer`, `Layers` and the compose pass all landed
+        2026-08-28 and this outlived them. Until a tile or sprite layer can
+        put a pixel on screen, this is the only thing a game can make happen,
+        and losing it would leave the engine with nothing to demonstrate.
+
+        It takes a float triple rather than a palette index because the clear
+        is a raw `glClearColor` with no palette bound -- see
+        `graphics/palette.py`. That mismatch is a reason to delete it, not a
+        reason to give the clear path a palette.
         """
         return self._display.background
 
