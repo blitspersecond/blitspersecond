@@ -37,6 +37,13 @@ class Surface(pyglet.window.Window):
         self._refresh_check_needed = False
 
         screen = pyglet.display.get_display().get_default_screen()
+        # DwmGetCompositionTimingInfo has exposed only one NULL-HWND desktop
+        # clock since Windows 8.1.  The reference capture establishes that
+        # clock for the primary output; a same-rate secondary is not enough
+        # evidence that it shares the same phase, particularly across adapters.
+        self._dwm_clock_eligible = self._tracks_window_output and bool(
+            getattr(screen, "is_primary", False)
+        )
         if False:  # FIXME force windowed: display.fullscreen:
             # "Fullscreen" is deliberately borderless at the active desktop
             # mode. Passing fullscreen=True together with BPS's logical size
@@ -110,6 +117,11 @@ class Surface(pyglet.window.Window):
     def refresh_rate(self) -> float | None:
         return self._refresh_rate
 
+    @property
+    def dwm_clock_eligible(self) -> bool:
+        """Whether the current Win32 output may use the desktop DWM clock."""
+        return self._dwm_clock_eligible
+
     def poll_refresh_rate(self, *, force: bool = False) -> float | None:
         """Return the Win32 window's current output rate when it needs a check.
 
@@ -128,10 +140,15 @@ class Surface(pyglet.window.Window):
         try:
             get_window_screen = getattr(self, "get_window_screen", None)
             if not callable(get_window_screen):
+                self._dwm_clock_eligible = False
                 return None
             screen = get_window_screen()
+            self._dwm_clock_eligible = bool(getattr(screen, "is_primary", False))
             refresh_rate = get_refresh_rate(screen)
         except (AttributeError, IndexError, OSError):
+            # A failed topology query must not leave a previously accepted
+            # absolute clock attached to a window whose output is now unknown.
+            self._dwm_clock_eligible = False
             return None
         if refresh_rate is not None:
             self._refresh_rate = refresh_rate

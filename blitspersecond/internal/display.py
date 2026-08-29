@@ -66,6 +66,10 @@ class Display:
     def refresh_rate(self) -> float | None:
         return self._surface.refresh_rate
 
+    @property
+    def dwm_clock_eligible(self) -> bool:
+        return self._surface.dwm_clock_eligible
+
     def poll_refresh_rate(self, *, force: bool = False) -> float | None:
         """Return a newly observed current-window refresh rate, if any."""
         return self._surface.poll_refresh_rate(force=force)

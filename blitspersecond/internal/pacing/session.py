@@ -471,7 +471,11 @@ class PresentationSession:
     def _synchronise_grid(self, refresh_rate: float | None) -> None:
         """Select a live DWM grid when it agrees with this window's output."""
         self._mode_refresh_rate = refresh_rate
-        clock = _query_dwm_clock(self._presentation_path_name)
+        clock = (
+            _query_dwm_clock(self._presentation_path_name)
+            if getattr(self._display, "dwm_clock_eligible", True)
+            else None
+        )
         if clock is not None and (
             refresh_rate is None
             or _rates_agree(clock.refresh_rate, refresh_rate)
@@ -513,6 +517,8 @@ class PresentationSession:
             refresh_rate = self._display.poll_refresh_rate()
             if refresh_rate is not None:
                 self._adopt(refresh_rate)
+            elif not getattr(self._display, "dwm_clock_eligible", True):
+                self._synchronise_grid(self._mode_refresh_rate)
         if self._frame_pacing is not None:
             self._frame_pacing.after_dispatch()
 

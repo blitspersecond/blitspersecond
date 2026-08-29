@@ -36,6 +36,7 @@ class DwmPresentationClock:
 
 
 class _UnsignedRatio(ctypes.Structure):
+    _layout_ = "ms"
     _pack_ = 4
     _fields_ = [
         ("uiNumerator", wintypes.UINT),
@@ -47,6 +48,7 @@ class _DwmTimingInfo(ctypes.Structure):
     # dwmapi.h is packed on four-byte boundaries.  Natural 64-bit ctypes
     # alignment makes this 320 bytes, which DWM rejects with its size-mismatch
     # HRESULT; the Windows SDK layout is 292 bytes.
+    _layout_ = "ms"
     _pack_ = 4
     _fields_ = [
         ("cbSize", wintypes.UINT),
