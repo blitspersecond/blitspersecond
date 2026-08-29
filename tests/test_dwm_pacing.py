@@ -32,8 +32,14 @@ class FakeLogger:
 
 
 class FakeDisplay:
-    def __init__(self, refresh_rate: float = 144.0) -> None:
+    def __init__(
+        self,
+        refresh_rate: float = 144.0,
+        *,
+        dwm_clock_eligible: bool = True,
+    ) -> None:
         self.refresh_rate = refresh_rate
+        self.dwm_clock_eligible = dwm_clock_eligible
         self.polled: list[bool] = []
         self.next_refresh_rate: float | None = refresh_rate
 
@@ -50,7 +56,13 @@ def clock(rate: float, phase: float = 100.0) -> DwmPresentationClock:
     )
 
 
-def make_session(monkeypatch, *, path: str = "win32", clocks=(None,)):
+def make_session(
+    monkeypatch,
+    *,
+    path: str = "win32",
+    clocks=(None,),
+    dwm_clock_eligible: bool = True,
+):
     descriptions = {
         "win32": "Win32/WGL -> DWM",
         "x11": "Xlib/GLX -> X11",
@@ -74,7 +86,7 @@ def make_session(monkeypatch, *, path: str = "win32", clocks=(None,)):
         metadata.update(values)
         return None
 
-    display = FakeDisplay()
+    display = FakeDisplay(dwm_clock_eligible=dwm_clock_eligible)
     logger = FakeLogger()
     session = PresentationSession(
         display,
@@ -164,6 +176,19 @@ def test_non_windows_path_never_imports_a_dwm_clock(monkeypatch):
     assert not session._uses_dwm_clock
 
 
+def test_secondary_output_never_queries_the_primary_dwm_clock(monkeypatch):
+    session, _display, _logger, calls, metadata = make_session(
+        monkeypatch,
+        clocks=(clock(143.998848),),
+        dwm_clock_eligible=False,
+    )
+
+    assert calls == []
+    assert session.refresh_rate == 144.0
+    assert not session._uses_dwm_clock
+    assert metadata["refresh_hz"] == 144.0
+
+
 def test_foregrounding_refreshes_dwm_phase(monkeypatch):
     first = clock(143.998848, phase=50.0)
     second = clock(143.998848, phase=80.0)
@@ -177,6 +202,23 @@ def test_foregrounding_refreshes_dwm_phase(monkeypatch):
     assert display.polled == [True]
     assert calls == ["win32", "win32"]
     assert session._phase == second.phase
+
+
+def test_failed_topology_query_detaches_an_adopted_dwm_clock(monkeypatch):
+    dwm = clock(143.998848, phase=50.0)
+    session, display, _logger, calls, _metadata = make_session(
+        monkeypatch, clocks=(dwm,)
+    )
+
+    display.dwm_clock_eligible = False
+    display.next_refresh_rate = None
+    session.foregrounded()
+
+    assert calls == ["win32"]
+    assert session.refresh_rate == 144.0
+    assert session._period == pytest.approx(1.0 / 144.0)
+    assert session._phase == 0.0
+    assert not session._uses_dwm_clock
 
 
 def test_monitor_move_rejects_a_clock_from_a_different_rate(monkeypatch):
