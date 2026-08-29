@@ -12,17 +12,11 @@ from typing import Any, Iterator, Optional, Tuple, Union
 
 import numpy as np
 from pyglet.gl import (
-    GL_BLEND,
-    GL_ONE_MINUS_SRC_ALPHA,
-    GL_SRC_ALPHA,
     GL_TEXTURE0,
     GL_TEXTURE1,
     GL_TRIANGLES,
     glActiveTexture,
     glBindTexture,
-    glBlendFunc,
-    glDisable,
-    glEnable,
 )
 
 from blitspersecond.common import SCREEN, Size
@@ -655,10 +649,17 @@ class Console(Layer):
         finally:
             self._defer_depth -= 1
             if self._defer_depth == 0:
-                self._flush()
+                self._sync()
 
-    def _flush(self) -> None:
-        """Recompose whatever a deferral dirtied, if any, and forget it."""
+    def _sync(self) -> None:
+        """Recompose whatever a deferral dirtied, if any, and forget it.
+
+        Every pillar has one of these: the step that makes what will be drawn
+        agree with what was asked for. `TileMap._sync` expands its placements
+        into vertex corners; this recomposes the cell rows a `defer` block left
+        outstanding. Same name because it is the same guarantee, and the name
+        states the guarantee rather than the mechanism -- there is nothing to
+        "flush" on the tile pillar, but there is always something to sync."""
         first, last = self._dirty_top, self._dirty_bottom
         self._dirty_top, self._dirty_bottom = self._rows, 0
         if first < last:
@@ -908,7 +909,7 @@ class Console(Layer):
         # A safety net, not the mechanism: a defer left open across a frame is
         # a caller's bug, but drawing a stale screen because of it would be a
         # much harder bug to find than the missing dedent.
-        self._flush()
+        self._sync()
         program = shader.program()
         # Uploads if the recompose above marked it dirty.
         texture = self._image.texture
@@ -923,11 +924,10 @@ class Console(Layer):
         glBindTexture(palette.target, palette.id)
         glActiveTexture(GL_TEXTURE0)
         glBindTexture(texture.target, texture.id)
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        # Blend belongs to the compositor: it is on for the whole walk. See
+        # `Display._compose`.
         assert self._quad is not None
         self._quad.draw(GL_TRIANGLES)
-        glDisable(GL_BLEND)
         program.stop()
 
     def __repr__(self) -> str:

@@ -4,7 +4,7 @@ in a hint?" -- if no, it's internal.
 
   layer.py           Layer: a place in the draw order, and in every
                      subclass the content that place shows. The base every
-                     engine's layer derives from.
+                     pillar derives from.
   layers.py          Layers: the ordered collection of them, background to
                      foreground. The compositor walks it once a frame.
   palette_texture.py PaletteTexture: a Palette's GPU projection, the 256x1
@@ -21,16 +21,16 @@ are not shared that way -- each engine compiles its own, in its own
 The draw-order pair is subtler, and the two halves qualify differently.
 `Layers` is never NAMED by a game: `BlitsPerSecond` builds the one that
 exists and lends it out as `bps.layers`, a getter with no setter, so there is
-no second one to construct and no way to swap this one. `Layer` is never
-CONSTRUCTED by a game either -- an engine hands back a TileLayer or a
-SpriteLayer already built -- but a game calls its methods constantly
-(`hud.after(actors)`, `layer.enabled = False`). Being internal is about who
-builds a thing, not about whose fingerprints end up on it.
+no second one to construct and no way to swap this one. `Layer` is
+different: a game DOES construct one, because a pillar IS one -- `Console(...)`
+is a Layer, and `TileMap(...)` will be -- and calls its methods constantly
+(`hud.after(actors)`, `layer.enabled = False`). What a game never does is name
+this base class.
 
 Which is why `Layer` is not exported from `graphics` even though its API is
 public. Exporting it would invite `class MyLayer(Layer)`, and a bare Layer
-composites nothing -- the content is what the subclass IS. The engines are
-where layers come from.
+composites nothing -- the content is what the subclass IS. You construct the
+pillar, never the base.
 """
 
 from .layer import Layer

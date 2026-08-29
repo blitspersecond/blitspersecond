@@ -13,7 +13,7 @@ from blitspersecond.common import (
     Size,
 )
 
-from .palette import Palette
+from .palette import Palette, system_palette
 
 _VALID_MODES = ("P", "RGB", "RGBA")
 
@@ -60,8 +60,10 @@ class PixelBuffer(CacheableResource):
     missing. Loading a picture and having a picture are one act.
     """
 
-    # Monotonic, process-wide ids -- a Tile carries one to name the texture it
-    # samples, and the TileCache groups tiles by it.
+    # Monotonic, process-wide ids, for telling two buffers apart in a repr.
+    # This used to name a buffer's texture inside a Tile and key its pool in
+    # the TileCache; a tile now names its map and there is no pool, so what is
+    # left is a debugging aid. See `id` below.
     _ids = itertools.count()
 
     @classmethod
@@ -109,7 +111,18 @@ class PixelBuffer(CacheableResource):
         self._size = Size(width, height)
         self._mode = mode
         self._fmt = "R" if mode == "P" else mode
+        # An indexed buffer ALWAYS has a table. A blank canvas gets the system
+        # palette rather than None, so a surface you just made can be written
+        # in real, named colours (`px[...] = RED`) without first building a
+        # palette to make the indices mean anything. A file brings its own.
+        #
+        # A fresh instance per buffer, not a shared one: a palette is mutable
+        # per-buffer state, and `PaletteTexture` keys its GPU row on palette
+        # IDENTITY -- so sharing one object would silently share one row, and
+        # recolouring one surface would recolour every other blank one.
         self._palette = palette
+        if mode == "P" and self._palette is None:
+            self._palette = system_palette()
 
         channels = 1 if mode == "P" else len(mode)
         shape = (height, width) if channels == 1 else (height, width, channels)
@@ -231,9 +244,15 @@ class PixelBuffer(CacheableResource):
 
     @property
     def id(self) -> int:
-        """Stable id -- names this buffer's texture in a Tile and keys its
-        pool in the TileCache. Shared by every layer that reuses this
-        buffer, and different in every `copy()`."""
+        """Stable id, for telling two buffers apart when reading a repr or a
+        log. Shared by every layer that reuses this buffer -- naming one path
+        twice gets one buffer and one id -- and different in every `copy()`.
+
+        It had a load-bearing job once: a `Tile` carried it to name the texture
+        it sampled, and `TileCache` keyed its pool on it. A tile names its
+        owning map now and there is no pool, so nothing in the engine reads
+        this but `__repr__`. Kept because buffer identity is a real question a
+        person debugging asks; go through `is` in code."""
         return self._id
 
     @property
@@ -269,8 +288,9 @@ class PixelBuffer(CacheableResource):
 
     @property
     def palette(self) -> Optional[Palette]:
-        # The stored instance (None if this buffer isn't indexed), never a
-        # fresh copy. The compositor reads this every frame per layer -- but
+        # The stored instance (None exactly when this buffer isn't indexed --
+        # an indexed one always has a table, defaulting to `system_palette()`),
+        # never a fresh copy. The compositor reads this every frame per layer -- but
         # only when `indexed` -- so a rebuilt throwaway would defeat
         # PaletteTexture's identity memo, and once cost ~2.4ms/call
         # rebuilding the table. Same instance -> same GPU palette row.

@@ -2,7 +2,15 @@ from time import perf_counter
 from typing import Optional
 
 from pyglet import clock as pyglet_scheduler
-from pyglet.gl import glViewport
+from pyglet.gl import (
+    GL_BLEND,
+    GL_ONE_MINUS_SRC_ALPHA,
+    GL_SRC_ALPHA,
+    glBlendFunc,
+    glDisable,
+    glEnable,
+    glViewport,
+)
 from pyglet.math import Mat4
 
 from blitspersecond.graphics.internal import Layers
@@ -130,9 +138,22 @@ class Display:
         fbo.bind()
         self._surface.projection = Mat4.orthogonal_projection(0, w, 0, h, -1, 1)
         glViewport(0, 0, w, h)
+        # Blend is COMPOSITING state, so it is set here rather than by each
+        # layer. Every pillar wanted the identical two calls -- a layer drawn
+        # over another must respect its alpha, which is what compositing means
+        # -- and repeating them per layer per frame was N redundant state
+        # changes and N places for one of them to drift. The present pass
+        # disables blend again for its own quad, which is why this has to be
+        # established here rather than once at startup.
+        #
+        # A layer wanting a different blend mode is the unbuilt `Layer.blend`,
+        # and this loop is where it will be read.
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         for layer in self._layers:
             if layer.enabled:
-                layer._composite()  # drawable syncs GPU state + executes its own batch
+                layer._composite()  # syncs its own GPU state, executes its own draw
+        glDisable(GL_BLEND)
         fbo.unbind()
 
     @property

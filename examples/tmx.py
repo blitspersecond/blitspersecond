@@ -1,88 +1,86 @@
-"""Three ways to put tiles from a TMX tileset onto a layer.
+"""Two roads to the same picture: a world read from a file, and one built by
+hand.
 
-``tile`` walks the map plane and blits one concrete tile per occupied cell.
-``full`` hands the whole plane to a single blit -- same picture, one call.
-``region`` is the other direction: it cuts a rectangle out of the *tileset*
-rather than the map, and stamps that in one blit, so you see the sheet itself
-laid out in atlas order.
+``file`` loads the island out of ``island.tmx``. ``sheet`` builds a world with
+``numpy`` that lays the tileset out in atlas order. They differ only in where
+the array came from, and nothing downstream can tell -- a TileMap does not
+know or care which road its world arrived by.
 
-The first two draw the island; the third draws the tiles it is made of. Change
-``mode`` in ``main`` to compare them.
+That is the point of the example. TMX is a convenience and not the way in: a
+game generating its world procedurally is doing an ordinary thing, and the
+loader adds no capability that ``empty_map`` and an assignment do not have.
 
-Run from the repository root:
+Change ``MODE`` to compare them. Run from the repository root:
 
     venv/bin/python examples/tmx.py
 
-Close the window to quit.
+The scene is static, so there is no loop to write: `start()` services a
+do-nothing one on the display's cadence. Close the window to quit.
 """
-
-from pathlib import Path
 
 import numpy as np
 
 from blitspersecond import BlitsPerSecond
-from blitspersecond.graphics import TileFlags
-from blitspersecond.resources import ResourceManager
+from blitspersecond.common import PACKAGE_ROOT, SCREEN
+from blitspersecond.graphics import TiledFile, TileMap, empty_map
 
-MAP = Path(__file__).resolve().parents[1] / "assets/gorillaz/island.tmx"
+MAP = PACKAGE_ROOT.parent / "assets/gorillaz/island.tmx"
+MODE = "file"  # "file" or "sheet"
 
-examples = ["tile", "full", "region"]
-SKY = 255
+#: The sky, as the artist's own blue. A tilemap draws tiles and nothing else --
+#: its empty cells are genuinely empty, so what shows through them is whatever
+#: is behind, which here is the framebuffer itself.
+SKY = (73 / 255, 171 / 255, 212 / 255)
+
+
+def from_file() -> TileMap:
+    """The island, exactly as Tiled has it."""
+    return TiledFile(str(MAP)).tilemap("blue_island")
+
+
+def from_hand() -> TileMap:
+    """Every tile of the same sheet, in atlas order, as a world nobody
+    authored.
+
+    `empty_map` gives the grid, `arange` fills it, and the result is the same
+    kind of array the loader produces -- which is why it can be handed to the
+    same constructor. Reshaping to (cols, rows) and transposing is what makes
+    the sheet read left-to-right then down: a world is x-major, and atlas
+    order is not.
+    """
+    tileset = TiledFile(str(MAP)).layer("blue_island").tileset
+    world = empty_map(tileset.cols, tileset.rows)
+    world["tile"] = np.arange(len(tileset)).reshape(tileset.rows, tileset.cols).T
+    return TileMap(tileset, world, tag="sheet")
+
+
+def centre(tilemap: TileMap) -> None:
+    """Put the world in the middle of the screen.
+
+    `origin` is where the world SITS; `scroll` would be where you are looking,
+    and parking the camera at a negative offset to centre a small map would
+    say the game is looking somewhere outside its own world.
+
+    Note what is not here: nothing stamps anything. A map holds the viewport
+    and one cell of border, and paints that itself as the camera reaches it --
+    so placing the world is the whole job, even for one that fits on screen.
+    """
+    width, height = tilemap.pixel_size
+    tilemap.origin = (
+        (SCREEN.width - width) // 2,
+        (SCREEN.height - height) // 2,
+    )
 
 
 def main() -> None:
-    mode = examples[0]  # choose one of the three examples above
-
     bps = BlitsPerSecond()
-    island = ResourceManager().tmx(str(MAP)).tilemap("blue_island")
-    bps.layers.add(island)
+    bps.background = SKY
 
-    # A TileMap holds both halves: the layer it stamps into, and the world it
-    # stamps from. Everything below works them by hand, so start from empty --
-    # minting has already filled the visible window, which is the normal path
-    # (see examples/layers.py).
-    layer, tiles = island.layer, island.tiles
-    tileset = island.tileset
-    layer.clear()
-    layer.palette[SKY] = (73, 171, 212, 255)
-    layer.background = SKY  # transparent pixels are open sky
+    tilemap = from_file() if MODE == "file" else from_hand()
+    bps.layers.add(tilemap)
+    centre(tilemap)
 
-    map_width, map_height = island.pixel_size
-    ox = (bps.config.display.width - map_width) // 2
-    oy = (bps.config.display.height - map_height) // 2
-
-    if mode == "tile":
-        tw, th = island.tile_size
-        # The grid is x-major, so argwhere hands back (x, y) pairs directly --
-        # no transposing, and column/row mean what they say.
-        for column, row in np.argwhere(tiles["tile"] >= 0):
-            cell = tiles[column, row]
-            layer.blit(
-                tileset[int(cell["tile"])],
-                ox + int(column) * tw,
-                oy + int(row) * th,
-                TileFlags(int(cell["flags"])),
-            )
-
-    elif mode == "full":
-        layer.blit(tiles, ox, oy)
-
-    elif mode == "region":
-        # A rectangle of the TILESET, not the map: every tile the sheet has,
-        # in atlas order, stamped by one blit. region() hands back the same
-        # kind of grid TileMap.tiles does, which is why blit takes both.
-        sheet = tileset.region(0, 0, tileset.cols, tileset.rows)
-        tw, th = tileset.tile_size
-        layer.blit(
-            sheet,
-            (bps.config.display.width - tileset.cols * tw) // 2,
-            (bps.config.display.height - tileset.rows * th) // 2,
-        )
-
-    else:
-        raise ValueError(f"unknown example mode: {mode}")
-
-    bps.run()
+    bps.start()
 
 
 if __name__ == "__main__":

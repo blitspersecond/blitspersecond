@@ -4,18 +4,16 @@ from uuid import uuid4
 
 class Layer:
     """A place in the compositor's draw order -- and, in every subclass, the
-    content that place shows. Engines produce Layers (TileLayer, SpriteLayer,
-    GlyphLayer): one object is both the thing you draw with and where it
-    sits. The base class owns only the compositing concerns -- enabled, tag,
-    stack position; blend/opacity/offset later.
+    content that place shows. A pillar IS its layer: `Console` is one and
+    `TileMap` will be, so building one builds both the thing you draw with
+    and where it sits. The base class owns only the compositing concerns --
+    enabled, tag, stack position; blend/opacity/offset later.
 
-    You don't usually construct these directly -- `bps.layers` mints them
-    (`bps.layers.tile(...)`, `.sprite(...)`, `.glyph(...)`), already in the
-    order. Reorder fluently: `layer.after(hud)`, `layer.first()`,
-    `a.swap_with(b)`. Building one by hand instead (TileLayer(...) and
-    friends) leaves it unattached and off-screen until `bps.layers.add(layer)`
-    places it -- and reordering an unattached layer raises, because a draw
-    order it isn't in cannot be changed.
+    You construct a pillar yourself and `bps.layers.add(layer)` places it.
+    Until it is added it is unattached and off-screen, and reordering an
+    unattached layer raises, because a draw order it isn't in cannot be
+    changed. Once it is in, reorder fluently: `layer.after(hud)`,
+    `layer.first()`, `a.swap_with(b)`.
     """
 
     def __init__(self, tag: Optional[str] = None) -> None:
@@ -90,23 +88,22 @@ class Layer:
         if self._layers is None:
             raise RuntimeError(
                 f"{type(self).__name__} is not in a draw order, so it cannot "
-                f"be reordered -- mint it with bps.layers.tile/sprite/glyph, "
-                f"or place one you built yourself with bps.layers.add(layer)"
+                f"be reordered -- place it with bps.layers.add(layer) first"
             )
         return self._layers
 
     def before(self, other: object) -> "Layer":
         """Draw just before `other` (one step toward the background).
 
-        `other` may be a Layer or anything wrapping one (Console, TileMap):
-        whatever you can `layers.add`, you can order against."""
+        `other` is any layer already in this draw order. A pillar IS a layer,
+        so you name it directly -- `hud.before(console)`, not its contents."""
         self._bound()._move_before(self, other)
         return self
 
     def after(self, other: object) -> "Layer":
         """Draw just after `other` (one step toward the foreground).
 
-        `other` may be a Layer or anything wrapping one (Console, TileMap)."""
+        `other` is any layer already in this draw order."""
         self._bound()._move_after(self, other)
         return self
 

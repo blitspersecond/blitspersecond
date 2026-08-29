@@ -26,19 +26,39 @@ of them are FOR: an image belongs with the things that draw it, a sound with
 the things that play it, and what they share is caching behaviour, which is
 `common.CacheableResource` and needs no address of its own.
 
-The engines -- tile, sprite, glyph -- and the rest of the material they draw
-from land here as the rebuild brings them back; this file is the list of what
-a game is meant to reach for, so a name arrives on it when its engine does.
+`TileMap` is a world of cells over one sheet, and IS a layer: build one,
+`bps.layers.add` it, and it draws. `Tile` is a cell of its sheet, which only
+that map will draw; `PLANE_DTYPE`, `EMPTY` and `empty_map` are how you author
+a world by hand rather than loading one, which is a first-class road and not a
+workaround.
+
+`TiledFile` is the other road -- `TiledFile("island.tmx").tilemap("trees")` --
+and it is a convenience, not the way in. It fills the same array `empty_map`
+hands you empty, so a game generating its own world never imports it and loses
+nothing by not doing so.
+
+The remaining engine -- sprite -- and the rest of the material they draw from
+land here as the rebuild brings them back; this file is the list of what a
+game is meant to reach for, so a name arrives on it when its engine does.
 
 The draw order is NOT on that list. `Layer` and `Layers` live in
 `graphics.internal`: the engine owns the one collection there is and lends it
-out as `bps.layers`, and layers themselves come from the engines rather than
-being built by hand. See that package's docstring for why the public-looking
-half is still internal.
+out as `bps.layers`, and a pillar IS a layer, so you build a `Console` or a
+`TileMap` and hand it over rather than naming the base class. See that
+package's docstring for why the public-looking half is still internal.
 """
 
 from .atlas import Atlas
 from .pixel_buffer import PixelBuffer
+from .tilemap import (
+    EMPTY,
+    PLANE_DTYPE,
+    Tile,
+    TileMap,
+    TiledFile,
+    TiledLayer,
+    empty_map,
+)
 from .orientation import (
     FLIP_OF,
     ROTATION_OF,
@@ -75,6 +95,13 @@ from .palette import (
 __all__ = [
     "Atlas",
     "PixelBuffer",
+    "TileMap",
+    "Tile",
+    "TiledFile",
+    "TiledLayer",
+    "PLANE_DTYPE",
+    "EMPTY",
+    "empty_map",
     "Orientation",
     "SHAPE_PRESERVING",
     "swaps_axes",
