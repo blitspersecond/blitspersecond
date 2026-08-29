@@ -65,22 +65,24 @@ class Surface(pyglet.window.Window):
             #
             # `BPS_VSYNC=1` turns it back on, and exists because a blocking
             # flip returns AT a vblank and is therefore a free phase
-            # reference, which BPS otherwise has none of.
+            # reference on platforms without a compositor clock.
             #
             # MEASURED 2026-08-27, Win32/WGL under DWM: it does nothing here.
             # pyglet applies it (`window.vsync` reads True) but `swap.ms` is
             # unchanged at 0.032ms, because the present mode is "Composed:
             # Copy with GPU GDI" -- DWM composites on its own vblank and the
             # client SwapBuffers returns immediately. There is no blocking
-            # swap to be had on this path, so no phase reference from it.
-            # `DwmGetCompositionTimingInfo` is no help either; it refuses
-            # with 0x88980090 for both a NULL and a real HWND.
+            # swap to be had on this path, so no phase reference from it. BPS
+            # now obtains that reference from `DwmGetCompositionTimingInfo`;
+            # its SDK structure requires four-byte packing (the earlier
+            # natural-alignment probe was rejected with size-mismatch HRESULT
+            # 0x88980090).
             #
             # Kept switchable because native X11 genuinely does block, and
-            # that path is still unvalidated. It is NOT the fix for the
-            # present-attribution shuffle: that comes from the engine's own
-            # tick deadline re-phasing against display's absolute grid, and
-            # is fixed by deriving one from the other.
+            # that path is still unvalidated. DWM's clock gives BPS an honest
+            # period and prevents phase drift; it does not make DWM's variable
+            # queue-depth assignment deterministic for an irregular 2/3
+            # client submission stream.
             vsync=environment_flag("BPS_VSYNC"),
             config=pyglet.gl.Config(double_buffer=True),
         )

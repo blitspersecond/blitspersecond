@@ -87,6 +87,25 @@ _PHASE_STEP = 0.25  # of a period
 # present pattern rather than a game running at the wrong speed.
 _ASSUMED_REFRESH = 60.0
 
+# DWM exposes one NULL-HWND composition clock on current Windows.  Only use
+# it when it describes the same refresh regime as the monitor Windows assigns
+# to our window; a primary-display clock must never pace a window on a very
+# different secondary display.
+_DWM_RATE_TOLERANCE = 0.01
+
+
+def _rates_agree(first: float, second: float) -> bool:
+    return abs(first - second) <= max(first, second) * _DWM_RATE_TOLERANCE
+
+
+def _query_dwm_clock(path_name: str):
+    """Import the Win32 probe only for the path that can use it."""
+    if path_name != "win32":
+        return None
+    from .dwm import query_dwm_presentation_clock
+
+    return query_dwm_presentation_clock()
+
 
 class PresentationSession:
     """Display-owned frame pacing for one invocation of the machine loop."""
@@ -115,8 +134,12 @@ class PresentationSession:
                 f"pacing against {_ASSUMED_REFRESH:.0f}Hz instead."
             )
             refresh_rate = None
+        self._mode_refresh_rate = refresh_rate
         self._refresh_rate = refresh_rate or _ASSUMED_REFRESH
         self._period = 1.0 / self._refresh_rate
+        self._phase = 0.0
+        self._uses_dwm_clock = False
+        self._rejected_dwm_rate: tuple[float, float] | None = None
 
         presentation_path = detect_presentation_path()
         logger.info(f"Presentation path: {presentation_path.description}.")
@@ -124,9 +147,15 @@ class PresentationSession:
         # it was created on, so a window dragged to another output can have
         # its slot grid corrected. It corrects nothing about the simulation.
         self._tracks_window_output = presentation_path.name == "win32"
+        self._presentation_path_name = presentation_path.name
+        self._synchronise_grid(refresh_rate)
         self._frame_pacing = frame_pacing_factory(
             target_fps=target_rate,
-            refresh_hz=refresh_rate,
+            refresh_hz=(
+                self._refresh_rate
+                if refresh_rate is not None or self._uses_dwm_clock
+                else None
+            ),
             cadence="decoupled",
             presentation_path=presentation_path.description,
         )
@@ -138,17 +167,29 @@ class PresentationSession:
         self._slipped = 0
         self._last_shown = 0.0
         self._interval = 0.0
-        self._phase = 0.0
         self._last_slot_index = None
         self._off_pattern: deque[bool] = deque(maxlen=_PHASE_WINDOW)
         self._phase_shifts = 0
         self._recent_work: deque[float] = deque(maxlen=_RESERVE_WINDOW)
         self._late = 0
 
-        logger.info(
-            f"Pacing frames against a {self._refresh_rate:.3f}Hz slot grid "
-            f"({'measured' if refresh_rate else 'assumed'})."
-        )
+        if self._uses_dwm_clock:
+            from .dwm import DWM_SUBMIT_LEAD
+
+            configured = (
+                f"{refresh_rate:.3f}Hz" if refresh_rate is not None else "unavailable"
+            )
+            logger.info(
+                f"Pacing frames against DWM's {self._refresh_rate:.6f}Hz "
+                f"composition clock ({DWM_SUBMIT_LEAD * 1000:.3f}ms before "
+                f"vblank; configured mode {configured})."
+            )
+        else:
+            logger.info(
+                f"Pacing frames against a {self._refresh_rate:.3f}Hz "
+                f"notional slot grid "
+                f"({'configured' if refresh_rate else 'assumed'})."
+            )
 
     # -- the grid ------------------------------------------------------------
 
@@ -173,12 +214,16 @@ class PresentationSession:
     def next_slot(self, after: float) -> float:
         """The first slot boundary at or after `after`.
 
-        **A NOTIONAL grid, and that is sufficient.** Its period comes from the
-        panel; its phase is wherever `perf_counter` zero happened to fall and
-        has no relationship to a real vertical retrace. It does not need one:
-        the cadence is carried by the INTERVALS, so two submits two notional
-        slots apart are two real periods apart and land two real vblanks
-        apart, whatever the offset between the grids happens to be.
+        On Win32 this is DWM's absolute QPC vblank grid, shifted earlier by
+        the measured submission lead.  Its period is live rather than the
+        configured mode's nominal value, so it neither starts on DWM's latch
+        boundary nor walks onto it over a long run.
+
+        Elsewhere this is a NOTIONAL grid. Its period comes from the panel;
+        its phase is wherever `perf_counter` zero happened to fall and has no
+        relationship to a real vertical retrace. It does not need one: the
+        cadence is carried by the INTERVALS, so two submits two notional slots
+        apart are two real periods apart, whatever the grids' offset.
 
         There is no way to do better on this path in any case. GLX's
         `glXGetSyncValuesOML` looked like a vblank clock and is not: polled
@@ -330,6 +375,11 @@ class PresentationSession:
         that happens. A slipped frame is excluded: that gap is late because
         the engine overran, which is a different fault and already counted.
         """
+        if self._uses_dwm_clock:
+            # This grid has an external phase reference.  Moving it in
+            # response to application-side intervals would discard the thing
+            # DWM supplied and recreate the periodic queue-depth shuffle.
+            return
         previous, self._last_slot_index = self._last_slot_index, slot_index
         if previous is None or slipped or not self._interval:
             return
@@ -389,24 +439,68 @@ class PresentationSession:
             refresh_rate = self._display.poll_refresh_rate(force=True)
             if refresh_rate is not None:
                 self._adopt(refresh_rate)
+            else:
+                self._synchronise_grid(self._mode_refresh_rate)
         self._monitor.reset()
         self._health = FlipHealth.OK
 
     def resumed(self, frame: int) -> None:
         """Re-anchor after a suspension: the gap was not simulation."""
+        if self._tracks_window_output:
+            self._synchronise_grid(self._mode_refresh_rate)
         self._origin = perf_counter() - frame * self._step
 
     def _adopt(self, refresh_rate: float) -> None:
         """Re-pace for a window that moved to another output."""
-        if refresh_rate == self._refresh_rate or refresh_rate < 1:
+        if refresh_rate < 1:
             return
         previous = self._refresh_rate
-        self._refresh_rate = refresh_rate
-        self._period = 1.0 / refresh_rate
-        self._logger.info(
-            f"Presentation rate changed ({previous:.3f} -> "
-            f"{refresh_rate:.3f}Hz); new slot grid. Simulation is unaffected."
-        )
+        previous_source = self._uses_dwm_clock
+        self._synchronise_grid(refresh_rate)
+        if (
+            self._refresh_rate != previous
+            or self._uses_dwm_clock != previous_source
+        ):
+            source = "DWM composition" if self._uses_dwm_clock else "notional"
+            self._logger.info(
+                f"Presentation clock changed ({previous:.6f} -> "
+                f"{self._refresh_rate:.6f}Hz, {source}); new slot grid. "
+                f"Simulation is unaffected."
+            )
+
+    def _synchronise_grid(self, refresh_rate: float | None) -> None:
+        """Select a live DWM grid when it agrees with this window's output."""
+        self._mode_refresh_rate = refresh_rate
+        clock = _query_dwm_clock(self._presentation_path_name)
+        if clock is not None and (
+            refresh_rate is None
+            or _rates_agree(clock.refresh_rate, refresh_rate)
+        ):
+            self._refresh_rate = clock.refresh_rate
+            self._period = clock.period
+            self._phase = clock.phase
+            self._uses_dwm_clock = True
+            self._rejected_dwm_rate = None
+        else:
+            self._refresh_rate = refresh_rate or _ASSUMED_REFRESH
+            self._period = 1.0 / self._refresh_rate
+            self._phase = 0.0
+            self._uses_dwm_clock = False
+            if clock is not None and refresh_rate is not None:
+                mismatch = (clock.refresh_rate, refresh_rate)
+                if mismatch != self._rejected_dwm_rate:
+                    self._logger.warning(
+                        f"DWM composition clock ({clock.refresh_rate:.6f}Hz) "
+                        f"does not match the window's configured "
+                        f"{refresh_rate:.3f}Hz output; using a notional grid."
+                    )
+                self._rejected_dwm_rate = mismatch
+            else:
+                self._rejected_dwm_rate = None
+        self._last_slot_index = None
+        off_pattern = getattr(self, "_off_pattern", None)
+        if off_pattern is not None:
+            off_pattern.clear()
 
     # -- instrumentation hooks ----------------------------------------------
 
@@ -447,7 +541,7 @@ class PresentationSession:
         slipped_before = self._slipped
         self.anchor(frame, shown)
         self._watch_phase(
-            round(self.slot_for(frame) / self._period),
+            round((self.slot_for(frame) - self._phase) / self._period),
             self._slipped != slipped_before,
         )
 

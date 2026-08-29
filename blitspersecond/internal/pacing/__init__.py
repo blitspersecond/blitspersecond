@@ -27,6 +27,14 @@ The chain that remains:
                    uneven present pattern rather than a game at the wrong
                    speed.
 
+  dwm.py            WHAT CLOCK IS DWM ACTUALLY RUNNING?
+                    Win32 only. The configured mode can say 144/1 while DWM's
+                    live QPC period is 143.998848Hz; that difference is enough
+                    for a private grid to drift across a vblank boundary. A
+                    closely matching clock supplies both period and absolute
+                    phase. It does not promise control over DWM's downstream
+                    queue depth. Other paths never import it.
+
   health.py        IS THE COMPOSITOR STILL TAKING FRAMES?
                    One direction only: presentations withheld from an
                    occluded or minimised window (~2s grants observed under
