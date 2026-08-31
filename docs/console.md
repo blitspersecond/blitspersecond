@@ -8,23 +8,23 @@ menu, or the whole game if the game is made of words.
 
 ```python
 from blitspersecond import BlitsPerSecond
-from blitspersecond.console import Console
-from blitspersecond.graphics.glyph import CharSet
+from blitspersecond.graphics.console import CharSet, Console
 
 bps = BlitsPerSecond()
-console = bps.layers.add(Console(CharSet.ASCII8X12))
+console = Console(CharSet.ASCII8X12)
+bps.layers.add(console)
 
 console.print("Hello, world!")
 
-bps.run()
+bps.start()
 ```
 
-Three lines of machinery and one of output. `BlitsPerSecond()` opens the
+Four lines of machinery and one of output. `BlitsPerSecond()` opens the
 window. `Console(CharSet.ASCII8X12)` builds an 80x30 grid of 8x12 characters,
 one of the two system character sets bps currently ships with.
-`bps.layers.add(...)` puts it on screen and hands it back.
+`bps.layers.add(...)` puts it on screen.
 
-`bps.run()` shows the window and keeps it there until you close it. Text you
+`bps.start()` shows the window and keeps it there until you close it. Text you
 wrote before calling it is simply there when it opens — writing to a console
 is not something that has to happen every frame, and most of what you put on
 screen you will write once.
@@ -103,8 +103,8 @@ You do not set a colour, you pick up a pen. Everything you write is written
 with the pen you are holding:
 
 ```python
-from blitspersecond.colors import CYAN, WHITE
-from blitspersecond.graphics.common import Pen
+from blitspersecond.graphics import CYAN, WHITE
+from blitspersecond.graphics.console import Pen
 
 console.pen = Pen(0, CYAN)
 console.print("THE GREETER")
@@ -146,9 +146,9 @@ keyboard for an input, say what finishes it, and hand it to `console.echo` so
 the typing appears as it happens:
 
 ```python
-from blitspersecond.input import key, keyboard
+from blitspersecond.input import key
 
-name = console.echo(keyboard.input().until(key.RETURN))
+name = console.echo(bps.keyboard.input().until(key.RETURN))
 ```
 
 Pressing Return finishes the input. The Return itself is not echoed — it is
@@ -158,23 +158,22 @@ greeting below does not need a `print()` in front of it.
 
 `echo` does not block, and this is the point where the loop starts mattering.
 Everything so far was written once and left alone. Typing arrives over time, so
-something has to look at it repeatedly — and `keyboard.input()` is a live
-reference into the keyboard's stream, filling in as the player types, handling
-their backspacing, and setting `completed` when they press Return. Your job is
-to notice.
+something has to look at it repeatedly — and `bps.keyboard.input()` gives you a
+line that fills in as the player types, handles their backspacing, and sets
+`completed` when they press Return. Your job is to notice.
 
-So `bps.run()` takes a function, and calls it once per tick — sixty times a
+So `bps.start()` takes a function, and calls it once per tick — sixty times a
 second — for exactly this:
 
 ```python
-def tick(engine):
+def tick():
     global name
     if name.completed:
         console.print(f"Hello, {name.value}.")
         console.print("What is your name?")
-        name = console.echo(keyboard.input().until(key.RETURN))
+        name = console.echo(bps.keyboard.input().until(key.RETURN))
 
-bps.run(tick)
+bps.start(tick)
 ```
 
 Nothing waits. The tick function looks, acts if there is something to act on,
@@ -186,23 +185,31 @@ shape, whether it is reading a name or moving a thousand sprites.
 A variable that changes without anyone assigning to it looks like magic, so it
 is worth a paragraph on who is writing to it.
 
-The keyboard records every keystroke into a stream. `keyboard.input()` does not
-give you a string — it gives you a **bookmark into that stream**, marking where
-you started listening, plus the condition you set with `until()`. Asking for
-`name.value` replays the stream from the bookmark and tells you what it spells:
+`bps.keyboard.input()` does not give you a string — it gives you **the line
+itself**, an object that holds the text as it is typed. Once a frame the engine
+hands it whatever keys arrived, and it applies them: characters go in at the
+insertion point, backspace takes one out again, the arrows move where the next
+one lands.
 
 ```python
 name.value          # "Riddick"
 name.completed      # False -- still being typed
 ```
 
-Replay is why editing works without you doing anything. Backspace is recorded
-in the stream like any other keystroke, and the replay applies it, so a player
-who types `Riddik`, backspaces, and types `ck` leaves you a `name.value` of
-`"Riddick"`. You never see the intermediate mess unless you look during it.
+That is why editing works without you doing anything. A player who types
+`Riddik`, backspaces, and types `ck` leaves you a `name.value` of `"Riddick"`,
+because the backspace was applied when it arrived. You never see the
+intermediate mess unless you look during it.
 
-The keyboard settles all of this once per tick, before your tick function runs.
-So the answers hold still while your code is looking at them: `name.value` will
+The line keeps its own text, and keeps it for as long as the question is open.
+That is worth knowing, because the engine itself does not: it remembers only
+the last half-second of input, which is plenty for spotting a player rolling a
+joystick and nowhere near enough for someone taking their time over their name.
+Your line is not stored in that half-second. It is its own, and it can take all
+the time it likes.
+
+The engine settles all of this once a tick, before your tick function runs. So
+the answers hold still while your code is looking at them: `name.value` will
 not change halfway down your function.
 
 An input is in exactly one of four states, and there are properties for all of
@@ -213,7 +220,7 @@ them:
 | `listening` | still being typed |
 | `completed` | the `until()` condition matched — read `value` |
 | `interrupted` | something ended it first; `reason` says what |
-| `discarded` | you called `discard()`, and it is no longer replayable |
+| `discarded` | you called `discard()`, and it kept nothing |
 
 **The keyboard listens to one input at a time.** Asking for a new one
 interrupts the one before it with `reason` `"REPLACED"`. That is why the tick
@@ -224,14 +231,13 @@ is a finished thing, and the next question needs a new bookmark.
 
 ```python
 from blitspersecond import BlitsPerSecond
-from blitspersecond.colors import CYAN, WHITE, YELLOW
-from blitspersecond.console import Console
-from blitspersecond.graphics.common import Pen
-from blitspersecond.graphics.glyph import CharSet
-from blitspersecond.input import key, keyboard
+from blitspersecond.graphics import CYAN, WHITE, YELLOW
+from blitspersecond.graphics.console import CharSet, Console, Pen
+from blitspersecond.input import key
 
 bps = BlitsPerSecond()
-console = bps.layers.add(Console(CharSet.ASCII8X12))
+console = Console(CharSet.ASCII8X12)
+bps.layers.add(console)
 
 console.pen = Pen(0, CYAN)
 console.print("THE GREETER")
@@ -240,47 +246,41 @@ console.print()
 console.print("What is your name?")
 
 console.pen = Pen(0, YELLOW)
-name = console.echo(keyboard.input().until(key.RETURN))
+name = console.echo(bps.keyboard.input().until(key.RETURN))
 
 
-def tick(engine):
+def tick():
     global name
     if name.completed:
         console.pen = Pen(0, WHITE)
         console.print(f"Hello, {name.value}.")
         console.print("What is your name?")
         console.pen = Pen(0, YELLOW)
-        name = console.echo(keyboard.input().until(key.RETURN))
+        name = console.echo(bps.keyboard.input().until(key.RETURN))
 
 
-bps.run(tick)
+bps.start(tick)
 ```
 
 Type a name, press Return, and it greets you and asks again. Typed input is
 yellow because the pen was yellow when the echo started; the greeting is white
 because the pen was white when it was printed.
 
-> **TODO — imports (draft note, not for readers).** Six import lines from five
-> modules, for a program that prints text and reads a name. The scatter is the
-> chapter's worst moment and no amount of prose fixes it:
+> **TODO — imports (draft note, not for readers).** Four lines from four
+> modules now, down from the six this note first recorded. Two thirds of the
+> scatter went away on its own: `Pen` and `CharSet` sit beside `Console` in
+> `blitspersecond.graphics.console`, and there is no `keyboard` to import at
+> all — it is reached through the engine.
 >
-> - `Pen` is a console idea to the reader and lives in `graphics.common`.
-> - `CharSet` likewise, in `graphics.glyph`. Both are needed before you can
->   write a single character.
-> - `blitspersecond.console` exports only `Console` and `Cursor` — not the two
->   things you need alongside them.
-> - The top level exports `BlitsPerSecond`, `EngineState` and `key`, but not
->   `keyboard`. So `key` has two import paths and its partner has one, and this
->   chapter uses the longer path for both to keep the pair together.
->
-> From the reader's side the natural surface looks close to:
+> What is left is that the top level exports none of the three things you need
+> before you can write a single character. From the reader's side the natural
+> surface looks close to:
 >
 > ```
-> from blitspersecond import BlitsPerSecond, Console, CharSet, Pen   # does not work yet
-> from blitspersecond.input import key, keyboard
+> from blitspersecond import BlitsPerSecond, CharSet, Console, Pen   # does not work yet
+> from blitspersecond.input import key
 > ```
 >
-> `keyboard` need not be hoisted globally just to shorten a line — but
 > `Console`, `CharSet` and `Pen` plainly belong together, because you cannot
 > write one character without all three. Settle this before the chapter ships;
 > the fix belongs in the package, not in the writing.
@@ -293,7 +293,7 @@ because the pen was white when it was printed.
 |---|---|
 | `Console(charset)` | a console over one of `CharSet.ASCII8X8`, `CharSet.ASCII8X12` |
 | `Console(cols, rows)` | a console of that grid, on whichever set tiles it |
-| `bps.layers.add(console)` | put it on screen; returns the console |
+| `bps.layers.add(console)` | put it on screen |
 
 **Writing**
 
@@ -328,10 +328,11 @@ from wherever the cursor is.
 
 | | |
 |---|---|
-| `keyboard.input()` | a live editable reference into the keyboard stream |
+| `bps.keyboard.input()` | a line that fills in as it is typed, editing included |
 | `.until(key.RETURN)` | what finishes it |
 | `console.echo(entry)` | draw it at the cursor as it is typed; on finishing, moves to the next line without echoing the terminator |
-| `entry.value` | what the recorded keystrokes spell, replayed |
+| `entry.value` | what it spells so far |
+| `entry.caret` | where the next character will go |
 | `entry.listening` | still being typed |
 | `entry.completed` | the `until()` condition matched |
 | `entry.interrupted` | ended by something else; `entry.reason` says what |

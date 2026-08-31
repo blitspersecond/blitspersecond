@@ -8,7 +8,7 @@ package's `__init__.py`.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Iterator, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Iterator, Optional, Tuple, Union
 
 import numpy as np
 from pyglet.gl import (
@@ -27,6 +27,9 @@ from ..palette import Palette, system_palette
 from ..pixel_buffer import PixelBuffer
 from ..atlas import Atlas
 from . import shader
+
+if TYPE_CHECKING:
+    from blitspersecond.input.kbm import TextInput
 from .charset import CHAR_COUNT, GLYPH_MASK, CharSet
 from .internal import CellAccess, Cursor, GlyphAccess, PaintAccess
 from .pen import Pen
@@ -179,6 +182,12 @@ class Console(Layer):
         self._glyph = GlyphAccess(self)
         self._paint_buffer = PaintAccess(self)
         self._cursor = Cursor(self)
+        # The line currently being echoed, where it started, and how wide it
+        # was drawn last time -- the width so a backspace can blank the cells
+        # it gave up rather than leaving the tail of the old text behind.
+        self._echo: Optional["TextInput"] = None
+        self._echo_at = (0, 0)
+        self._echo_width = 0
         # Deferral state: how many `defer()` blocks are open, and the span of
         # CELL rows they have dirtied between them. `_dirty_top >
         # _dirty_bottom` means nothing is pending -- an empty span, not row 0.
@@ -501,6 +510,10 @@ class Console(Layer):
         starts a new line. Pass `at=(x, y)` to move before writing.
 
         Each cell write adopts the current pen."""
+        # A line that finished this frame is settled before anything else is
+        # written, so a reply printed the moment `completed` turned true lands
+        # on the row below the answer rather than appended to it.
+        self._settle_echo()
         if at is not None:
             self.cursor = at
         for ch in text:
@@ -523,15 +536,105 @@ class Console(Layer):
         """Write an object's string form, then start a new line."""
         self.write(f"{value}\n", at=at)
 
-    def echo(self, entry: object) -> object:
-        """Echo a keyboard-owned Input from the current cursor.
+    def echo(self, entry: "TextInput") -> "TextInput":
+        """Show a line of typing as it happens, from the current cursor.
 
-        STUBBED. The input subsystem is not back yet; this raises rather than
-        silently doing nothing, so a game that wants it finds out at the call
-        rather than by watching an empty line."""
-        raise NotImplementedError(
-            "console.echo() needs the input subsystem, which is not back yet"
-        )
+        Returns the line it was given, so the call reads as one phrase::
+
+            name = console.echo(bps.keyboard.input().until(key.RETURN))
+
+        Nothing blocks and nothing is polled by the caller. The line is fed by
+        the engine's cut, and this layer redraws it each tick until it
+        finishes. When it does, the cursor drops to the start of the next row
+        so whatever is printed next begins on a clean line -- the terminator
+        is what ended the line, not a character in it, so it is never shown.
+
+        One at a time, matching the keyboard: echoing a new line stops
+        redrawing the previous one, leaving whatever it had already drawn on
+        screen as ordinary text.
+        """
+        self._settle_echo()
+        self._echo = entry
+        self._echo_at = (self._cursor.x, self._cursor.y)
+        self._echo_width = 0
+        self._paint_echo()
+        return entry
+
+    def _paint_echo(self) -> None:
+        """Paint the line where it stands, clearing what it used to be.
+
+        Blanks its own previous width rather than tracking edits: a backspace
+        shortens the line, and the cells it gave up are still holding the
+        characters that were there.
+        """
+        entry = self._echo
+        if entry is None:
+            return
+        x, y = self._echo_at
+        text = entry.value
+        was, self._echo_width = self._echo_width, len(text)
+        self._move_cursor(x, y)
+        self._write_echo(text + " " * max(0, was - len(text)))
+        # Leave the cursor where the next character will go, which is also
+        # where a caret belongs if one is ever drawn.
+        self._move_cursor(min(x + len(text), self._cols - 1), y)
+
+    def _settle_echo(self) -> None:
+        """Finish a line that has stopped listening, once.
+
+        Called before any other write, and not only when the layer next
+        advances. The game learns a line completed DURING its tick, and the
+        obvious next thing it does is print a reply -- which has to land on
+        the row below the answer, not appended to it. Advancing is too late:
+        that happens after the tick has already printed.
+        """
+        entry = self._echo
+        if entry is None or entry.listening:
+            return
+        # Cleared first, so the write below does not re-enter this.
+        self._echo = None
+        if entry.completed:
+            self._paint_echo_final(entry)
+
+    def _paint_echo_final(self, entry: "TextInput") -> None:
+        x, y = self._echo_at
+        text = entry.value
+        was, self._echo_width = self._echo_width, len(text)
+        self._move_cursor(x, y)
+        self._write_echo(text + " " * max(0, was - len(text)))
+        # The terminator ended the line, it is not a character in it. Drop to
+        # the start of the next row so a reply begins on a clean one.
+        self._move_cursor(x, y)
+        self._newline()
+
+    def _write_echo(self, text: str) -> None:
+        """`write` without the settle guard, for the echo's own painting."""
+        for ch in text:
+            if ch == "\n":
+                self._newline()
+                continue
+            self.cell[self._cursor.x, self._cursor.y] = ord(ch)
+            x = self._cursor.x + 1
+            if x >= self._cols:
+                self._newline()
+            else:
+                self._move_cursor(x, self._cursor.y)
+
+    def _advance(self) -> None:
+        """One tick of playback: repaint the line being typed, if any.
+
+        Called by `Layers._advance` after the game's tick and before the frame
+        is composed, so a character settled this frame is on screen in the
+        frame it was settled in.
+        """
+        entry = self._echo
+        if entry is None:
+            return
+        if entry.listening:
+            self._paint_echo()
+        else:
+            # The game never looked. Finish it anyway.
+            self._settle_echo()
 
     def _newline(self) -> None:
         y = self._cursor.y + 1

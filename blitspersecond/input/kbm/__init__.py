@@ -1,10 +1,20 @@
-"""The local keyboard and mouse device family."""
+"""The local keyboard and mouse, as delivered by the window."""
 
-from .keyboard import KeyboardFact, KeyboardFrame, KeyboardHandler, KeyScan
+from .keyboard import (
+    KeyboardIngress,
+    KeyboardWindow,
+    KeyEvent,
+    KeyFact,
+    KeyScan,
+)
+from .text import InputState, TextInput
 
 __all__ = [
-    "KeyboardFact",
-    "KeyboardFrame",
-    "KeyboardHandler",
+    "InputState",
+    "KeyEvent",
+    "KeyFact",
     "KeyScan",
+    "KeyboardIngress",
+    "KeyboardWindow",
+    "TextInput",
 ]

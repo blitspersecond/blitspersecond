@@ -163,8 +163,13 @@ and `cursor.py` merged into the one class in `console.py` -- plus `Pen`,
 
 **Outstanding:** `CollisionQuery`/`CWORD`/`Collidable`, which the mask and
 `collides_with` want; they backport with the tile engine, since that is what
-supplies something worth colliding with. `echo()` wants the input subsystem
-and raises until it lands.
+supplies something worth colliding with.
+
+`echo()` landed 2026-08-31 on the input stream. The line it draws is a
+`TextInput` reducer owning its own buffer -- a console line may be open for
+minutes, and the engine's history is half a second sized for reconstructing a
+quarter-circle. The console keeps its own text and the engine keeps none on
+its behalf. See `docs/bps/INPUT_STREAM.md`.
 
 **Not needed, despite reference wanting them:** the tile engine (above), and
 `Config` -- both call sites only read the screen size to check the cell tiles

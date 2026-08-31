@@ -3,6 +3,8 @@ from typing import Callable, Optional, cast
 
 from blitspersecond.common import SCREEN, SingletonMeta, fps
 from blitspersecond.graphics.internal import Layers
+from blitspersecond.input import InputBoundary
+from blitspersecond.input.kbm import KeyboardIngress
 from blitspersecond.system import Logger, Config, Metrics
 
 from .internal import Clock, Display, EngineState, EventBus, Lifecycle, Loop
@@ -102,6 +104,13 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         # feed it, which it subscribes to itself. The engine holds it, forwards
         # the game-facing verbs to it, and otherwise reacts to it.
         self._lifecycle = Lifecycle(events=self._event_bus, logger=self._logger)
+        # Input subscribes here, before a window exists to produce any. That
+        # ordering is deliberate rather than tidy: the bus holds no queue, so
+        # an event dispatched with nobody listening is gone rather than
+        # waiting. Held by the engine because the bus keeps handlers weakly --
+        # an ingress nothing references collects, unsubscribes, and takes the
+        # keyboard with it in silence.
+        self._input = InputBoundary(events=self._event_bus, rate=self._clock.rate)
         # Never None: an unset loop is a do-nothing lambda, so the hot path
         # calls it unconditionally instead of testing it sixty times a second.
         self._loop: Callable[[], None] = _NOTHING
@@ -247,6 +256,17 @@ class BlitsPerSecond(metaclass=SingletonMeta):
     @property
     def events(self) -> EventBus:
         return self._event_bus
+
+    @property
+    def keyboard(self) -> KeyboardIngress:
+        """The keyboard, settled onto the frame boundary.
+
+        Deliberately the ingress itself for now, not a facade over it. The
+        query vocabulary -- chords, predicates, `held`/`pressed`/`released` --
+        is a later piece, and inventing its shape before a second consumer
+        exists is how the last attempt went wrong.
+        """
+        return self._input.keyboard
 
     @property
     def metrics(self) -> Metrics:

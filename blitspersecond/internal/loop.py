@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from ..blitspersecond import BlitsPerSecond
 
 
-def _advance(engine, clock, metrics, display, layers) -> None:
+def _advance(engine, clock, metrics, display, layers, inputs) -> None:
     """Run one game tick and compose the frame it produced.
 
     Composition happens once per TICK, never per slot -- it bills at game
@@ -45,8 +45,23 @@ def _advance(engine, clock, metrics, display, layers) -> None:
     flag used to arrange. The frame index turns FIRST: everything staged
     since the last tick belongs to the frame now closing, including the
     swaps that showed it, so a tick and its presentations share one slot.
+
+    Input settles here too, before the game is handed control, so a tick reads
+    one frozen input world for the whole of its duration.
     """
     metrics.advance()
+    # The third frame-closing operation, beside the other two and for the same
+    # reason. Metrics closes the interval's measurements, input closes the
+    # interval's events, and then the clock turns. Before the tick, so
+    # `clock.frame` still holds the number of the frame now closing and the cut
+    # stamps it directly rather than computing it -- the rule MetricBuffer
+    # already states: only the flush knows a frame number, once.
+    #
+    # Unconditional. A frame where nothing arrived still cuts an empty window,
+    # or "the last fifteen frames" quietly becomes "the last fifteen frames
+    # that happened to have input" -- which reads correctly in any test that
+    # presses a key, and is wrong exactly when the player pauses mid-motion.
+    inputs.cut(clock.frame)
     clock.tick()
     # Latch the scene before the call; rebinding `loop` therefore takes
     # effect next complete tick. Never None -- an unset loop is a do-nothing
@@ -101,6 +116,7 @@ class Loop:
         metrics = engine._metrics
         display = engine._display
         layers = engine._layers
+        inputs = engine._input
         # Claim the machine before anything can fail: from here a stop request
         # waits for this loop to unwind rather than exiting out from under it.
         lifecycle.servicing()
@@ -125,7 +141,7 @@ class Loop:
         # ceiling prime, and it arrives out of the arithmetic rather than
         # being arranged -- on a 144Hz panel the first slot at or after
         # 16.67ms is slot 3, so frame one gets a whole interval on screen.
-        _advance(engine, clock, metrics, display, layers)
+        _advance(engine, clock, metrics, display, layers, inputs)
         try:
             while lifecycle.running:
                 try:
@@ -155,6 +171,13 @@ class Loop:
                     # treating the gap as frames it owes.
                     if lifecycle.settle() is EngineState.RUNNING:
                         metrics.rebase()
+                        # Wall time passed that no frame is charged for, and
+                        # the window kept pumping through all of it. Discard
+                        # what accumulated rather than delivering a window
+                        # holding thirty seconds of input nobody aimed at the
+                        # game -- and release held keys with it, or a key let
+                        # go during the pause stays down for good.
+                        inputs.flush()
                         presentation.resumed(clock.frame)
 
                     if lifecycle.state is not EngineState.RUNNING:
@@ -204,7 +227,7 @@ class Loop:
                         # at the authored period; see the metric's own note.
                         metrics.frame_ms.push((started - last_tick) * 1000.0)
                     last_tick = started
-                    _advance(engine, clock, metrics, display, layers)
+                    _advance(engine, clock, metrics, display, layers, inputs)
                     presentation.observe_work(perf_counter() - started)
                 except Exception as error:
                     engine._logger.error(f"Error during main loop: {error}")
