@@ -14,9 +14,10 @@ from pyglet.gl import (
 from pyglet.math import Mat4
 
 from blitspersecond.graphics.internal import Layers
-from blitspersecond.system import Logger, EventBus
+from blitspersecond.system import Logger
 from blitspersecond.system.frame_pacing import FramePacingRecorder
 
+from .events import EventBus
 from .framebuffer import FramebufferPair
 from .pacing.session import PresentationSession
 from .window.surface import Surface

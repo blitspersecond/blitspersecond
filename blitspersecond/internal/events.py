@@ -3,7 +3,7 @@ from pyglet.window import Window as _PygletWindow
 
 
 class EventBus(EventDispatcher):
-    """Central, surface-agnostic event hub.
+    """The engine's central, surface-agnostic event hub.
 
     The ``Surface`` tees every raw pyglet event it dispatches into this bus
     (see ``Surface.dispatch_event``). Subsystems -- input, audio, etc. --

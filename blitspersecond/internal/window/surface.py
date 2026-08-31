@@ -3,8 +3,9 @@ import sys
 from typing import Optional
 
 from blitspersecond.common import environment_flag
-from blitspersecond.system import Logger, EventBus
+from blitspersecond.system import Logger
 
+from ..events import EventBus
 from ..pacing.path import detect_presentation_path
 from ..pacing.refresh_rate import get_refresh_rate
 

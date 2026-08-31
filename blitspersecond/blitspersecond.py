@@ -3,9 +3,9 @@ from typing import Callable, Optional, cast
 
 from blitspersecond.common import SCREEN, SingletonMeta, fps
 from blitspersecond.graphics.internal import Layers
-from blitspersecond.system import Logger, Config, EventBus, Metrics
+from blitspersecond.system import Logger, Config, Metrics
 
-from .internal import Clock, Display, EngineState, Lifecycle, Loop
+from .internal import Clock, Display, EngineState, EventBus, Lifecycle, Loop
 
 
 #: The rate every game is authored at until there is a config to say

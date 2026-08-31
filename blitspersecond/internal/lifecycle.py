@@ -24,7 +24,9 @@ import sys
 from enum import Enum, auto
 from typing import NoReturn, Optional
 
-from blitspersecond.system import EventBus, Logger
+from blitspersecond.system import Logger
+
+from .events import EventBus
 
 
 class EngineState(Enum):

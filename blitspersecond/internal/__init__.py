@@ -21,6 +21,7 @@ on it.
                   controlled order, once per presentation slot.
   lifecycle.py    the state machine -- CREATED through STOPPED, plus the
                   backgrounding axis that is deliberately not a state.
+  events.py       the bus: window and engine facts cross subsystem seams here.
   display.py      Display: an engine's logical screen, realised on a
                   physical one.
   framebuffer.py  the seam. The engine composes into `next` and flags it
@@ -45,6 +46,7 @@ machinery.
 """
 
 from .clock import Clock
+from .events import EventBus
 from .lifecycle import EngineState, Lifecycle
 from .loop import Loop
 from .framebuffer import Framebuffer, FramebufferPair
@@ -58,6 +60,7 @@ __all__ = [
     "Clock",
     "Display",
     "EngineState",
+    "EventBus",
     "FlipHealth",
     "Framebuffer",
     "FramebufferPair",
