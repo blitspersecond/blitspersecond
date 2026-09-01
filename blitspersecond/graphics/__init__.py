@@ -8,11 +8,19 @@ share one texture and one tile pool. `PixelBuffer((64, 64), "P")` is a blank
 canvas instead, shared with nobody. `copy()` is how you own art that arrived
 shared.
 
-`Atlas` cuts one of those into equal cells -- `Atlas(buffer, 16, 16)` -- and
-hands them back by index with a `len()`. A charset's glyphs, a tilemap's
-tiles and a sprite sheet's frames are all that shape, so the cutting is here
-once rather than in each engine, and each engine brings its own rule about
-how many cells it needs.
+`Atlas` is a table of rects over one of those, addressed by key. A charset's
+glyphs, a tilemap's tiles and a sprite's tiles are one thing -- a large image
+cut into rects that ends up as quads on the GPU -- so it lives here once
+rather than in each engine.
+
+**Giving a cell size is an AUTOGRID: a way of generating that table, not a
+second kind of atlas.** `Atlas(buffer, 16, 16)` fills it by dividing the image
+and keys by index; `Atlas(buffer, {"hit-01": Rect(1, 1, 83, 101)})` is handed
+an authored package's rectangles and keys by name. Same table, same `len()`,
+`atlas[key]` and `atlas.rect(key)` -- which is the whole of what a draw path
+needs. `cell`, `cols` and `rows` are the autogrid's own parameters, kept
+because the consumer that supplied them usually needs them back. Each engine
+brings its own rule about how many rects it needs and what a key means.
 
 `Palette` is the 256-entry table an indexed image carries, and the names
 (`RED`, `CYAN`, `TRANSPARENT`) are indices INTO one, not colours in

@@ -235,11 +235,20 @@ class Console(Layer):
         grid road falls onto it silently on purpose: `Console(64, 45)` asks
         for 10x8 cells, which no shipped font is, and refusing would make a
         legal grid unreachable just because BPS ships two fonts."""
+        # The one road that must validate early holds what it checked, so the
+        # gate below does not run twice on it.
+        validated: Optional[Atlas] = None
         if rows is not None:
             width, height = Console._cell_for_grid(charset, rows)
             found = CharSet.for_cell(width, height)
             sheet = found.atlas if found is not None else None
         elif isinstance(charset, Atlas):
+            # Validated BEFORE the cell is read, because reading it is one of
+            # the things a sheet can fail at: an atlas given its rects has no
+            # cell, and asking would raise from inside `Atlas` rather than
+            # against the console's own standard.
+            Console._validate_sheet(charset)
+            validated = charset
             width, height = charset.cell
             sheet = charset
         elif charset is None or isinstance(charset, CharSet):
@@ -249,7 +258,7 @@ class Console(Layer):
         else:
             width, height = Console._validate_char_size(charset)
             sheet = None
-        if sheet is not None:
+        if sheet is not None and sheet is not validated:
             Console._validate_sheet(sheet)
         return width, height, sheet
 
@@ -258,11 +267,19 @@ class Console(Layer):
         """What a console demands of a glyph sheet, wherever it came from.
 
         Here rather than on `CharSet` or on `Atlas` deliberately. `Atlas`
-        knows only that its cells divide evenly, which is true of a tileset
-        and a sprite sheet too; the 256 is the CONSOLE's, because a cell
-        packs its glyph id into a byte. Checking it here means a font you
-        supply is held to exactly the standard a shipped one is, by the same
-        code and with the same message."""
+        knows only that it holds rects, which is true of a tileset and a
+        sprite sheet too; the 256 is the CONSOLE's, because a cell packs its
+        glyph id into a byte. Checking it here means a font you supply is held
+        to exactly the standard a shipped one is, by the same code and with
+        the same message."""
+        if not sheet.gridded:
+            raise ValueError(
+                f"a glyph sheet must be an autogrid, and this atlas was given "
+                f"its {len(sheet)} rects outright. A console measures its "
+                f"screen in glyphs and packs a glyph id into a byte, so its "
+                f"cells are one size by definition. Cut the font with "
+                f"Atlas(buffer, w, h)."
+            )
         if not sheet.indexed:
             raise ValueError(
                 "a glyph sheet must be an indexed image -- a glyph is a "

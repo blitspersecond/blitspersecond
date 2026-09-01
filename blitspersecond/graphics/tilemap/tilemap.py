@@ -153,6 +153,16 @@ class TileMap(Layer):
                 f"a tilemap draws from an Atlas; got {type(tileset).__name__}. "
                 f"Cut one from a picture with Atlas(PixelBuffer(path), w, h)."
             )
+        if not tileset.gridded:
+            raise ValueError(
+                f"a tilemap needs an autogrid sheet, and this atlas was given "
+                f"its {len(tileset)} rects outright. A tilemap's world cell "
+                f"size IS its sheet's cell size -- the camera, the bounds "
+                f"and every placement are measured in it -- so a world cannot "
+                f"be laid over rects that have no common size. Cut the sheet "
+                f"with Atlas(buffer, w, h); a sprite is the pillar for "
+                f"arbitrary rects."
+            )
         if collidable and not tileset.indexed:
             raise ValueError(
                 "a collidable tilemap needs an indexed sheet, and this one is "
@@ -422,9 +432,13 @@ class TileMap(Layer):
         self._dirty = True
 
         batch = self._ensure_batch()
-        sx, sy = self._source_of(index)
+        # Where the cell sits, asked of the sheet rather than multiplied out
+        # here. The sprite pillar's grid road needs the same four numbers, and
+        # two engines each doing the arithmetic is how they come to disagree
+        # about it -- so `Atlas` owns it and both ask.
+        source = self._tileset.rect(index)
         region = self._tileset.buffer.texture.get_region(
-            sx, sy, cell.width, cell.height
+            source.x, source.y, source.width, source.height
         )
         batch.set_quad(slot, region.tex_coords, orientation)
 
@@ -715,17 +729,6 @@ class TileMap(Layer):
         if wrap_y:
             ys %= self.rows
         return self._map[np.ix_(xs, ys)]
-
-    def _source_of(self, index: int) -> Tuple[int, int]:
-        """The top-left pixel of sheet cell `index`.
-
-        Arithmetic, not storage. One sheet that cannot change means this is
-        the same answer every time it is asked for a given index -- which is
-        why a placement records the index and not the rectangle.
-        """
-        cell = self._tileset.cell
-        cols = self._tileset.cols
-        return (index % cols) * cell.width, (index // cols) * cell.height
 
     def _ensure_capacity(self, needed: int) -> None:
         """Grow the placement SoA and its GPU projection to hold `needed` rows.
