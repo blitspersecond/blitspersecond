@@ -69,6 +69,16 @@ class Layer:
         what `before/after/first/last/swap_with` below are for."""
         return self._layers is not None
 
+    def _advance(self) -> None:
+        """One game tick of playback. A no-op unless the layer has any.
+
+        A real method rather than a `getattr` probe. It was the probe until
+        its one intended consumer arrived: sprite layers play clips, tiles and
+        glyphs have nothing to advance. Typed and greppable now, and not
+        satisfiable by accident by an unrelated attribute that happens to be
+        called `_advance`.
+        """
+
     def _bind(self, layers) -> None:
         """Record which collection holds this layer. Called by Layers.add and
         Layers.remove ONLY -- binding is the collection's to decide, and a

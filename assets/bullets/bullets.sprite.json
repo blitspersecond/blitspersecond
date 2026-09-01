@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "tilesets": {
+    "bullets": {
+      "image": "bullets.png",
+      "transparent_index": 0,
+      "default_palette": 0,
+      "palettes": [
+        [
+          "#00000000",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#5a6ddeff",
+          "#6299ffff",
+          "#000000ff",
+          "#cddaffff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#ac3031ff",
+          "#d55562ff",
+          "#d579bdff"
+        ]
+      ],
+      "tiles": {
+        "blue": {"source": [0, 0, 8, 8]},
+        "pink": {"source": [8, 0, 8, 8]}
+      }
+    }
+  },
+  "assemblies": {
+    "blue": {
+      "parts": [
+        {
+          "tileset": "bullets",
+          "tile": "blue",
+          "offset": [-4, -4],
+          "order": 0
+        }
+      ]
+    },
+    "pink": {
+      "parts": [
+        {
+          "tileset": "bullets",
+          "tile": "pink",
+          "offset": [-4, -4],
+          "order": 0
+        }
+      ]
+    }
+  },
+  "animations": {}
+}

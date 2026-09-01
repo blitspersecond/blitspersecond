@@ -70,15 +70,21 @@ class Layers:
     def _advance(self) -> None:
         """One game tick of playback across every layer that has any.
 
-        The engine loop calls this once per fixed tick, after the game's tick
-        callback. Only sprite layers do anything -- tiles and glyphs have no
-        clips -- and a sprite layer with nothing playing costs an empty set
-        test, so a scene that animates nothing pays nothing.
+        The engine loop calls this once per fixed tick, AFTER the game's tick
+        callback and BEFORE the compose -- so a clip the engine moved on and
+        one the game moved on by hand land in the same frame, and a `play()`
+        issued this tick starts on this tick's frame.
+
+        Only sprite layers do anything; tiles and glyphs have no clips, and
+        `Layer._advance` is a no-op for them. A sprite with nothing playing
+        costs one `is None` test, so a scene that animates nothing pays
+        nothing.
+
+        Billed OUTSIDE `gameloop.ms` on purpose: an animating scene must not
+        read as a computing one.
         """
         for layer in self._layers:
-            advance = getattr(layer, "_advance", None)
-            if advance is not None:
-                advance()
+            layer._advance()
 
     def remove(self, layer: Layer) -> None:
         """Take a layer out of the draw order, leaving it built but off-screen.
