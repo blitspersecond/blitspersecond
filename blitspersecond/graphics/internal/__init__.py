@@ -7,14 +7,14 @@ in a hint?" -- if no, it's internal.
                      pillar derives from.
   layers.py          Layers: the ordered collection of them, background to
                      foreground. The compositor walks it once a frame.
-  palette_texture.py PaletteTexture: a Palette's GPU projection, the 256x1
-                     row the indexed shader samples on unit 1.
+  palette_texture.py PaletteTexture: the GPU projection of a palette table,
+                     the 256xN texture the indexed shader samples on unit 1.
 
 `PaletteTexture` is internal in the plain sense: a game never names a
 palette's GPU row, and it needs a current GL context, so it is draw-time
 machinery rather than anything to hold. It is shared rather than per-engine
-because a Palette is: one `PixelBuffer`'s table can back a tile layer and a
-sprite layer at once, and they should sample one 256x1 row. Shader PROGRAMS
+because a table is: one `PixelBuffer`'s palette can back a tile layer and a
+sprite layer at once, and they should sample one row. Shader PROGRAMS
 are not shared that way -- each engine compiles its own, in its own
 `shader.py`; see `graphics/console/shader.py` for why.
 

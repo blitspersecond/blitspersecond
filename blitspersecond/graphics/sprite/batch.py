@@ -1,10 +1,11 @@
 """The sprite pillar's GPU buffers: N quads, MANY materials, one pass.
 
 Where `TileBatch` is one texture and one `glDrawElements`, this is a sequence
-of runs -- each a stretch of adjacent quads sharing `(buffer, palette, colour
-registers)` -- issued in order with binds between them. That difference is the
-pillar, not an implementation detail: a tilemap spends its single bind on a
-uniform grid, and this spends binds on ordered composition.
+of runs -- each a stretch of adjacent quads sharing `(buffer, palette bank,
+palette row, colour registers)` -- issued in order with binds between them.
+That difference is the pillar, not an implementation detail: a tilemap spends
+its single bind on a uniform grid, and this spends binds on ordered
+composition.
 
 ## Both streams are uploaded every rebuild
 
@@ -21,9 +22,12 @@ Touch the texture BEFORE binding either unit. `PixelBuffer.texture` and
 letting them run between the unit assignments would upload into the wrong one.
 
 A palette upload may itself disturb unit 0's binding, so a run that changes
-palette invalidates the remembered texture and rebinds it. That is why a
-palette switch is the most expensive transition this loop has, and why the
-frame plan works to keep instanced presentations on one tileset.
+BANK invalidates the remembered texture and rebinds it. Changing palette
+WITHIN a bank does not: the bank is one 256xN texture and the row is a
+generic vertex attribute, so a costume swap between two runs of one tileset
+costs a `glVertexAttrib1f` and nothing else. What is still expensive is a
+change of BUFFER, which is why the frame plan works to keep instanced
+presentations on one tileset.
 """
 
 from typing import List, Optional, Tuple
@@ -83,6 +87,12 @@ class SpriteBatch:
         #: The per-run colour register. -1 means the program has no `colors`
         #: attribute and tinting is silently absent.
         self._loc_colors: int = attrs.get("colors", {}).get("location", -1)
+        #: The per-run palette register: which row of the bound bank the
+        #: fragment stage reads. -1 means the program has no `palette_row`
+        #: -- an RGBA stage, which has no bank to pick a row out of.
+        self._loc_palette_row: int = attrs.get("palette_row", {}).get(
+            "location", -1
+        )
         self._capacity = 0
         self._vao = VertexArray()
         self.resize(max(8, capacity))
@@ -173,20 +183,35 @@ class SpriteBatch:
         self,
         texture,
         palette_texture,
+        palette_row: int,
         colors: Tuple[float, float, float, float],
         first: int,
         count: int,
         bound_texture,
         bound_palette,
+        bound_row,
     ):
-        """Issue one run, binding only what actually changed.
+        """Issue one run, binding and setting only what actually changed.
 
-        Returns the new `(bound_texture, bound_palette)` so the caller carries
-        the state across the loop -- explicit rather than held on the batch,
-        because it is the DRAW's state and lives exactly as long as the pass.
+        Returns the new `(bound_texture, bound_palette, bound_row)` so the
+        caller carries the state across the loop -- explicit rather than held
+        on the batch, because it is the DRAW's state and lives exactly as
+        long as the pass.
+
+        **The row is tracked, not written every run, and that is measured
+        rather than assumed.** A run boundary means SOMETHING in the material
+        changed, not everything -- and the row is the field least likely to
+        be it. It answers whether Chun-Li is wearing her 1P blue costume or
+        her 2P red one. That is one answer for a whole presentation and
+        usually one for a whole frame, so a run cut by anything else was
+        writing a row that had not moved. `glVertexAttrib1f` is a ctypes call
+        rather than an assignment, about 2us, so that cost 2.7us per run.
+        `util/run_cost.py` at 100,000 presentations cut into 4,096 runs BY
+        COLOUR: 24.4ms shipped, 35.4ms with the row written unconditionally,
+        27.1ms with this comparison.
         """
         if palette_texture is not bound_palette:
-            # Unit 1 carries palette RAM as a 256x1 texture rather than a
+            # Unit 1 carries palette RAM as a 256xN texture rather than a
             # 256-vec4 uniform: see PaletteTexture. Uploading may disturb
             # unit 0, so the atlas is forced to rebind after.
             self._program["palette_texture"] = 1
@@ -199,9 +224,12 @@ class SpriteBatch:
             glActiveTexture(GL_TEXTURE0)
             glBindTexture(texture.target, texture.id)
             bound_texture = texture
+        if palette_row != bound_row and self._loc_palette_row >= 0:
+            glVertexAttrib1f(self._loc_palette_row, float(palette_row))
+            bound_row = palette_row
         if self._loc_colors >= 0:
             glVertexAttrib4f(self._loc_colors, *colors)
         glDrawElements(
             GL_TRIANGLES, count * 6, GL_UNSIGNED_INT, first * 24
         )
-        return bound_texture, bound_palette
+        return bound_texture, bound_palette, bound_row

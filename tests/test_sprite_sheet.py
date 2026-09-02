@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 from blitspersecond.common import PACKAGE_ROOT, Location, Rect
-from blitspersecond.graphics import PixelBuffer
+from blitspersecond.graphics import Palette, PaletteBank, PixelBuffer
 from blitspersecond.graphics.sprite import GRID_TILESET, SpriteSheet
 
 #: `bps/assets/` is repo furniture beside the package, not shipped inside it.
@@ -134,6 +134,33 @@ def test_the_same_package_gives_the_same_sheet() -> None:
     assert SpriteSheet(FUMIKO) is SpriteSheet(FUMIKO)
 
 
+def test_a_tileset_holds_its_palettes_as_one_bank() -> None:
+    """The bank is an object, not a tuple, because it is the unit the GPU
+    stores -- one 256xN table with a row per member. It still reads as the
+    tuple it replaced, which is what keeps `sprite.palettes[...] = 3` a row
+    number and every caller that only wanted a table unchanged."""
+    bank = SpriteSheet(FUMIKO).tilesets["character"].palettes
+    assert isinstance(bank, PaletteBank)
+    assert len(bank) == 4
+    assert list(bank) == [bank[i] for i in range(4)]
+    assert len({id(p) for p in bank}) == 4  # four tables, none duplicated
+    with pytest.raises(IndexError):
+        bank[4]
+
+
+def test_a_bank_refuses_what_it_cannot_project() -> None:
+    """A tileset with no tables is unreadable, and the loader says so with
+    the tileset named; this is the same refusal one level down, for a bank
+    built by hand -- a zero-row texture is not a thing to defer to the GPU.
+    A member that is not a Palette is refused for the same reason: the row
+    is uploaded from `tobytes()`, and finding that out at the draw would
+    report it a subsystem away from whoever built the bank."""
+    with pytest.raises(ValueError, match="at least one palette"):
+        PaletteBank(())
+    with pytest.raises(TypeError, match="row 1: expected Palette"):
+        PaletteBank((Palette(), [0, 0, 0]))
+
+
 def test_copy_owns_its_palettes_but_shares_its_pixels() -> None:
     """The escape from interning, and it is colour-shaped: a super-flash must
     not reach the other holder, but pixels are shared by `PixelBuffer`
@@ -146,6 +173,11 @@ def test_copy_owns_its_palettes_but_shares_its_pixels() -> None:
     original = sheet.tilesets["character"].palettes[0]
     copied = twin.tilesets["character"].palettes[0]
     assert copied is not original
+    # A new bank as well as new tables: the bank is what PaletteTexture keys
+    # its GPU table on, so a twin sharing one would share the upload too.
+    assert twin.tilesets["character"].palettes is not sheet.tilesets[
+        "character"
+    ].palettes
     copied[5] = (255, 0, 255)
     assert original[5] != copied[5]
 

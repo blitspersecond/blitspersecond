@@ -841,13 +841,15 @@ class TileMap(Layer):
             # skipping the bind would draw the sheet's indices as colours --
             # a picture that is wrong rather than absent.
             assert palette is not None
-            # Palette RAM on unit 1, as a 256x1 texture rather than a uniform
-            # array: see PaletteTexture for why. Unit 0 is left active because
-            # the batch binds the sheet there.
+            # Palette RAM on unit 1, as a texture rather than a uniform
+            # array: see PaletteTexture for why. One sheet, one table, so it
+            # is a single 256x1 row and the batch's `palette_row` register
+            # stays 0 -- a tilemap has no bank to pick out of. Unit 0 is left
+            # active because the batch binds the sheet there.
             program["palette_texture"] = 1
-            row = PaletteTexture.get(palette)
+            table = PaletteTexture.get(palette)
             glActiveTexture(GL_TEXTURE1)
-            glBindTexture(row.target, row.id)
+            glBindTexture(table.target, table.id)
             glActiveTexture(GL_TEXTURE0)
 
         # The fine camera: the sub-cell remainder the coarse step left

@@ -32,6 +32,11 @@ class PaletteRegisters:
     a mirror match cost one sheet: red and blue Chun-Li are two sprites, two
     layers, two registers, one set of shared tables and one texture upload.
 
+    The register is a number at the GPU too, and not only here: the tileset's
+    bank is ONE 256xN texture (`PaletteBank`, and `PaletteTexture` for the
+    projection), so writing this picks a row the shader reads rather than
+    binding a second table.
+
     **Not a `dict` subclass, deliberately.** Reference subclassed `dict` and
     validated in `__setitem__`, which left `update()`, `setdefault()` and
     `|=` as three unguarded doors into the same state -- a register set

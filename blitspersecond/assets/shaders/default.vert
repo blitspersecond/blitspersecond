@@ -5,9 +5,15 @@
     in vec3 translate;
     in vec2 scale;
     in float rotation;
+    // The palette register: which row of the bank on unit 1 the indexed
+    // fragment stage reads. A generic attribute for now -- set per draw, no
+    // buffer -- so the day it becomes per-quad stream data is a buffer
+    // binding here and nothing at all in the shaders.
+    in float palette_row;
 
     out vec4 vertex_colors;
     out vec3 texture_coords;
+    flat out float vertex_palette_row;
 
     uniform WindowBlock
     {
@@ -35,4 +41,5 @@
 
         vertex_colors = colors;
         texture_coords = tex_coords;
+        vertex_palette_row = palette_row;
     }

@@ -1045,7 +1045,8 @@ def install_bulk() -> None:
         self._add_run(
             (
                 tileset.atlas.buffer,
-                tileset.palettes[int(slots.palette[first])],
+                tileset.palettes,
+                int(slots.palette[first]),
                 tuple(slots.color[first].tolist()),
             ),
             begin,
@@ -1159,7 +1160,8 @@ def install_routed() -> None:
         self._add_run(
             (
                 tileset.atlas.buffer,
-                tileset.palettes[int(slots.palette[span.start])],
+                tileset.palettes,
+                int(slots.palette[span.start]),
                 tuple(slots.color[span.start].tolist()),
             ),
             begin,
@@ -1264,7 +1266,8 @@ def install_tiered() -> None:
         self._add_run(
             (
                 tileset.atlas.buffer,
-                tileset.palettes[int(slots.palette[span.start])],
+                tileset.palettes,
+                int(slots.palette[span.start]),
                 tuple(slots.color[span.start].tolist()),
             ),
             begin,

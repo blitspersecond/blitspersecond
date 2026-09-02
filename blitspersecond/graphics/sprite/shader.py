@@ -14,7 +14,9 @@ questions about. **A sprite sheet is indexed by construction.** A package's
 tilesets are validated indexed at load, and the grid road refuses a
 non-indexed image outright and points it at the tile pillar. So there is no
 branch here and nothing to choose: unit 0 carries palette indices, unit 1 the
-256x1 palette row from `graphics.internal.PaletteTexture`.
+tileset's whole bank as a 256xN table from
+`graphics.internal.PaletteTexture`, and `palette_row` says which row of it to
+read.
 
 That is not a limitation being accepted quietly. Palette indices are what make
 the pillar's colour model work at all -- per-presentation palette registers, a
@@ -28,6 +30,10 @@ the tilemap sets it ONCE per layer. This pillar sets it **per run**, because
 colour registers are per presentation -- a shadow trail's fade is four
 presentations carrying four values, which is four runs sharing one texture
 bind. Same mechanism, used at a finer grain.
+
+`palette_row` is the same shape and arrived for the same reason. A costume
+swap between two presentations used to be a second texture on unit 1; it is
+now a number, because the bank they both belong to is one table.
 """
 
 from typing import Optional

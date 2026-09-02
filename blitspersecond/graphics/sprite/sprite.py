@@ -369,19 +369,25 @@ class Sprite(Layer):
         batch.begin()
         bound_texture = None
         bound_palette = None
-        for buffer, palette, colors, first, count in plan.runs:
+        # None rather than 0: generic attribute values are context state and
+        # outlive a pass, so the row another layer left behind is not known
+        # to be this layer's first row.
+        bound_row = None
+        for buffer, bank, row, colors, first, count in plan.runs:
             # Touch the texture BEFORE binding either unit: `.texture` and
             # `PaletteTexture.get` blit into whatever unit is active, so they
             # must not run between the unit assignments inside `draw_run`.
             texture = buffer.texture
-            bound_texture, bound_palette = batch.draw_run(
+            bound_texture, bound_palette, bound_row = batch.draw_run(
                 texture,
-                PaletteTexture.get(palette),
+                PaletteTexture.get(bank),
+                row,
                 colors,
                 first,
                 count,
                 bound_texture,
                 bound_palette,
+                bound_row,
             )
         batch.end()
         program.stop()

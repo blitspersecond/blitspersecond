@@ -25,7 +25,7 @@ from typing import Dict, FrozenSet, Optional, Tuple
 from blitspersecond.common import Location, Rect
 
 from ..atlas import Atlas
-from ..palette import Palette
+from ..palette import Palette, PaletteBank
 from ..pixel_buffer import PixelBuffer
 from .sheet import Assembly, Clip, Frame, SpritePart, SpriteTileset
 
@@ -160,7 +160,9 @@ def _tileset(name: str, raw: dict, base: str) -> SpriteTileset:
         atlas = Atlas(buffer, rects)
     except ValueError as error:
         raise ValueError(f"{where}: {error}") from None
-    return SpriteTileset(atlas=atlas, palettes=palettes, default_palette=default)
+    return SpriteTileset(
+        atlas=atlas, palettes=PaletteBank(palettes), default_palette=default
+    )
 
 
 def _assembly(name: str, raw: dict, tilesets: Dict[str, SpriteTileset]) -> Assembly:
@@ -391,7 +393,7 @@ def read_grid(filename: str, width: int, height: int, ox: int, oy: int) -> Built
     named = Atlas(buffer, {str(i): atlas.rect(i) for i in range(len(atlas))})
     tilesets = {
         GRID_TILESET: SpriteTileset(
-            atlas=named, palettes=(palette,), default_palette=0
+            atlas=named, palettes=PaletteBank((palette,)), default_palette=0
         )
     }
     # A grid sheet has exactly one tileset, so there is nothing to choose.

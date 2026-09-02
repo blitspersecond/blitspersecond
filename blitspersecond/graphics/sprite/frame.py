@@ -18,9 +18,9 @@ about where one run of quads ends and the next begins.
 ## Runs, and why they are cheap
 
 A **run** is a maximal stretch of adjacent quads sharing a material:
-`(buffer, palette, colour registers)`. Coalescing is **strictly
-order-preserving** -- never reordering across a material boundary -- because
-that is exactly where transparency stops commuting.
+`(buffer, palette bank, palette row, colour registers)`. Coalescing is
+**strictly order-preserving** -- never reordering across a material boundary
+-- because that is exactly where transparency stops commuting.
 
 Boundaries are found by a vectorised diff rather than by walking, which
 matters: a population of 25,000 must not be inspected one at a time. And
@@ -60,12 +60,15 @@ if TYPE_CHECKING:
     from .sprite import Sprite
 
 
-#: `(buffer, palette, colour registers)` -- what a run is constant in, and
-#: what the draw binds before issuing it.
-Material = Tuple[object, object, Tuple[float, float, float, float]]
+#: `(buffer, palette bank, palette row, colour registers)` -- what a run is
+#: constant in, and what the draw binds or sets before issuing it. The bank
+#: and the row are two fields rather than the `Palette` this held until
+#: 2026-09-02, because a bank is ONE texture: only the bank is bound, and the
+#: row is a number fed to the vertex stage.
+Material = Tuple[object, object, int, Tuple[float, float, float, float]]
 
 #: One draw: its material and the slice of the staging arrays it covers.
-Run = Tuple[object, object, Tuple[float, float, float, float], int, int]
+Run = Tuple[object, object, int, Tuple[float, float, float, float], int, int]
 
 #: The eight orientations, as the index the tables are keyed by.
 ORIENTATIONS = 8
@@ -308,7 +311,7 @@ class FramePlan:
         # walking 25,000 slots one at a time.
         #
         # **This is an invariant the bind DEPENDS on, not a preference.** The
-        # buffer and palette are read once, here, and the per-slot assemblies
+        # buffer and bank are read once, here, and the per-slot assemblies
         # are never consulted for them; off-tileset art in a chain would gather
         # UVs for its real tileset and draw them through this one. The
         # `assembly` setter and presentation seeding both refuse it, and no
@@ -330,7 +333,8 @@ class FramePlan:
             self._add_run(
                 (
                     tileset.atlas.buffer,
-                    tileset.palettes[int(registers[begin])],
+                    tileset.palettes,
+                    int(registers[begin]),
                     tuple(colors[begin].tolist()),
                 ),
                 first + begin,
@@ -385,7 +389,8 @@ class FramePlan:
             self._add_run(
                 (
                     tileset.atlas.buffer,
-                    tileset.palettes[sprite.palettes[part.tileset]],
+                    tileset.palettes,
+                    sprite.palettes[part.tileset],
                     color,
                 ),
                 index,
@@ -401,9 +406,9 @@ class FramePlan:
         commute across one.
         """
         if self.runs:
-            buffer, palette, color, begin, length = self.runs[-1]
-            if (buffer, palette, color) == material and begin + length == first:
-                self.runs[-1] = (buffer, palette, color, begin, length + count)
+            buffer, bank, row, color, begin, length = self.runs[-1]
+            if (buffer, bank, row, color) == material and begin + length == first:
+                self.runs[-1] = (buffer, bank, row, color, begin, length + count)
                 return
         self.runs.append((*material, first, count))
 

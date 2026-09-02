@@ -5,31 +5,44 @@
     util/run_cost.py --count 100000 --by palette
 
 `_emit_chain` cuts a run wherever the material changes, and a material is
-`(buffer, palette, colour registers)`. Those three are usually spoken of as
-one thing, and they are not one thing:
+`(buffer, palette bank, palette row, colour registers)`. Those are usually
+spoken of as one thing, and they are not one thing:
 
 | part of a material | what the draw does with it | where it lives |
 |---|---|---|
 | buffer | `glBindTexture` on unit 0 | a texture |
-| palette | `glBindTexture` on unit 1, **and unit 0 again** | a texture |
+| palette bank | `glBindTexture` on unit 1, **and unit 0 again** | a texture |
+| palette row | `glVertexAttrib1f` | a generic vertex attribute |
 | colour registers | `glVertexAttrib4f` | a generic vertex attribute |
 
-So "one material" is not "one texture unit". It is two units and a constant,
-and the atlas half of it is already fixed for a whole chain by construction --
-instanced presentations are pinned to the sheet's `primary_tileset`, so the
-buffer can never cut a run there. Only the other two can, and `draw_run`
-treats them very differently: a palette change rebinds unit 1 AND forces unit
-0 to rebind after it, because uploading palette RAM may disturb whatever unit
-was active. A colour change sets one generic attribute.
-
-This prices the two against each other by holding the population fixed and
-splitting it into K runs -- once by colour, once by palette register -- so the
-staging is near enough constant and the difference is the draw.
+So "one material" is not "one texture unit", and the two texture halves are
+already fixed for a whole chain by construction: instanced presentations are
+pinned to the sheet's `primary_tileset`, so the buffer cannot cut a run
+there, and since 2026-09-02 a tileset's palettes are ONE 256xN texture, so
+the bank cannot either. **What is left cutting runs is two generic
+attributes**, and this prices them against each other by holding the
+population fixed and splitting it into K runs -- once by colour, once by
+palette register -- so the staging is near enough constant and the difference
+is the draw.
 
 **Why it matters.** Particle mode gives up per-presentation colour AND
 per-presentation palette in one move, because both cut runs. If a colour cut
 is nearly free at the draw, that is one restriction too many: a particle chain
 could keep its fades by emitting K runs and pin only the palette.
+
+**What the bank changed, measured here.** At 100,000 presentations cut into
+4,096 runs, a palette cut cost 16.3us against a colour cut's 5.8us -- the
+difference being two `glBindTexture` calls. It is now 8.3us against 6.4us,
+and the remaining gap is not a bind: a palette-cut run writes the row AND the
+colour, a colour-cut run writes only the colour, because `draw_run` tracks
+the row and writes it when it moves. So the two are one mechanism now, priced
+per generic attribute written.
+
+**Read the palette column as a stress case and not a frame.** Cutting 4,096
+palette runs out of one population is this harness manufacturing switches to
+price them. The register is not an effect that varies per presentation the
+way a fade is -- it answers whether Chun-Li is in her 1P blue costume or her
+2P red one, which is one answer for the whole of her. A swarm has ONE.
 
 Fumiko rather than the bullets, because the bullet sheet carries a single
 palette and there would be nothing to switch between.

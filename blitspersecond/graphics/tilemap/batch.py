@@ -114,9 +114,15 @@ _UV_PERMS = _uv_perms()
 #: generic attributes instead: (attribute name, glVertexAttrib fn, values).
 #: `translate` is generic too but is not constant -- it is the scroll register,
 #: written per draw. See `draw()`.
+#:
+#: `palette_row` is constant here in a way it is not for sprites: one map
+#: draws through one sheet's one table, so the unit-1 texture is a single row
+#: and the register that picks it is always 0. Skipped in the RGBA program,
+#: which declares no `palette_row` because it has no palette at all.
 _CONST_ATTRS = (
     ("scale", glVertexAttrib2f, (1.0, 1.0)),
     ("rotation", glVertexAttrib1f, (0.0,)),
+    ("palette_row", glVertexAttrib1f, (0.0,)),
 )
 
 

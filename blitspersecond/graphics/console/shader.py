@@ -4,8 +4,9 @@
 single `PixelBuffer` of palette indices and draws it as one quad wherever it
 sits -- no scaling, no rotation, no per-tile anything -- which is exactly what
 the picture vertex stage is for. `indexed.frag` then does the palette lookup
-on the GPU: unit 0 carries the indices, unit 1 the 256x1 palette row from
-`graphics.internal.PaletteTexture`.
+on the GPU: unit 0 carries the indices, unit 1 the palette table from
+`graphics.internal.PaletteTexture`. A console has one palette, so that table
+is a single 256x1 row and the `palette_row` the fragment stage reads is 0.
 
 ## Why this is local and not a shared Shader class
 

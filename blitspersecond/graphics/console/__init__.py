@@ -142,7 +142,7 @@ left over from when engines attached themselves through a global lookup.
 
 It composes its whole screen into ONE `PixelBuffer` of palette indices and
 draws that as a single quad: `picture.vert` + `indexed.frag`, the pixels on
-texture unit 0 and the palette's 256x1 row on unit 1. See `shader.py`.
+texture unit 0 and the palette's single-row table on unit 1. See `shader.py`.
 
 **It does not go through the tile engine, and reference did.** There it built
 an unattached `TileLayer` over its screen buffer and blitted one whole-image

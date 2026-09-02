@@ -133,7 +133,7 @@ def test_a_uniform_population_is_one_run(bullets: Sprite) -> None:
     bullets._sync()
     assert bullets._plan.quads == 1_001
     assert len(bullets._plan.runs) == 1
-    assert bullets._plan.runs[0][3:] == (0, 1_001)
+    assert bullets._plan.runs[0][-2:] == (0, 1_001)
 
 
 def test_two_assemblies_in_one_tileset_stay_one_run(bullets: Sprite) -> None:
@@ -188,7 +188,7 @@ def test_adjacent_equal_colours_merge(bullets: Sprite) -> None:
     bullets._sync()
     # the four ghosts are one run; the primary's alpha is 1.0, so it is another
     assert len(bullets._plan.runs) == 2
-    assert bullets._plan.runs[0][3:] == (0, 4)
+    assert bullets._plan.runs[0][-2:] == (0, 4)
 
 
 def test_a_material_is_never_merged_across_a_gap(bullets: Sprite) -> None:
@@ -204,8 +204,8 @@ def test_a_material_is_never_merged_across_a_gap(bullets: Sprite) -> None:
     ghosts[2].alpha = 1.0
     bullets._sync()
     runs = bullets._plan.runs
-    assert [(r[3], r[4]) for r in runs][:3] == [(0, 1), (1, 1), (2, 1)]
-    assert runs[0][:3] == runs[2][:3]  # same material, still two runs
+    assert [r[-2:] for r in runs][:3] == [(0, 1), (1, 1), (2, 1)]
+    assert runs[0][:-2] == runs[2][:-2]  # same material, still two runs
 
 
 # -- draw order ---------------------------------------------------------

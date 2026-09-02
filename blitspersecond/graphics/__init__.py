@@ -25,7 +25,9 @@ brings its own rule about how many rects it needs and what a key means.
 `Palette` is the 256-entry table an indexed image carries, and the names
 (`RED`, `CYAN`, `TRANSPARENT`) are indices INTO one, not colours in
 themselves. See `palette.py` for why a colour being an index is what puts
-this package, rather than the framebuffer, in charge of it.
+this package, rather than the framebuffer, in charge of it. `PaletteBank` is
+the set of tables one sprite tileset carries, which the GPU holds as a single
+256xN texture.
 
 Loading lives here rather than in a package of its own. An earlier tree had
 `resources` -- a loading dock holding images, sounds and tile maps together
@@ -80,6 +82,7 @@ from .orientation import (
 from .palette import (
     ConsolePalette,
     Palette,
+    PaletteBank,
     system_palette,
     TRANSPARENT,
     WHITE,
@@ -119,6 +122,7 @@ __all__ = [
     "FLIP_OF",
     "ROTATION_OF",
     "Palette",
+    "PaletteBank",
     "ConsolePalette",
     "system_palette",
     "TRANSPARENT",

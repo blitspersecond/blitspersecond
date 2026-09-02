@@ -12,7 +12,7 @@ from typing import Dict, Mapping, NamedTuple, Optional, Tuple, Union
 from blitspersecond.common import CacheableResource, Location, Rect
 
 from ..atlas import Atlas
-from ..palette import Palette
+from ..palette import Palette, PaletteBank
 
 
 class SpriteTileset(NamedTuple):
@@ -31,6 +31,11 @@ class SpriteTileset(NamedTuple):
     logical material view: *"the same R8 index texture read through a
     different `Palette` uniform -- never duplicated pixels."*
 
+    A `PaletteBank` rather than a tuple of them, because the bank is what
+    the GPU stores: one 256xN texture, one row per member, so the register
+    is a number the shader reads and not a texture the draw binds. It
+    indexes and iterates exactly as the tuple did.
+
     **The bank is authoritative and the image's own table is not.** A package
     is compiled from art whose embedded palette is an authoring preview; the
     tables here are what the artist meant. The grid road is the one exception
@@ -43,7 +48,7 @@ class SpriteTileset(NamedTuple):
     """
 
     atlas: Atlas
-    palettes: Tuple[Palette, ...]
+    palettes: PaletteBank
     default_palette: int
 
 
@@ -270,9 +275,10 @@ class SpriteSheet(CacheableResource):
         """An independent sheet with its own palette tables.
 
         The only way to own colour that arrived shared: the twin's banks are
-        fresh `Palette` objects, so a super-flash or a colour cycle written
-        into them reaches nothing else -- and, because `PaletteTexture` keys
-        its GPU row on palette identity, the twin gets its own row too.
+        fresh `Palette` objects in a fresh `PaletteBank`, so a super-flash or
+        a colour cycle written into them reaches nothing else -- and, because
+        `PaletteTexture` keys its GPU table on the bank's identity, the twin
+        gets its own table too.
 
         Pixels are NOT copied. Two sheets over one image sharing one texture
         is the point of `PixelBuffer` interning, and a caller who wants
@@ -283,7 +289,7 @@ class SpriteSheet(CacheableResource):
         twin._tilesets = {
             name: SpriteTileset(
                 atlas=tileset.atlas,
-                palettes=tuple(Palette(p.raw()) for p in tileset.palettes),
+                palettes=PaletteBank(Palette(p.raw()) for p in tileset.palettes),
                 default_palette=tileset.default_palette,
             )
             for name, tileset in self._tilesets.items()

@@ -122,8 +122,11 @@ def test_it_draws_the_right_pixels_in_the_right_place(
     source = tileset.atlas.buffer.pixels[
         rect.y : rect.y + rect.height, rect.x : rect.x + rect.width
     ]
-    # Row 0 of a readback is the BOTTOM, so the source is flipped to compare.
-    assert np.array_equal(drawn, (source != 0)[::-1])
+    # Not flipped: this pass draws the art bottom-up into a framebuffer whose
+    # row 0 is the bottom, so the two orders cancel and readback row r is
+    # source row r. See `test_each_palette_register_draws_its_own_row`, whose
+    # art is asymmetric enough to tell the difference -- this circle is not.
+    assert np.array_equal(drawn, source != 0)
     assert not lit[:28].any() and not lit[36:].any()
 
 
@@ -184,3 +187,101 @@ def test_a_sprite_presenting_nothing_is_a_clear_screen(
 ) -> None:
     bullets.assembly = None
     assert not _lit(_compose(window, bullets)).any()
+
+
+# -- the palette bank ---------------------------------------------------
+#
+# fumiko rather than the bullets: the bullet sheet carries one palette, so
+# there is no row to pick wrong. Hers are four, authored in one package from
+# one document, which is exactly the case the bank exists for.
+
+
+@pytest.fixture
+def fumiko() -> Sprite:
+    return Sprite(SpriteSheet(str(ASSETS / "fumiko" / "fumiko.sprite.json")))
+
+
+def _resolved(bank, row: int, indices: np.ndarray) -> np.ndarray:
+    """The art coloured by hand: source indices through one row of a bank."""
+    table = np.array([bank[row][i][:3] for i in range(256)], dtype=np.uint8)
+    return table[indices]
+
+
+def test_a_bank_is_one_texture_with_a_row_each(window, fumiko: Sprite) -> None:
+    """The shape of the thing, before what it draws: four palettes are four
+    ROWS of one 256x4 table, not four textures."""
+    from blitspersecond.graphics.internal import PaletteTexture
+
+    window.switch_to()
+    bank = fumiko.sheet.tilesets["character"].palettes
+    assert len(bank) == 4
+    table = PaletteTexture.get(bank)
+    assert (table.width, table.height) == (256, 4)
+    assert PaletteTexture.get(bank) is table  # memoised on the bank
+
+
+def test_each_palette_register_draws_its_own_row(window, fumiko: Sprite) -> None:
+    """The card's whole claim, against real pixels: the register picks a row
+    of one table and the art comes back in that row's colours.
+
+    Every drawn pixel is compared to the source index resolved through the
+    palette by hand, for all four -- so a row selected off by one, or an
+    upload that stacked the bank upside down, fails here rather than looking
+    plausible.
+    """
+    tileset = fumiko.sheet.tilesets["character"]
+    rect = tileset.atlas.rect("idle-0")
+    source = tileset.atlas.buffer.pixels[
+        rect.y : rect.y + rect.height, rect.x : rect.x + rect.width
+    ]
+    opaque = source != 0
+    fumiko.assembly = "idle-0"
+    fumiko.position = (16, 16)
+
+    seen = []
+    for row in range(len(tileset.palettes)):
+        fumiko.palettes["character"] = row
+        pixels = _compose(window, fumiko)
+        # No flip. Row 0 of a readback is the bottom of the framebuffer, and
+        # this pass draws the art bottom-up into it -- the present pass owns
+        # the flip that turns that the right way round, and is not here. So
+        # readback row r IS source row r, which asymmetric art proves and the
+        # bullet's symmetric circle cannot.
+        drawn = pixels[16 : 16 + rect.height, 16 : 16 + rect.width, :3]
+        assert np.array_equal(
+            drawn[opaque], _resolved(tileset.palettes, row, source)[opaque]
+        )
+        seen.append(drawn[opaque].copy())
+
+    # And the four are genuinely four pictures. fumiko's tables differ in the
+    # skin and hair ramps, so a shader that ignored the row and read row 0
+    # four times would pass every comparison above only if they were equal.
+    assert not any(np.array_equal(seen[0], other) for other in seen[1:])
+
+
+def test_a_costume_swap_is_a_row_not_a_bind(window, fumiko: Sprite) -> None:
+    """Two presentations of one tileset on different registers still cut a
+    run -- the row is per draw, not yet per quad -- but they cut it onto ONE
+    bank, which is the bind this card was about."""
+    ghost = fumiko.before.append()
+    ghost.assembly = "idle-0"
+    ghost.position = (0, 16)
+    ghost.visible = True
+    ghost.palettes["character"] = 1
+    fumiko.assembly = "idle-0"
+    fumiko.position = (36, 16)
+    fumiko.palettes["character"] = 3
+    fumiko._sync()
+
+    runs = fumiko._plan.runs
+    assert len(runs) == 2
+    assert runs[0][1] is runs[1][1]  # one bank
+    assert (runs[0][2], runs[1][2]) == (1, 3)  # two rows
+
+    # Both drew, and in different colours: the row survives the run loop, not
+    # just the plan.
+    pixels = _compose(window, fumiko)
+    left = pixels[16:48, 0:24, :3]
+    right = pixels[16:48, 36:60, :3]
+    assert _lit(left).any() and _lit(right).any()
+    assert not np.array_equal(left, right)

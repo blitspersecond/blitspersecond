@@ -1003,10 +1003,13 @@ class Console(Layer):
     def _build_quad(self, program, texture) -> None:
         """One quad covering the console, built once.
 
-        `picture.vert` takes `position`, `tex_coords`, `translate` and
-        `colors`. The console never moves and never tints, so translate and
-        colours are constant -- but they are per-vertex attributes the shader
-        declares, so they are supplied rather than left unbound."""
+        `picture.vert` takes `position`, `tex_coords`, `translate`, `colors`
+        and `palette_row`. The console never moves, never tints and has one
+        palette, so translate, colours and the row are all constant -- but
+        they are per-vertex attributes the shader declares, so they are
+        supplied rather than left unbound. The row is 0 because a console's
+        table is a bank of one; the register exists for the pillars that
+        carry more."""
         width, height = self._image.size
         self._quad = program.vertex_list_indexed(
             4,
@@ -1022,6 +1025,7 @@ class Console(Layer):
             tex_coords=("f", texture.tex_coords),
             translate=("f", (0.0, 0.0, 0.0) * 4),
             colors=("f", (1.0, 1.0, 1.0, 1.0) * 4),
+            palette_row=("f", (0.0,) * 4),
         )
 
     def _composite(self) -> None:

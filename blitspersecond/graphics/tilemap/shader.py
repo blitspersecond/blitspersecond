@@ -16,8 +16,12 @@ repeated.
 ## Two programs, because a tileset either is indexed or it is not
 
 `indexed.frag` is the mainline -- the sheet holds palette indices, unit 0
-carries them and unit 1 the 256x1 palette row from
-`graphics.internal.PaletteTexture`.
+carries them and unit 1 the palette table from
+`graphics.internal.PaletteTexture`. That table is 256xN and the fragment
+stage reads the row `palette_row` names; a tilemap draws through one sheet
+with one palette, so N is 1 and the row is 0, set once as a constant generic
+attribute (see `batch.py`). The row exists because the fragment stage is
+shared with the sprite pillar, where a tileset carries a bank.
 
 `direct.frag` takes an RGBA sheet and samples it straight. **RGBA is supported
 on principle**: if the hardware can do it, a game should be able to reach it,

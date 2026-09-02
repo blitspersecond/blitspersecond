@@ -9,6 +9,11 @@ stunts). `system_palette()` builds the stock 16-colour map, and the constants
 (`RED`, `WHITE`, `CYAN`, ...) are its indices -- write `console.pen[1] = RED`
 and mean it.
 
+`PaletteBank` is several of those under one owner -- the tables a sprite
+tileset carries -- held together because they reach the GPU as ONE 256xN
+texture a draw picks a row out of, rather than as N textures it binds
+between.
+
 **A colour in BPS is an index, not a triple.** That is the whole reason this
 sits in `graphics` rather than beside the framebuffer: resolving an index to
 a colour needs a palette bound, which only the engines have. By the time a
@@ -24,7 +29,7 @@ boundary drawn through the middle of them.
 """
 
 from numpy import uint8, zeros
-from typing import List, Sequence, Tuple, Optional, Union
+from typing import Iterable, Iterator, List, Sequence, Tuple, Optional, Union
 
 # The system palette: the 16 basic colours every machine since CGA has agreed
 # on -- the HTML 4.01 / VGA set, ratified 1999, known to every kid who ever
@@ -96,10 +101,10 @@ class Palette:
     def __init__(self, pal: Optional[Sequence[int]] = None) -> None:
         self._palette = zeros((256, 4), dtype=uint8)  # 256 colors, 4 channels (RGBA)
         # Mutation counter: the GPU projection (graphics.internal's
-        # PaletteTexture, palette RAM as a 256x1 texture) re-uploads a
-        # palette's row iff this moved -- so a write here is just the array
-        # store plus one increment, and the upload happens at most once per
-        # changed palette per frame, at the next draw that needs it.
+        # PaletteTexture, palette RAM as a texture) re-uploads the table this
+        # palette is a row of iff this moved -- so a write here is just the
+        # array store plus one increment, and the upload happens at most once
+        # per changed palette per frame, at the next draw that needs it.
         self._version = 0
 
         # Default to black for all colors if no palette provided
@@ -213,6 +218,59 @@ class ConsolePalette(Palette):
 
     def _alpha(self, key: int, requested: int) -> int:
         return 0 if key == 0 else _byte(requested)
+
+
+class PaletteBank:
+    """The palettes ONE tileset carries, held as one table.
+
+    An ordinary indexed image has a single palette. A sprite tileset has a
+    bank of them -- four for fumiko, twenty-eight for Chun-Li -- and which one
+    a presentation draws through is a register it picks at runtime.
+
+    They are an object rather than a tuple because the bank is the unit the
+    GPU stores: `graphics.internal.PaletteTexture` projects one of these to a
+    single 256xN RGBA texture, and the shader picks the row. Selecting a
+    palette is then a number, not a bind, which is what lets it become
+    per-quad stream data later. A tuple could not own that projection: the
+    memo is weak-keyed so that a dead owner releases its texture, and a tuple
+    cannot be weakly referenced.
+
+    It reads as the tuple it replaced -- `len(bank)`, `bank[3]`, iteration --
+    because the register a game writes IS the row, and nothing that only
+    wanted a table needs to know it now sits in one.
+    """
+
+    __slots__ = ("_palettes", "__weakref__")
+
+    def __init__(self, palettes: Iterable[Palette]) -> None:
+        self._palettes: Tuple[Palette, ...] = tuple(palettes)
+        if not self._palettes:
+            raise ValueError(
+                "a palette bank holds at least one palette -- an indexed "
+                "image read through no table is unreadable"
+            )
+        for index, palette in enumerate(self._palettes):
+            if not isinstance(palette, Palette):
+                raise TypeError(
+                    f"palette bank row {index}: expected Palette, got "
+                    f"{type(palette).__name__}"
+                )
+
+    def __len__(self) -> int:
+        return len(self._palettes)
+
+    def __getitem__(self, row: int) -> Palette:
+        """Row `row`'s table. The index is the palette register a
+        presentation selects with, and out of range is an IndexError -- the
+        register setter checks the bound, so reaching here with a bad one is
+        a bug rather than a game's mistake."""
+        return self._palettes[row]
+
+    def __iter__(self) -> Iterator[Palette]:
+        return iter(self._palettes)
+
+    def __repr__(self) -> str:
+        return f"<PaletteBank {len(self._palettes)} palettes>"
 
 
 def system_palette() -> Palette:
