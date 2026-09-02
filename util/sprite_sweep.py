@@ -462,7 +462,11 @@ def run_one(
     if stage != "current":
         import ab_stage
 
-        {"bulk": ab_stage.install_bulk, "tiered": ab_stage.install_tiered}[stage]()
+        {
+            "bulk": ab_stage.install_bulk,
+            "tiered": ab_stage.install_tiered,
+            "routed": ab_stage.install_routed,
+        }[stage]()
     from blitspersecond import BlitsPerSecond
 
     bps = BlitsPerSecond()
@@ -706,11 +710,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--stage",
-        choices=("current", "bulk", "tiered"),
+        choices=("current", "bulk", "tiered", "routed"),
         default="current",
-        help="new engine only: which staging path the frame plan uses. `bulk` "
-        "and `tiered` install the candidates from util/ab_stage.py, so every "
-        "run is the same measurement of a different implementation.",
+        help="new engine only: which staging path the frame plan uses. The "
+        "candidates come from util/ab_stage.py, so every run is the same "
+        "measurement of a different implementation.",
     )
     parser.add_argument("--json", type=Path, help="also write raw results here")
     args = parser.parse_args()

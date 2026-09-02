@@ -1036,6 +1036,139 @@ def install_bulk() -> None:
     FramePlan.sync = sync
 
 
+#: Chain size at or above which a chain is routed to particle mode. A POLICY
+#: number, not a measured one -- `--knee` finds no crossover on time, so this
+#: is standing in for "the author declared this a swarm" until there is a real
+#: way to say so. See `install_routed`.
+PARTICLE_FLOOR = 256
+
+#: Fraction of a chain that must be live before particle mode is worth taking.
+#: This one IS measured, and it is scale-invariant: the crossover sits between
+#: 25% and 50% at 25,000 slots and at 250,000 alike (`--occupancy`).
+PARTICLE_FILL = 0.5
+
+
+def install_routed() -> None:
+    """Route each chain WHOLE, per chain, on its size. Kris's design.
+
+    `sprite_sweep.py --stage routed` installs this.
+
+        before -> regular    (four ghosts, each with its own fade)
+        after  -> particle   (twenty-five thousand bullets, one material)
+
+    The two chains decide independently and both paths stay live, which is
+    what makes this simpler than everything above it. There is no band, so
+    nothing about a presentation's capability depends on where it sits in the
+    draw order -- only on which chain it is in. Reordering within a chain
+    cannot move anything across a boundary, because there is no boundary
+    inside a chain to move across.
+
+    It also removes the uniformity scan, and that is worth more than it looks:
+    a gated lane pays 1.4ms at 250,000 to ask a question whose answer routing
+    already knows.
+
+    ## Two gates, and they are different KINDS of gate
+
+    **Size is policy.** `--knee` sweeps chain length from 1 presentation to
+    250,000 and finds no crossover at all -- particle mode is 30-50% ahead at
+    every size, including a chain of one. So the threshold cannot be derived
+    from timing, and `PARTICLE_FLOOR` is not a tuning parameter: it is a proxy
+    for an author saying "this is a swarm", standing in until there is a real
+    way to say it. Nothing measured argues for 256 over 64 or 4,096.
+
+    **Occupancy is mechanism.** Particle mode's cost follows the chain's SIZE
+    and the regular path's follows its LIVE COUNT, so a mostly-parked pool is
+    genuinely cheaper to gather than to mask. That crossover is measured, and
+    it is scale-invariant -- between 25% and 50% at 25,000 slots and at
+    250,000 alike. This gate may flip from frame to frame with no consequence,
+    because both paths draw the same picture for a chain that has no
+    per-presentation colour to lose.
+
+    Keeping them separate is the point. The first is a statement about what a
+    chain IS and has to be stable; the second is a statement about what is
+    cheapest this frame and is free to change.
+    """
+
+    def particle(self, sprite, tables, names, span):
+        slots = sprite._slots
+        ids = slots.assembly[span]
+        keep = slots.visible[span] & (ids >= 0)
+        safe = np.maximum(ids, 0)
+        keep &= sprite._assembly_quads[safe] == 1
+        if not keep.any():
+            return
+        lo = int(np.argmax(keep))
+        hi = keep.size - int(np.argmax(keep[::-1]))
+        if lo or hi != keep.size:
+            keep = keep[lo:hi]
+            safe = safe[lo:hi]
+            span = slice(span.start + lo, span.start + hi)
+        tables.ensure(safe, names)
+
+        turns = slots.orientation[span].astype(np.intp)
+        rects = tables.rect[safe, turns]
+        xy = slots.position[span]
+        n = safe.size
+        begin = self.quads
+        end = begin + n
+        x0 = (xy[:, 0] + rects[:, 0]).astype(np.float32)
+        y0 = (xy[:, 1] + rects[:, 1]).astype(np.float32)
+        x1 = x0 + rects[:, 2] * keep
+        y1 = y0 + rects[:, 3] * keep
+        verts = self.verts[begin:end]
+        verts[:, 0, 0], verts[:, 0, 1] = x0, y0
+        verts[:, 1, 0], verts[:, 1, 1] = x1, y0
+        verts[:, 2, 0], verts[:, 2, 1] = x1, y1
+        verts[:, 3, 0], verts[:, 3, 1] = x0, y1
+        self.uvs[begin:end] = tables.uv[safe, turns]
+        self.quads = end
+
+        # The chain's material, read once. Not scanned for, not diffed --
+        # a particle chain HAS one colour, it is not discovered to have one.
+        tileset = sprite.sheet.tilesets[sprite.sheet.primary_tileset]
+        self._add_run(
+            (
+                tileset.atlas.buffer,
+                tileset.palettes[int(slots.palette[span.start])],
+                tuple(slots.color[span.start].tolist()),
+            ),
+            begin,
+            n,
+        )
+
+    def chain(self, sprite, tables, names, order):
+        if not order.size:
+            return
+        slots = sprite._slots
+        first, last = int(order[0]), int(order[-1])
+        width = last - first + 1
+        if (
+            order.size >= PARTICLE_FLOOR
+            and width == order.size
+            and np.count_nonzero(slots.visible[first:last + 1])
+            >= width * PARTICLE_FILL
+        ):
+            particle(self, sprite, tables, names, slice(first, last + 1))
+            return
+        live = _drawable(sprite, order)
+        if live.size:
+            tables.ensure(slots.assembly[live], names)
+            self._emit_chain(sprite, tables, live)
+
+    def sync(self, sprite):
+        names = sprite._assembly_names
+        tables = self._tables_for(sprite)
+        primary = _primary_parts(sprite)
+        self._reserve(sprite._before.size + len(primary) + sprite._after.size)
+        self.runs = []
+        self.quads = 0
+        chain(self, sprite, tables, names, sprite._before)
+        self._emit_primary(sprite, tables, primary)
+        chain(self, sprite, tables, names, sprite._after)
+
+    FramePlan.sync = sync
+
+
 def install_tiered() -> None:
     """Patch `FramePlan.sync` to stage every chain in two tiers.
 
@@ -1468,6 +1601,54 @@ def tiers(count: int, repeat: int) -> None:
     print("  colour array is never read for the bulk span at all.\n")
 
 
+def knee(repeat: int, dead: float = DEAD_FRACTION) -> None:
+    """Where a chain stops wanting the regular path and starts wanting particles.
+
+    Kris's routing: **decide per chain, on its size, and keep both paths
+    available concurrently.** `before` and `after` choose independently, so a
+    sprite with a four-ghost trail behind it and twenty-five thousand bullets
+    in front of it gets the right path for each -- which is the case that
+    broke the uniformity gate and the case a positional band was invented to
+    serve.
+
+    It is simpler than either. The decision is `order.size` against a
+    threshold: no scan, no band, no per-presentation tier, and nothing about a
+    presentation's CAPABILITY depends on where it sits in the draw order --
+    only on which chain it is in and how big that chain is.
+
+    So the only thing left to measure is where to put the threshold, which is
+    what this does. Both paths are timed at every size on the same chain.
+    """
+    print(f"\nrouting knee: regular against particle, best of {repeat}\n")
+    print(f"  {'chain':>8}  {'regular':>10}  {'particle':>10}  {'delta':>9}"
+          f"  {'us/1k regular':>14}  {'us/1k particle':>15}")
+    print("  " + "-" * 76)
+    sizes = (1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 4096,
+             16_384, 65_536, 250_000)
+    crossed = None
+    for size in sizes:
+        scene = build(size, dead=dead if size >= 200 else 0.0)
+        # Small chains are dominated by fixed per-call cost, so they need many
+        # more samples before a difference of microseconds means anything.
+        passes = max(repeat, min(2000, 200_000 // max(size, 1)))
+        base = measure(scene, "current", passes)
+        fast = measure(scene, "bulk", passes)
+        delta = (1 - fast["best"] / base["best"]) * 100
+        if crossed is None and delta > 0:
+            crossed = size
+        print(
+            f"  {size:>8,}  {base['best'] * 1000:9.1f}u"
+            f"  {fast['best'] * 1000:9.1f}u  {delta:+8.1f}%"
+            f"  {base['best'] * 1e6 / max(size, 1):>13.0f}"
+            f"  {fast['best'] * 1e6 / max(size, 1):>14.0f}"
+        )
+    print()
+    if crossed:
+        print(f"  particle mode is ahead from {crossed:,} presentations up")
+    print("  Both paths stay live. A chain under the threshold is staged")
+    print("  exactly as it is today, so a trail costs what a trail costs.\n")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--counts", default=",".join(str(c) for c in DEFAULT_COUNTS))
@@ -1482,6 +1663,8 @@ def main(argv=None) -> int:
     parser.add_argument("--tiers", type=int, nargs="?", const=250_000,
                         metavar="SLOTS",
                         help="what each design does when a fade turns up")
+    parser.add_argument("--knee", action="store_true",
+                        help="where a chain should route to particle mode")
     parser.add_argument("--list", action="store_true")
     args = parser.parse_args(argv)
 
@@ -1497,6 +1680,9 @@ def main(argv=None) -> int:
         return 0
     if args.tiers:
         tiers(args.tiers, args.repeat)
+        return 0
+    if args.knee:
+        knee(args.repeat)
         return 0
 
     names = [n for n in args.only.split(",") if n] or list(VARIANTS)
