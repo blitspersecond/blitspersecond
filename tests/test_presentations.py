@@ -75,10 +75,10 @@ def test_the_sprites_attributes_are_the_primary(bullets: Sprite) -> None:
     presentation -- two stores kept in step would pass a laxer check."""
     bullets.position = (160, 200)
     bullets.orientation = Orientation.FLIP_H
-    bullets.alpha = 0.5
+    bullets.red = 0.5
     assert bullets.primary.position == Location(160, 200)
     assert bullets.primary.orientation is Orientation.FLIP_H
-    assert bullets.primary.alpha == pytest.approx(0.5)
+    assert bullets.primary.red == pytest.approx(0.5)
 
 
 def test_writing_the_primary_moves_the_sprite(bullets: Sprite) -> None:
@@ -116,11 +116,11 @@ def test_reordering_does_not_move_state(bullets: Sprite) -> None:
     design, moving a presentation in the draw order moved its state."""
     a = bullets.before.append()
     a.position = (7, 7)
-    a.alpha = 0.25
+    a.assembly = "pink"
     slot = a.slot
     bullets.before.prepend()  # a is now second, not first
     assert bullets[slot].position == Location(7, 7)
-    assert bullets[slot].alpha == pytest.approx(0.25)
+    assert bullets[slot].assembly == "pink"
     assert bullets[slot].slot == slot
 
 
@@ -242,12 +242,12 @@ def test_a_new_presentation_is_seeded_from_the_primary(bullets: Sprite) -> None:
     bullets.assembly = "blue"
     bullets.position = (40, 50)
     bullets.orientation = Orientation.FLIP_H
-    bullets.alpha = 0.75
     ghost = bullets.before.append()
     assert ghost.assembly == "blue"
     assert ghost.position == Location(40, 50)
     assert ghost.orientation is Orientation.FLIP_H
-    assert ghost.alpha == pytest.approx(0.75)
+    tileset = bullets.sheet.primary_tileset
+    assert ghost.palettes[tileset] == bullets.palettes[tileset]
 
 
 def test_the_palette_register_is_seeded_too(tmp_path: Path) -> None:
@@ -441,12 +441,17 @@ def test_the_trail_shape(grid: Sprite) -> None:
     distance along the chain is age, with no reversal to undo."""
     ghosts = grid.before.extend(4)
     grid.assembly = 0
+    ages = {}
     for age, ghost in enumerate(reversed(list(ghosts)), start=1):
         ghost.assembly = 0
-        ghost.alpha = 1.0 - age * 0.2
+        ghost.position = (age, 0)  # stands in for how far back in history
         ghost.collide = False
         ghost.visible = True
-    assert ghosts[0].alpha < ghosts[3].alpha  # furthest back is faintest
+        ages[ghost.slot] = age
+    # Furthest back is oldest. A fade would say the same thing with a dimmer
+    # palette row, which this sheet has only one of -- the ORDER is what is
+    # under test, and it is what a fade would be read off.
+    assert ghosts[0].x > ghosts[3].x
     assert grid.collide is True and ghosts[0].collide is False
     assert [p.slot for p in grid.presentations][-1] == grid.primary.slot
 

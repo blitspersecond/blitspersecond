@@ -143,22 +143,36 @@ class Display:
         fbo.bind()
         self._surface.projection = Mat4.orthogonal_projection(0, w, 0, h, -1, 1)
         glViewport(0, 0, w, h)
-        # Blend is COMPOSITING state, so it is set here rather than by each
-        # layer. Every pillar wanted the identical two calls -- a layer drawn
-        # over another must respect its alpha, which is what compositing means
-        # -- and repeating them per layer per frame was N redundant state
-        # changes and N places for one of them to drift. The present pass
-        # disables blend again for its own quad, which is why this has to be
-        # established here rather than once at startup.
+        # Blend is COMPOSITING state and it is READ here, per layer, from
+        # `Layer.blend`. It used to be established once around the whole loop,
+        # because every pillar wanted the identical two calls and repeating
+        # them was N redundant state changes. That was right while a layer
+        # drawn over another had to respect its alpha; it stopped being right
+        # on 2026-09-02, when indexed art became strictly drawn-or-discarded.
         #
-        # A layer wanting a different blend mode is the unbuilt `Layer.blend`,
-        # and this loop is where it will be read.
-        glEnable(GL_BLEND)
+        # **Off is now the correct default, not a saving.** The engine paints
+        # back to front with no depth test and no resolve, so colour
+        # information is last-writer-wins, and `indexed.frag` discards index 0
+        # rather than blending it away. A sprite layer over a tilemap composes
+        # correctly with blending off -- transparent texels never reach here.
+        # Blending is for a layer that deliberately wants to be see-through,
+        # and it says so.
+        #
+        # The func is set unconditionally: it is inert while blend is off, and
+        # setting it once beats tracking whether it still holds. The present
+        # pass disables blend again for its own quad, which is why even this
+        # much has to be re-established per frame rather than at startup.
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        blending = False
         for layer in self._layers:
-            if layer.enabled:
-                layer._composite()  # syncs its own GPU state, executes its own draw
-        glDisable(GL_BLEND)
+            if not layer.enabled:
+                continue
+            if layer.blend != blending:
+                blending = layer.blend
+                (glEnable if blending else glDisable)(GL_BLEND)
+            layer._composite()  # syncs its own GPU state, executes its own draw
+        if blending:
+            glDisable(GL_BLEND)
         fbo.unbind()
 
     @property

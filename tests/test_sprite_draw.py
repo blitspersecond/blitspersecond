@@ -62,7 +62,6 @@ def _compose(window, sprite: Sprite) -> np.ndarray:
         glClear,
         glClearColor,
         glDisable,
-        glEnable,
         glViewport,
     )
 
@@ -70,11 +69,15 @@ def _compose(window, sprite: Sprite) -> np.ndarray:
     glViewport(0, 0, SIZE, SIZE)
     glClearColor(0.0, 0.0, 0.0, 1.0)
     glClear(GL_COLOR_BUFFER_BIT)
-    # Set HERE and not by the layer, exactly as the compositor does it.
-    glEnable(GL_BLEND)
+    # **Blend OFF**, exactly as the compositor now leaves it for a layer whose
+    # `blend` is False -- which is every layer unless it asks. Enabling it here
+    # would hide the thing several of these tests are for: with blending on, a
+    # transparent texel that reached the framebuffer is invisible either way,
+    # so `test_index_zero_is_discarded_not_drawn_black` would pass against a
+    # shader that had no discard in it.
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-    sprite._composite()
     glDisable(GL_BLEND)
+    sprite._composite()
     return _read(window)
 
 
@@ -169,17 +172,55 @@ def test_a_parked_presentation_draws_nothing(window, bullets: Sprite) -> None:
     assert int(cols.min()) == 45  # the primary alone, art inset by one
 
 
-def test_alpha_zero_draws_nothing_visible(window, bullets: Sprite) -> None:
-    """The colour registers reach the GPU. `visible` is not the only way for
-    a presentation to contribute nothing, and this is the one that still
-    costs a quad -- so it proves the attribute arrived rather than that the
-    plan skipped it."""
+def test_the_colour_registers_reach_the_gpu(window, bullets: Sprite) -> None:
+    """Multiplied over whatever the palette produced, so zeroing two channels
+    leaves only the third -- which proves the attribute ARRIVED rather than
+    that the plan did something clever with it."""
     bullets.assembly = "blue"
     bullets.position = (32, 32)
-    bullets.alpha = 0.0
+    bullets.green = bullets.blue = 0.0
     pixels = _compose(window, bullets)
-    assert bullets._plan.quads == 1
-    assert not _lit(pixels).any()
+    drawn = pixels[_lit(pixels)]
+    assert drawn.size, "nothing was drawn at all"
+    assert not drawn[:, 1].any() and not drawn[:, 2].any()
+
+
+def test_index_zero_is_discarded_not_drawn_black(window, bullets: Sprite) -> None:
+    """The mechanism binary alpha rests on, and one that fails silently: with
+    no blend state established, a transparent texel reaching the framebuffer
+    writes black over what is behind it rather than leaving it alone.
+
+    **Composed over a NON-BLACK ground on purpose.** Every other test here
+    clears to black, and against black an undiscarded transparent texel is
+    indistinguishable from a discarded one -- both read as unlit. This one
+    clears to blue and asserts the blue survives inside the quad, which is the
+    only arrangement that can tell the two apart. Checked by deleting the
+    discard and watching it fail.
+    """
+    from pyglet.gl import (
+        GL_BLEND, GL_COLOR_BUFFER_BIT, glClear, glClearColor, glDisable,
+        glViewport,
+    )
+
+    bullets.assembly = "blue"
+    bullets.position = (32, 32)
+    window.switch_to()
+    glViewport(0, 0, SIZE, SIZE)
+    glClearColor(0.0, 0.0, 1.0, 1.0)
+    glClear(GL_COLOR_BUFFER_BIT)
+    glDisable(GL_BLEND)
+    bullets._composite()
+    pixels = _read(window)
+
+    ground = (pixels[:, :, 2] > 200) & (pixels[:, :, 0] < 50)
+    art = ~ground
+    rows, cols = np.flatnonzero(art.any(axis=1)), np.flatnonzero(art.any(axis=0))
+    assert rows.size and cols.size, "nothing was drawn at all"
+    box = ground[rows[0]:rows[-1] + 1, cols[0]:cols[-1] + 1]
+    assert box.any(), (
+        "no ground survives inside the quad -- index 0 wrote instead of "
+        "being discarded"
+    )
 
 
 def test_a_sprite_presenting_nothing_is_a_clear_screen(

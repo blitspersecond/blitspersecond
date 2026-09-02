@@ -23,5 +23,14 @@
         );
         // Multiply by vertex colors (tinting/fade parity with direct.frag;
         // draws that don't tint feed 1,1,1,1 so this costs nothing).
+        // Index 0 is transparent and nothing else is, so a texel is either
+        // drawn or it is not. DISCARDED rather than blended away: no blend
+        // state is established for these passes, so a surviving alpha-0
+        // fragment would write black over whatever is behind it. This is also
+        // what makes "was it drawn" and "is it solid" one predicate rather
+        // than two that agree -- see COLLISION.md.
+        if (colour.a < 0.5) {
+            discard;
+        }
         final_colors = colour * vertex_colors;
     }

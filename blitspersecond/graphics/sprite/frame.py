@@ -25,8 +25,9 @@ A **run** is a maximal stretch of adjacent quads sharing a material:
 Boundaries are found by a vectorised diff rather than by walking, which
 matters: a population of 25,000 must not be inspected one at a time. And
 because instanced presentations are pinned to the sheet's `primary_tileset`,
-the buffer is constant across a whole chain by construction, so the only
-things that can break a run there are the palette register and the colour.
+the buffer and the bank are constant across a whole chain by construction and
+the colour belongs to the sprite, so the only thing that can break a run there
+is the palette ROW.
 
 A uniform population therefore finds ZERO boundaries and emits ONE run --
 the same result reference got by holding its material once per pool, reached
@@ -305,10 +306,16 @@ class FramePlan:
         self.uvs[first:last] = tables.uv[ids, turns]
         self.quads = last
 
-        # The buffer is constant across a chain -- instanced presentations are
-        # pinned to the primary tileset -- so only the palette register and
-        # the colour can cut a run, and both are found by diff rather than by
-        # walking 25,000 slots one at a time.
+        # The buffer and the bank are constant across a chain -- instanced
+        # presentations are pinned to the primary tileset -- and so is the
+        # colour, which belongs to the sprite. **So the palette ROW is the
+        # only thing left that can cut a run here**, and it is found by a diff
+        # over one int32 array rather than by walking 25,000 slots.
+        #
+        # It used to diff the colour too, over an `(n, 4)` float32: 3.70ms at
+        # 250,000 presentations, to discover boundaries a population does not
+        # have. That went with the per-presentation colour registers on
+        # 2026-09-02 -- see `Presentation.red`.
         #
         # **This is an invariant the bind DEPENDS on, not a preference.** The
         # buffer and bank are read once, here, and the per-slot assemblies
@@ -321,12 +328,10 @@ class FramePlan:
         # bulk write into the state arrays must validate it there.**
         tileset = sprite.sheet.tilesets[sprite.sheet.primary_tileset]
         registers = slots.palette[order]
-        colors = slots.color[order]
+        color = _tint(sprite)
         cuts = np.zeros(order.size, dtype=bool)
         if order.size > 1:
-            cuts[1:] = (registers[1:] != registers[:-1]) | np.any(
-                colors[1:] != colors[:-1], axis=1
-            )
+            cuts[1:] = registers[1:] != registers[:-1]
         starts = np.flatnonzero(cuts)
         edges = [0, *starts.tolist(), order.size]
         for begin, end in zip(edges, edges[1:]):
@@ -335,7 +340,7 @@ class FramePlan:
                     tileset.atlas.buffer,
                     tileset.palettes,
                     int(registers[begin]),
-                    tuple(colors[begin].tolist()),
+                    color,
                 ),
                 first + begin,
                 end - begin,
@@ -356,7 +361,7 @@ class FramePlan:
         slots = sprite._slots
         turn = int(slots.orientation[PRIMARY])
         px, py = (int(v) for v in slots.position[PRIMARY])
-        color = tuple(slots.color[PRIMARY].tolist())
+        color = _tint(sprite)
         origin = sprite.origin
         cached = None
         if len(parts) == 1:
@@ -411,6 +416,19 @@ class FramePlan:
                 self.runs[-1] = (buffer, bank, row, color, begin, length + count)
                 return
         self.runs.append((*material, first, count))
+
+
+def _tint(sprite: "Sprite") -> Tuple[float, float, float, float]:
+    """The sprite's colour registers as the run's `colors` attribute.
+
+    Alpha is pinned at 1.0 and is not a register. The attribute stays a vec4
+    because that is what the shared vertex stage declares, and feeding it a
+    fourth component the engine never varies is cheaper than a sprite-specific
+    stage would be. A pixel's transparency is decided by the palette index and
+    the shader's discard, not here.
+    """
+    r, g, b = sprite._color
+    return (float(r), float(g), float(b), 1.0)
 
 
 def _drawable(sprite: "Sprite", order: np.ndarray) -> np.ndarray:

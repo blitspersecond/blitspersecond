@@ -7,7 +7,7 @@ class Layer:
     content that place shows. A pillar IS its layer: `Console` is one and
     `TileMap` will be, so building one builds both the thing you draw with
     and where it sits. The base class owns only the compositing concerns --
-    enabled, tag, stack position; blend/opacity/offset later.
+    enabled, tag, blend, stack position; opacity/offset later.
 
     You construct a pillar yourself and `bps.layers.add(layer)` places it.
     Until it is added it is unattached and off-screen, and reordering an
@@ -19,6 +19,7 @@ class Layer:
     def __init__(self, tag: Optional[str] = None) -> None:
         self._id: str = str(uuid4())
         self._enabled: bool = True
+        self._blend: bool = False
         self._tag: Optional[str] = tag
         self._layers = None  # back-reference, set by Layers.add
 
@@ -41,6 +42,31 @@ class Layer:
         if not isinstance(value, bool):
             raise ValueError("enabled must be a boolean")
         self._enabled = value
+
+    @property
+    def blend(self) -> bool:
+        """Whether this layer's fragments blend with what is already drawn.
+
+        **Off by default, and that is the engine's model rather than a
+        performance default.** BPS paints back to front with no depth test and
+        no resolve, so colour information is last-writer-wins: a pixel is
+        drawn or it is not. Indexed art carries that through -- index 0 is
+        transparent, everything else is opaque, and `indexed.frag` discards
+        the one rather than blending it away.
+
+        So translucency is a per-LAYER effect and this is where it lives: a
+        see-through overlay, an additive flash, a fog sheet over the world.
+        What it is not is a way to fade one sprite among many -- that is a
+        palette row, which costs a number rather than a blend and is what the
+        hardware this engine models actually did.
+        """
+        return self._blend
+
+    @blend.setter
+    def blend(self, value: bool) -> None:
+        if not isinstance(value, bool):
+            raise ValueError("blend must be a boolean")
+        self._blend = value
 
     @property
     def tag(self) -> Optional[str]:

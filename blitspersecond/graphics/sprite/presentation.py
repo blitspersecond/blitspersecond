@@ -128,7 +128,6 @@ class Slots:
         "assembly",
         "visible",
         "collide",
-        "color",
         "palette",
     )
 
@@ -155,7 +154,6 @@ class Slots:
         # screen. The primary is the one exception; a lone sprite draws.
         self.visible = np.zeros(n, dtype=bool)
         self.collide = np.zeros(n, dtype=bool)
-        self.color = np.ones((n, 4), dtype=np.float32)
         self.palette = np.full(n, default_palette, dtype=np.int32)
 
     @property
@@ -178,8 +176,11 @@ class Slots:
 
         **Seeded from the primary, which is the template.** A presentation is
         another drawing of THIS sprite, so a new one arrives looking like it:
-        the primary's position, orientation, pose, colour registers and
-        palette register. Kris: *"taking sensible defaults from the template
+        the primary's position, orientation, pose and palette register.
+
+        Colour is not in that list and has not been since 2026-09-02, because
+        an instanced presentation has no colour of its own to seed. The
+        sprite's registers apply to every drawing of it. See `Presentation`. Kris: *"taking sensible defaults from the template
         master makes sense; nothing stopping you changing them."*
 
         The alternative -- resetting to the tileset's own defaults -- put a
@@ -221,7 +222,6 @@ class Slots:
         self.assembly[where] = assembly
         self.visible[where] = False
         self.collide[where] = False
-        self.color[where] = self.color[PRIMARY]
         self.palette[where] = palette
         return taken
 
@@ -256,7 +256,6 @@ class Slots:
             self.assembly,
             self.visible,
             self.collide,
-            self.color,
             self.palette,
         )
         self._allocate(new, default_palette)
@@ -267,7 +266,6 @@ class Slots:
                 "assembly",
                 "visible",
                 "collide",
-                "color",
                 "palette",
             ),
             keep,
@@ -525,8 +523,14 @@ class Presentations:
 
     @property
     def color(self) -> np.ndarray:
-        """`(n, 4)` float32 view of the colour registers, RGBA multipliers."""
-        return self._sprite._slots.color[self._span()]
+        """Gone. A swarm has no colour of its own -- see `palettes`."""
+        raise AttributeError(
+            "presentations have no colour registers -- the sprite's apply to "
+            "every drawing of it. To vary colour ACROSS a population, vary "
+            "`palettes`: the register is a row of the tileset's bank, so "
+            "different rows are different tables and cost a number rather "
+            "than a blend. A fade wants dimmed rows generated once at load."
+        )
 
     @property
     def palettes(self) -> np.ndarray:
@@ -569,10 +573,16 @@ class Presentations:
 class _Channel:
     """One colour register -- a 0.0..1.0 multiplier on a channel.
 
-    A descriptor rather than four near-identical property pairs, so the clamp,
+    A descriptor rather than three near-identical property pairs, so the clamp,
     the dirty mark and the reasoning are written once. What the registers ARE
     is documented on `Presentation.red`, which is the one a reader reaches
     first.
+
+    **These are the SPRITE's registers, reachable through any of its
+    presentations, and there is one set.** They were per presentation until
+    2026-09-02. Reading or writing one through an instanced slot reaches the
+    same three floats slot 0 reaches, because a presentation is another
+    drawing of one sprite and a tint is a fact about the sprite.
     """
 
     def __init__(self, index: int, doc: str) -> None:
@@ -582,15 +592,45 @@ class _Channel:
     def __get__(self, presentation: "Presentation", owner=None) -> float:
         if presentation is None:
             return self  # type: ignore[return-value]
-        slots = presentation._sprite._slots
-        return float(slots.color[presentation._slot, self._index])
+        return float(presentation._sprite._color[self._index])
 
     def __set__(self, presentation: "Presentation", value: float) -> None:
-        slots = presentation._sprite._slots
-        slots.color[presentation._slot, self._index] = min(
+        presentation._sprite._color[self._index] = min(
             max(float(value), 0.0), 1.0
         )
         presentation._sprite._dirty = True
+
+
+class _NoAlpha:
+    """`alpha`, removed 2026-09-02, kept as a refusal that says where to go.
+
+    Left as a descriptor rather than deleted because `ghost.alpha = 0.4` was
+    the documented way to fade a trail, it is in shipped examples, and an
+    `AttributeError` on a plain assignment would be silently accepted by
+    nothing but would explain nothing either.
+    """
+
+    __doc__ = "Gone -- a sprite pixel is drawn or it is not. See the error."
+
+    def _refuse(self):
+        raise AttributeError(
+            "sprites have no alpha register: a pixel is drawn or it is not, "
+            "with nothing in between. The engine paints back to front and "
+            "colour information is last-writer-wins, and indexed art carries "
+            "that -- index 0 is transparent, everything else opaque, and the "
+            "shader discards rather than blends.\n"
+            "  to hide a presentation      `visible = False`\n"
+            "  to fade a trail             a dimmer row of the palette bank\n"
+            "  to make a whole layer sheer `layer.blend = True`"
+        )
+
+    def __get__(self, presentation, owner=None):
+        if presentation is None:
+            return self
+        self._refuse()
+
+    def __set__(self, presentation, value) -> None:
+        self._refuse()
 
 
 class Presentation:
@@ -769,27 +809,34 @@ class Presentation:
 
     red = _Channel(
         0,
-        """Red multiplier, 0.0..1.0 -- one of four colour registers.
+        """Red multiplier, 0.0..1.0 -- one of three colour registers.
 
-        `red`/`green`/`blue` toward 0 fade toward black and unevenly tint;
-        `alpha` toward 0 fades out. They multiply whatever the palette
-        produced, so they are a presentation decision laid over a colour
-        decision, not a second palette.
+        `red`/`green`/`blue` toward 0 fade toward black and unevenly tint.
+        They multiply whatever the palette produced, so they are a
+        presentation decision laid over a colour decision, not a second
+        palette.
 
-        This is where a shadow trail's fade comes from, and the reason the
-        registers are per presentation rather than per sprite: the whole
-        effect is each ghost carrying a different value.
+        **They belong to the SPRITE, not to one presentation** (changed
+        2026-09-02). Writing one through any presentation writes the sprite's,
+        because a tint is a fact about the thing being drawn rather than about
+        one drawing of it -- and because a per-presentation colour is what
+        makes a material vary inside a population, which cost a run per
+        change to draw and a pass over the whole population to find.
 
-        **Not free at the draw.** Colour is a per-run value, so presentations
-        with different colours cannot share a run -- four differently-faded
-        ghosts are four draw calls. They stay one texture bind between them,
-        which is the expensive part, so this is much cheaper than a tileset
-        change.
+        This is where a trail's fade USED to come from. It comes from the
+        palette bank now: a dimmer row per ghost, generated once at load,
+        selected with `palettes`. That is a number rather than a blend, it is
+        what the hardware did, and it does not vary the material.
+
+        **Not free at the draw, but nearly.** Colour is a per-run value, so a
+        sprite whose registers differ from its neighbours' is a separate run
+        -- one `glVertexAttrib4f` and one draw call, measured at 6.4us. What
+        it is not is a texture bind.
         """,
     )
     green = _Channel(1, "Green multiplier, 0.0..1.0. See `red`.")
     blue = _Channel(2, "Blue multiplier, 0.0..1.0. See `red`.")
-    alpha = _Channel(3, "Alpha multiplier, 0.0..1.0. See `red`.")
+    alpha = _NoAlpha()
 
     # -- being seen, and being there ---------------------------------------
 

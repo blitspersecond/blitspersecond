@@ -26,9 +26,18 @@ her: the same identity drawn more than once, sharing her texture and her
 collision answer. `sprite.before` is the chain drawn before her and so behind
 her; `sprite.after` would be in front.
 
-Each ghost carries its own position, pose and alpha, which is the entire
-effect -- and `collide = False`, because an afterimage that could be hit
-would be a bug the art tells you nothing about.
+Each ghost carries its own position and pose, and `collide = False`, because
+an afterimage that could be hit would be a bug the art tells you nothing
+about.
+
+**The ghosts do not fade, and that is a gap rather than a choice.** They used
+to, through a per-presentation `alpha`, which went on 2026-09-02: a sprite
+pixel is drawn or it is not, so there is no fraction to set. A fade is a
+dimmer ROW of the palette bank now -- which is how the hardware did it, and
+which this sheet has no rows for, since its four palettes are costumes. See
+the board card *Sprite alpha is binary and blending is the compositor's* for
+what generating them costs (207us for Chun-Li's whole bank, once, at load) and
+for the open question of who says how many steps.
 
 Draw order is the chain, not the slot number. A presentation's slot id is its
 identity and never moves; where it draws is its place in the chain. That split
@@ -138,9 +147,10 @@ def main() -> None:
         # arrive with Weiss's hair without being told. Only `visible` and
         # `collide` are not inherited.
         ghosts = list(sprite.before.extend(GHOSTS))
-        for index, ghost in enumerate(ghosts):
-            # Furthest back is oldest and faintest. `before[0]` draws first.
-            ghost.alpha = 0.15 + index * 0.12
+        for ghost in ghosts:
+            # Furthest back is oldest. `before[0]` draws first, so distance
+            # along the chain is age -- which is what a fade would be read
+            # off if this sheet had dim rows to select. See the docstring.
             ghost.collide = False
 
         start = float(left + (row - 1) * STAGGER)

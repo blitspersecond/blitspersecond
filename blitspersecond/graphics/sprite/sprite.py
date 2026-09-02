@@ -140,6 +140,11 @@ class Sprite(Layer):
             sheet.primary_tileset
         ].default_palette
         self._slots = Slots(self._default_palette)
+        #: The sprite's colour registers: RGB multipliers over whatever the
+        #: palette produced. ONE set per sprite, reached through any of its
+        #: presentations -- see `Presentation.red`. There is no alpha: a
+        #: pixel is drawn or discarded.
+        self._color = np.ones(3, dtype=np.float32)
         # Draw order, kept apart from identity: two arrays of slot ids with
         # the primary implicitly between them. See `presentation.py`.
         self._before = np.empty(0, dtype=np.int32)
@@ -700,7 +705,7 @@ class Sprite(Layer):
     )
     green = _Slot0Channel("green", "Green multiplier, 0.0..1.0. See `red`.")
     blue = _Slot0Channel("blue", "Blue multiplier, 0.0..1.0. See `red`.")
-    alpha = _Slot0Channel("alpha", "Alpha multiplier, 0.0..1.0. See `red`.")
+    alpha = _Slot0Channel("alpha", "Gone -- see the error it raises.")
 
     # -- being seen, and being there ---------------------------------------
 

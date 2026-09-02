@@ -312,7 +312,7 @@ def test_registers_are_not_a_dict_subclass(chun: Sprite) -> None:
 # -- colour registers --------------------------------------------------
 
 
-@pytest.mark.parametrize("channel", ["red", "green", "blue", "alpha"])
+@pytest.mark.parametrize("channel", ["red", "green", "blue"])
 def test_colour_registers_default_to_one_and_clamp(
     chun: Sprite, channel: str
 ) -> None:
@@ -332,10 +332,21 @@ def test_the_channels_are_independent(chun: Sprite) -> None:
     chun.red = 0.1
     chun.green = 0.2
     chun.blue = 0.3
-    chun.alpha = 0.4
-    assert (chun.red, chun.green, chun.blue, chun.alpha) == pytest.approx(
-        (0.1, 0.2, 0.3, 0.4), rel=1e-6
+    assert (chun.red, chun.green, chun.blue) == pytest.approx(
+        (0.1, 0.2, 0.3), rel=1e-6
     )
+
+
+def test_there_is_no_alpha_register(chun: Sprite) -> None:
+    """Removed 2026-09-02. A sprite pixel is drawn or discarded, so a
+    fractional alpha had nothing to mean -- and the refusal names the three
+    things a caller might have wanted instead, because `ghost.alpha = 0.4`
+    was the documented way to fade a trail."""
+    for reach in (chun, chun.primary, chun.before.append()):
+        with pytest.raises(AttributeError, match="drawn or it is not"):
+            reach.alpha
+        with pytest.raises(AttributeError, match="palette bank"):
+            reach.alpha = 0.5
 
 
 # -- being seen, and being there ---------------------------------------

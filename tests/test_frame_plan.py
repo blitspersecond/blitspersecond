@@ -35,6 +35,13 @@ ASSETS = PACKAGE_ROOT.parent / "assets"
 
 
 @pytest.fixture
+def fumiko() -> Sprite:
+    """Four palettes on one tileset -- the sheet a material test needs, since
+    the bullet sheet carries one and has nothing to switch between."""
+    return Sprite(SpriteSheet(str(ASSETS / "fumiko" / "fumiko.sprite.json")))
+
+
+@pytest.fixture
 def bullets() -> Sprite:
     return Sprite(SpriteSheet(str(ASSETS / "bullets" / "bullets.sprite.json")))
 
@@ -164,48 +171,49 @@ def test_25000_presentations_collapse_to_one_run(bullets: Sprite) -> None:
 # -- runs are cut where they must be -----------------------------------
 
 
-def test_differing_colours_cut_runs(bullets: Sprite) -> None:
-    """A trail's fade is per presentation, and colour is part of a run's
-    material, so four differently-faded ghosts are four runs. They share one
-    texture bind between them, which is the expensive part."""
-    ghosts = bullets.before.extend(4)
+def test_differing_palette_rows_cut_runs(fumiko: Sprite) -> None:
+    """A trail's fade is a palette ROW per ghost, and the row is part of a
+    run's material, so four differently-faded ghosts are four runs. They share
+    one texture bind and one bank between them, which is the expensive part.
+
+    Colour cut runs here until 2026-09-02. It cannot now: the registers belong
+    to the sprite, so every drawing of it carries the same three floats."""
+    ghosts = fumiko.before.extend(4)
     for n, ghost in enumerate(ghosts):
-        ghost.assembly = "blue"
-        ghost.alpha = 0.2 + n * 0.2
+        ghost.assembly = "idle-0"
+        ghost.palettes["character"] = n
         ghost.visible = True
-    bullets.assembly = "blue"
-    bullets._sync()
-    assert len(bullets._plan.runs) == 5  # four fades, then the primary
+    fumiko.assembly = "idle-0"
+    fumiko._sync()
+    assert len(fumiko._plan.runs) == 5  # four rows, then the primary
 
 
-def test_adjacent_equal_colours_merge(bullets: Sprite) -> None:
-    ghosts = bullets.before.extend(4)
+def test_adjacent_equal_palette_rows_merge(fumiko: Sprite) -> None:
+    ghosts = fumiko.before.extend(4)
     for ghost in ghosts:
-        ghost.assembly = "blue"
-        ghost.alpha = 0.5
+        ghost.assembly = "idle-0"
+        ghost.palettes["character"] = 2
         ghost.visible = True
-    bullets.assembly = "blue"
-    bullets._sync()
-    # the four ghosts are one run; the primary's alpha is 1.0, so it is another
-    assert len(bullets._plan.runs) == 2
-    assert bullets._plan.runs[0][-2:] == (0, 4)
+    fumiko.assembly = "idle-0"
+    fumiko._sync()
+    # the four ghosts are one run; the primary is on row 0, so it is another
+    assert len(fumiko._plan.runs) == 2
+    assert fumiko._plan.runs[0][-2:] == (0, 4)
 
 
-def test_a_material_is_never_merged_across_a_gap(bullets: Sprite) -> None:
+def test_a_material_is_never_merged_across_a_gap(fumiko: Sprite) -> None:
     """Order-preserving means ADJACENT-only. Two stretches of one material
     with another between them stay two runs -- merging them would move quads
-    past a boundary, and transparency does not commute across one."""
-    ghosts = bullets.before.extend(3)
+    past a boundary, and a later quad covers an earlier one."""
+    ghosts = fumiko.before.extend(3)
     for ghost in ghosts:
-        ghost.assembly = "blue"
+        ghost.assembly = "idle-0"
         ghost.visible = True
-    ghosts[0].alpha = 1.0
-    ghosts[1].alpha = 0.5
-    ghosts[2].alpha = 1.0
-    bullets._sync()
-    runs = bullets._plan.runs
-    assert [r[-2:] for r in runs][:3] == [(0, 1), (1, 1), (2, 1)]
-    assert runs[0][:-2] == runs[2][:-2]  # same material, still two runs
+    ghosts[0].palettes["character"] = 0
+    ghosts[1].palettes["character"] = 1
+    ghosts[2].palettes["character"] = 0
+    fumiko._sync()
+    assert len(fumiko._plan.runs) == 3
 
 
 # -- draw order ---------------------------------------------------------
