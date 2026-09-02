@@ -1331,10 +1331,15 @@ def stage_instanced_rich(scene: Scene, buf: Buffers) -> List[tuple]:
     """`instanced-fused`, carrying colour and palette row per quad.
 
     The question this exists to answer is a CPU question, not a draw one. A
-    palette bind is 15.5us and a colour cut 5.5us, and a swarm has one of
-    each -- so nothing about binds or run counts is worth a millisecond at
-    this scale. Kris, cutting that whole line of argument off: *"the cost
-    isn't the gpu, it's cpu."*
+    palette cut is 8.3us and a colour cut 6.4us (`util/run_cost.py`, after the
+    palette bank landed), and a swarm has ONE of each -- so nothing about
+    binds or run counts is worth a millisecond at this scale. Kris, cutting
+    that whole line of argument off: *"the cost isn't the gpu, it's cpu."*
+
+    The bank landing is the proof of that, not just the argument for it. It
+    took a palette cut from 15.5us to 8.3us by removing two binds, and **every
+    number in this file stayed where it was.** A correctly-made draw-side
+    change moved nothing on the side this card is about.
 
     What per-quad colour is actually worth is what it removes from the STAGING:
     the material diff, which is 3.7ms at 250,000. And what it costs is reading
