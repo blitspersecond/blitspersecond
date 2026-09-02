@@ -57,6 +57,14 @@ class PaletteTexture:
         machinery, like PixelBuffer.texture)."""
         rows: Sequence[Palette] = (table,) if isinstance(table, Palette) else table
         entry = cls._cache.get(table)
+        # A bank can GROW -- `PaletteBank.extend` derives a trail's shades and
+        # a game may reach it after a frame has been drawn -- and the texture
+        # is sized to the row count it was first asked for. Rebuilt rather
+        # than blitted into, because a taller table into a shorter texture is
+        # not a resize, it is a fault, and it would surface as corrupt colour
+        # rather than as an error.
+        if entry is not None and entry.texture.height != len(rows):
+            entry = None
         if entry is None:
             entry = _Entry(
                 Texture.create(

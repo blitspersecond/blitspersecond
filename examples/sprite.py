@@ -30,14 +30,28 @@ Each ghost carries its own position and pose, and `collide = False`, because
 an afterimage that could be hit would be a bug the art tells you nothing
 about.
 
-**The ghosts do not fade, and that is a gap rather than a choice.** They used
-to, through a per-presentation `alpha`, which went on 2026-09-02: a sprite
-pixel is drawn or it is not, so there is no fraction to set. A fade is a
-dimmer ROW of the palette bank now -- which is how the hardware did it, and
-which this sheet has no rows for, since its four palettes are costumes. See
-the board card *Sprite alpha is binary and blending is the compositor's* for
-what generating them costs (207us for Chun-Li's whole bank, once, at load) and
-for the open question of who says how many steps.
+## How the trail fades, since it cannot fade with alpha
+
+A sprite pixel is drawn or it is not. There is no per-presentation alpha and
+no blending inside a sprite pass, because the engine paints back to front and
+colour information is last-writer-wins -- so **an afterimage is the same art
+drawn again through a dimmer table**, which is what the hardware this engine
+models actually did.
+
+The package ships four tables, one per sister, and they are costumes rather
+than shades. So this generates the shades: six per sister, each pulled further
+toward her signature colour and darker than the last, appended to the bank at
+load with `PaletteBank.extend`. A ghost then costs one register write, exactly
+like a costume swap, because that is what it now is.
+
+Pulling toward her colour rather than only darkening is what makes the trail
+read as a silhouette of HER rather than as a dim copy: the palette's variety
+collapses toward one hue as the ghost ages. Ruby trails red, Blake trails
+almost nothing.
+
+**Twenty-four generated tables between the four of them, and one bank.** The
+sheet is interned by path, so the sisters share a tileset and therefore share
+its bank -- each takes the six rows she asked for and leaves the rest alone.
 
 Draw order is the chain, not the slot number. A presentation's slot id is its
 identity and never moves; where it draws is its place in the chain. That split
@@ -74,15 +88,31 @@ SHEET = Path(__file__).resolve().parents[1] / "assets/fumiko/fumiko.sprite.json"
 SPEED = 1.0
 MARGIN = 40
 STAGGER = 120
-GHOSTS = 4
+GHOSTS = 6
 #: Ticks between a ghost and the one in front of it. Wide enough that the
 #: trail reads as motion rather than as a blur.
 TRAIL_GAP = 3
 
-#: Fumiko's palette tables, in the order the package stores them. The colour
-#: that changes between them is her hair, so the four of them are RWBY -- red,
-#: white, black, yellow -- which is the mnemonic doing the job a name would.
-TEAM = (("Ruby", 0), ("Weiss", 1), ("Blake", 2), ("Yang", 3))
+#: Fumiko's palette tables, in the order the package stores them, with the
+#: colour each sister's trail collapses toward. The table that changes between
+#: them is her hair, so the four of them are RWBY -- red, white, black, yellow
+#: -- which is the mnemonic doing the job a name would.
+#:
+#: The signature colour is AUTHORED here rather than read out of the art. It
+#: could be found by diffing one table against another, since the hair is the
+#: only thing that differs, and that would be clever and brittle: it would
+#: silently pick something else the day a package changed two things.
+TEAM = (
+    ("Ruby", 0, (188, 32, 40)),
+    ("Weiss", 1, (232, 232, 240)),
+    ("Blake", 2, (56, 52, 64)),
+    ("Yang", 3, (232, 188, 72)),
+)
+
+#: How dark the OLDEST ghost gets. Not 1.0: a trail that ends at pure black
+#: ends by disappearing against a dark stage, and the point of the last ghost
+#: is to still be the shape of her.
+DEEPEST = 0.82
 
 
 @dataclass
@@ -116,7 +146,7 @@ def main() -> None:
     spacing = bps.height // (len(TEAM) + 1)
 
     walkers = []
-    for row, (name, palette) in enumerate(TEAM, start=1):
+    for row, (name, palette, signature) in enumerate(TEAM, start=1):
         # One sheet, four sprites: shared pixels, separate identities.
         sprite = Sprite(sheet, tag=name.lower())
         bps.layers.add(sprite)
@@ -137,6 +167,21 @@ def main() -> None:
         # reading different tables out of the same tileset.
         sprite.palettes["character"] = palette
 
+        # Her six shades, derived once and appended to the shared bank. Step 1
+        # is the faintest change and step GHOSTS is the deepest, so the list
+        # reads oldest-last and is indexed backwards below -- `before[0]` is
+        # drawn first and is therefore the oldest.
+        bank = sheet.tilesets["character"].palettes
+        costume = bank[palette]
+        shades = bank.extend(
+            costume.shadowed(
+                signature,
+                mix=step / GHOSTS,
+                dim=DEEPEST * step / GHOSTS,
+            )
+            for step in range(1, GHOSTS + 1)
+        )
+
         # The trail. Allocated once and never grown: what changes per tick is
         # the CONTENTS of these four, not how many there are or where they sit
         # in the order. They arrive parked, so nothing appears until there is
@@ -147,10 +192,12 @@ def main() -> None:
         # arrive with Weiss's hair without being told. Only `visible` and
         # `collide` are not inherited.
         ghosts = list(sprite.before.extend(GHOSTS))
-        for ghost in ghosts:
-            # Furthest back is oldest. `before[0]` draws first, so distance
-            # along the chain is age -- which is what a fade would be read
-            # off if this sheet had dim rows to select. See the docstring.
+        for index, ghost in enumerate(ghosts):
+            # Furthest back is oldest, because `before[0]` draws first -- so
+            # distance along the chain IS age, and the deepest shade goes at
+            # the far end. Read the index backwards rather than reversing the
+            # list: the chain's order is the thing being expressed.
+            ghost.palettes["character"] = shades[GHOSTS - 1 - index]
             ghost.collide = False
 
         start = float(left + (row - 1) * STAGGER)

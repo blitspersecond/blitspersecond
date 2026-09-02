@@ -28,7 +28,7 @@ subject wearing two names: the constants are indices INTO a `Palette`, and
 boundary drawn through the middle of them.
 """
 
-from numpy import uint8, zeros
+from numpy import asarray, float32, uint8, zeros
 from typing import Iterable, Iterator, List, Sequence, Tuple, Optional, Union
 
 # The system palette: the 16 basic colours every machine since CGA has agreed
@@ -125,6 +125,54 @@ class Palette:
                 _byte(pal[i + 2]),
                 0 if idx == 0 else 255,
             ]
+
+    def shadowed(
+        self,
+        toward: Tuple[int, int, int],
+        mix: float = 1.0,
+        dim: float = 0.0,
+    ) -> "Palette":
+        """A derived table: every colour turned `mix` of the way into a
+        duotone of `toward`, then darkened by `dim`.
+
+            ghost = costume.shadowed(HAIR, mix=0.6, dim=0.5)
+
+        **This is how a trail fades.** A sprite pixel is drawn or it is not --
+        there is no per-presentation alpha and no blending inside a sprite
+        pass -- so an afterimage is the same art drawn again through a dimmer
+        table, which is what the hardware this engine models actually did.
+
+        **A duotone, NOT a blend toward the colour.** Each entry keeps its own
+        luminance and gets `toward`'s hue, so the art's light and shade
+        survive and only its variety collapses. Lerping toward the colour
+        instead was tried first and is wrong in a way that is obvious once
+        seen: it drags dark pixels UP toward a bright signature, so a white
+        character's shadow comes out brighter than she is and the ramp is not
+        even monotonic.
+
+        `toward` is normalised by its own brightest channel, so a dim
+        signature colour tints rather than darkens -- `dim` is the only thing
+        that darkens, which keeps the two arguments doing one job each.
+
+        A derived table costs about 10us and belongs at load. Nothing here
+        mutates: it returns a new `Palette`, so the costume it came from is
+        untouched and can be derived from again.
+
+        **Alpha is copied, not recomputed.** Index 0 is transparent and every
+        other index is opaque, and that is a fact about the source art rather
+        than about the shade -- a shadow of a hole is still a hole.
+        """
+        other = Palette()
+        rgb = self._palette[:, :3].astype(float32)
+        target = asarray(toward, dtype=float32)[:3]
+        target = target / max(float(target.max()), 1.0)
+        # Rec. 601 luma: the weights a CRT-era palette was authored against.
+        luma = rgb @ asarray([0.299, 0.587, 0.114], dtype=float32)
+        duotone = luma[:, None] * target
+        shaded = (rgb + (duotone - rgb) * float(mix)) * (1.0 - float(dim))
+        other._palette[:, :3] = shaded.clip(0, 255).astype(uint8)
+        other._palette[:, 3] = self._palette[:, 3]
+        return other
 
     def raw(self) -> List[int]:
         """The table as a flat list of RGB triples -- what `Palette(...)`
@@ -255,6 +303,42 @@ class PaletteBank:
                     f"palette bank row {index}: expected Palette, got "
                     f"{type(palette).__name__}"
                 )
+
+    def extend(self, palettes: Iterable[Palette]) -> Tuple[int, ...]:
+        """Append rows and hand back the register values that select them.
+
+            shades = bank.extend(
+                costume.shadowed(HAIR, mix=k / 6, dim=k / 8) for k in range(1, 7)
+            )
+            ghost.palettes["character"] = shades[0]
+
+        **A load-time door.** A bank is a tileset's whole table and the GPU
+        stores it as one texture, so growing one after a frame has been drawn
+        makes the next draw rebuild that texture -- correct, and not something
+        to do per tick. `PaletteTexture` handles the size change rather than
+        blitting a taller table into a shorter texture, which is what it used
+        to do.
+
+        Rows are appended, never inserted, so **every register already handed
+        out keeps meaning what it meant.** That is the whole reason this is
+        `extend` and not something that takes a position: a palette register
+        is a number a game is holding, and moving one would silently recolour
+        whatever held it.
+
+        The bank is shared, because a `SpriteSheet` is interned by path -- so
+        four sisters over one sheet grow ONE bank between them, and each takes
+        the slice of it she asked for.
+        """
+        added = tuple(palettes)
+        for index, palette in enumerate(added):
+            if not isinstance(palette, Palette):
+                raise TypeError(
+                    f"palette bank row {len(self._palettes) + index}: expected "
+                    f"Palette, got {type(palette).__name__}"
+                )
+        first = len(self._palettes)
+        self._palettes = self._palettes + added
+        return tuple(range(first, len(self._palettes)))
 
     def __len__(self) -> int:
         return len(self._palettes)

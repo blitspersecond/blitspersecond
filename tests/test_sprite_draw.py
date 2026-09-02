@@ -373,3 +373,35 @@ def test_a_mirrored_sprite_draws_mirrored(window, fumiko: Sprite) -> None:
         "FLIP_H moved the quad but drew the art unmirrored -- the vertex "
         "stage did not permute the corners"
     )
+
+
+def test_a_bank_that_grows_after_drawing_still_draws(window, fumiko: Sprite) -> None:
+    """`PaletteBank.extend` derives a trail's shades, and a game may reach it
+    after a frame has already been drawn.
+
+    The texture is sized to the row count it was FIRST asked for, so growing
+    the bank used to blit a taller table into a shorter texture -- which is
+    not a resize, it is a fault, and it would have surfaced as corrupt colour
+    rather than as an error. This draws, grows, selects a new row, and draws
+    again.
+    """
+    fumiko.assembly = "idle-0"
+    fumiko.position = (16, 16)
+    fumiko.palettes["character"] = 0
+    before = _compose(window, fumiko)
+    assert _lit(before).any(), "nothing was drawn at all"
+
+    bank = fumiko.sheet.tilesets["character"].palettes
+    grown = bank.extend([bank[0].shadowed((255, 40, 40), mix=1.0, dim=0.5)])
+    fumiko.palettes["character"] = grown[0]
+    after = _compose(window, fumiko)
+
+    assert _lit(after).any(), "the grown bank drew nothing"
+    assert np.array_equal(_lit(before), _lit(after)), (
+        "the same pose lit different pixels through a different row"
+    )
+    assert not np.array_equal(before, after), (
+        "the new row drew identical colours -- the register did not take"
+    )
+    lit = _lit(after)
+    assert after[lit].mean() < before[lit].mean(), "the shade is not darker"

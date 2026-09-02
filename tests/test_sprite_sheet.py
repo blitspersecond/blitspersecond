@@ -524,3 +524,61 @@ def test_the_first_party_fixtures_answer_it(tmp_path: Path) -> None:
     bullets = SpriteSheet(str(assets / "bullets" / "bullets.sprite.json"))
     assert bullets.primary_tileset in bullets.tilesets
     assert len(bullets.tilesets) == 1
+
+
+# -- generated shades, and a bank that grows to hold them ----------------
+
+
+def _fixture_bank() -> PaletteBank:
+    return PaletteBank(
+        (Palette([200, 40, 40] * 256), Palette([40, 40, 200] * 256))
+    )
+
+
+def test_a_shade_keeps_the_arts_light_and_shade() -> None:
+    """A duotone, not a blend toward the colour. Lerping toward a bright
+    signature drags DARK pixels up, so a white character's shadow comes out
+    brighter than she is -- which is what this asserts cannot happen."""
+    art = Palette()
+    art[1] = (20, 20, 20)  # nearly black
+    art[2] = (200, 200, 200)  # nearly white
+    shade = art.shadowed((255, 255, 255), mix=1.0)
+    assert shade[1][:3] < shade[2][:3], "the duotone lost the art's ordering"
+    assert sum(shade[1][:3]) <= sum(art[1][:3]) + 3, (
+        "a dark pixel got BRIGHTER under a white signature"
+    )
+
+
+def test_shades_darken_monotonically() -> None:
+    art = Palette([180, 120, 60] * 256)
+    steps = 6
+    means = [
+        sum(art.shadowed((200, 40, 40), mix=k / steps, dim=0.8 * k / steps)[9][:3])
+        for k in range(1, steps + 1)
+    ]
+    assert means == sorted(means, reverse=True), means
+
+
+def test_a_shade_keeps_the_transparent_index() -> None:
+    """A shadow of a hole is still a hole. Alpha is a fact about the source
+    art, not about the shade."""
+    shade = Palette([90, 90, 90] * 256).shadowed((10, 200, 10), dim=0.5)
+    assert shade[0][3] == 0
+    assert shade[1][3] == 255
+
+
+def test_extending_a_bank_appends_and_never_renumbers() -> None:
+    """A palette register is a number a game is holding. Inserting would
+    silently recolour whatever held it, which is why this only appends."""
+    bank = _fixture_bank()
+    before = [tuple(p.raw()) for p in bank]
+    added = bank.extend([bank[0].shadowed((0, 0, 0), dim=0.5)])
+    assert added == (2,)
+    assert len(bank) == 3
+    assert [tuple(p.raw()) for p in bank][:2] == before
+
+
+def test_a_bank_refuses_a_non_palette_row() -> None:
+    bank = _fixture_bank()
+    with pytest.raises(TypeError, match="row 2"):
+        bank.extend([object()])  # type: ignore[list-item]
