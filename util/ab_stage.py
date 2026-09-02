@@ -395,7 +395,7 @@ def stage_sliced(scene: Scene, buf: Buffers) -> List[tuple]:
     order = _drawable(scene.sprite, scene.chain)
     n = order.size
     first = int(order[0])
-    if n and int(np.ptp(order)) != n - 1:
+    if n and not _ascending(order):
         raise Contiguity(f"{n:,} live slots span {int(np.ptp(order)) + 1:,}")
     where = slice(first, first + n)
 
@@ -934,6 +934,31 @@ def stage_bulk_checked(scene: Scene, buf: Buffers) -> List[tuple]:
     return stage_bulk(scene, buf)
 
 
+def _ascending(order: np.ndarray) -> bool:
+    """Is this chain a solid ASCENDING run of slot ids?
+
+    Not merely a run: a permutation of one. `[1, 3, 2, 4]` spans exactly four
+    ids and holds exactly four, so a span check -- `order[-1] - order[0] ==
+    order.size - 1` -- accepts it, and a slice would then draw it as
+    `1, 2, 3, 4`. That is a silent reorder across a material boundary, which
+    is the one thing `_add_run` is written never to do.
+
+    **And it is reachable through the public API**, not a theoretical worry:
+    `remove()` returns a slot to the FRONT of the free list, so a following
+    `insert_before()` takes the same id back and puts it somewhere else in the
+    order. Two ordinary calls and the chain is a permutation.
+
+    Costs 0.045 ms at 250,000 -- 0.27% of a frame, one pass over an int32
+    array. Written here as a per-frame check because a harness should pay
+    honestly; in the pillar it belongs on `Chain._write`, where it is free,
+    since a chain's order changes at setup and almost never after.
+    """
+    n = order.size
+    if n < 2:
+        return True
+    return bool((np.diff(order) == 1).all())
+
+
 def install_bulk() -> None:
     """Patch `FramePlan.sync` to take the bulk lane where it can.
 
@@ -1149,7 +1174,7 @@ def install_routed() -> None:
         width = last - first + 1
         if (
             order.size >= PARTICLE_FLOOR
-            and width == order.size
+            and _ascending(order)
             and np.count_nonzero(slots.visible[first:last + 1])
             >= width * PARTICLE_FILL
         ):
@@ -1260,7 +1285,7 @@ def install_tiered() -> None:
         first, last = int(order[0]), int(order[-1])
         width = last - first + 1
         if (
-            width != order.size
+            not _ascending(order)
             or width <= BAND
             or np.count_nonzero(slots.visible[first:last + 1]) * 2 < width
         ):
