@@ -1,7 +1,9 @@
 """The sprite pillar's shader program: many quads, many materials, one pass.
 
-`default.vert` + `indexed.frag` -- one of the five programs the engine has in
-total, and the vertex stage is shared with the tilemap and used UNMODIFIED.
+`quads.vert` + `indexed.frag`. The vertex stage is this pillar's OWN as of
+2026-09-02: it reads no vertex attributes at all and rebuilds each quad from
+a shader storage buffer indexed by `gl_VertexID / 4`. The tilemap and console
+keep `default.vert`.
 Why these live beside the code that issues them rather than in a keyed
 `Shader.get(vert, frag)` cache is argued at length in
 `graphics/console/shader.py`; the same reasoning applies and is not repeated.
@@ -56,7 +58,7 @@ def program() -> ShaderProgram:
     """
     global _program
     if _program is None:
-        vert = (_SHADERS / "default.vert").read_text(encoding="utf-8")
+        vert = (_SHADERS / "quads.vert").read_text(encoding="utf-8")
         frag = (_SHADERS / "indexed.frag").read_text(encoding="utf-8")
         _program = ShaderProgram(
             Shader(vert, "vertex"),

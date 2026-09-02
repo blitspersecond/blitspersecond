@@ -157,7 +157,7 @@ def test_a_view_write_alone_does_not_rebuild(bullets: Sprite) -> None:
     bullets._sync()
     swarm.positions[:, 0] = 100          # no edit(), no touch
     bullets._sync()
-    assert bullets._plan.verts[0, 0, 0] != 100
+    assert bullets._plan.data[0, 0] != 100
 
 
 def test_edit_marks_the_sprite_dirty_once(bullets: Sprite) -> None:
@@ -173,7 +173,7 @@ def test_edit_marks_the_sprite_dirty_once(bullets: Sprite) -> None:
         swarm.positions[:, 0] = 100
     assert bullets._dirty is True
     bullets._sync()
-    assert bullets._plan.verts[0, 0, 0] == 100 - 4   # art anchored at -4
+    assert bullets._plan.data[0, 0] == 100 - 4   # art anchored at -4
 
 
 def test_edit_marks_dirty_even_if_the_body_raises(bullets: Sprite) -> None:

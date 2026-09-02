@@ -29,7 +29,12 @@ from blitspersecond.common import PACKAGE_ROOT, Location, Rect
 from blitspersecond.graphics import PixelBuffer
 from blitspersecond.graphics.orientation import Orientation
 from blitspersecond.graphics.sprite import Sprite, SpriteSheet
-from blitspersecond.graphics.sprite.frame import local_rect
+from blitspersecond.graphics.sprite.frame import (
+    _corners,
+    _source_corner,
+    local_rect,
+    uv_box,
+)
 
 ASSETS = PACKAGE_ROOT.parent / "assets"
 
@@ -231,7 +236,7 @@ def test_quads_are_staged_before_primary_after(bullets: Sprite) -> None:
     back.position = (0, 0)
     front.position = (200, 0)
     bullets._sync()
-    xs = bullets._plan.verts[: bullets._plan.quads, 0, 0]
+    xs = bullets._plan.data[: bullets._plan.quads, 0]
     assert list(xs) == sorted(xs)  # 0, 100, 200 -- back, primary, front
 
 
@@ -313,14 +318,14 @@ def test_a_still_scene_rebuilds_nothing(bullets: Sprite) -> None:
     """`_sync` is dirty-gated, so a paused frame costs a boolean check."""
     bullets.assembly = "blue"
     bullets._sync()
-    before = bullets._plan.verts
-    bullets._plan.verts = None  # type: ignore[assignment]
+    before = bullets._plan.data
+    bullets._plan.data = None  # type: ignore[assignment]
     bullets._sync()  # must not touch it
-    assert bullets._plan.verts is None
-    bullets._plan.verts = before
+    assert bullets._plan.data is None
+    bullets._plan.data = before
     bullets.position = (1, 1)  # now it is dirty again
     bullets._sync()
-    assert bullets._plan.verts is before  # rewritten in place, not replaced
+    assert bullets._plan.data is before  # rewritten in place, not replaced
 
 
 def test_the_arrays_grow_by_doubling_and_then_stop(bullets: Sprite) -> None:
@@ -331,11 +336,11 @@ def test_the_arrays_grow_by_doubling_and_then_stop(bullets: Sprite) -> None:
         p.assembly = "blue"
         p.visible = True
     bullets._sync()
-    grown = bullets._plan.verts
+    grown = bullets._plan.data
     assert grown.shape[0] >= 301
     bullets.position = (5, 5)
     bullets._sync()
-    assert bullets._plan.verts is grown
+    assert bullets._plan.data is grown
 
 
 # -- the origin is inside the formula ----------------------------------
@@ -346,10 +351,10 @@ def test_moving_the_origin_rebuilds_the_tables(bullets: Sprite) -> None:
     the old one are wrong. Per assembly, not per presentation."""
     bullets.assembly = "blue"
     bullets._sync()
-    first = bullets._plan.verts[0, 0].copy()
+    first = bullets._plan.data[0, :2].copy()
     bullets.origin = (5, 7)
     bullets._sync()
-    moved = bullets._plan.verts[0, 0]
+    moved = bullets._plan.data[0, :2]
     assert (first[0] - moved[0], first[1] - moved[1]) == (5, 7)
 
 
@@ -359,9 +364,10 @@ def test_moving_the_origin_rebuilds_the_tables(bullets: Sprite) -> None:
 def test_uvs_are_normalised_into_the_image(bullets: Sprite) -> None:
     bullets.assembly = "blue"
     bullets._sync()
-    uv = bullets._plan.uvs[0]
-    assert uv.shape == (4, 3)
-    assert np.all((uv[:, :2] >= 0.0) & (uv[:, :2] <= 1.0))
+    u0, v0, du, dv = bullets._plan.data[0, 4:8]
+    assert 0.0 <= u0 <= 1.0 and 0.0 <= v0 <= 1.0
+    assert 0.0 < du <= 1.0 and 0.0 < dv <= 1.0
+    assert u0 + du <= 1.0 and v0 + dv <= 1.0
 
 
 def test_turning_permutes_the_corners_rather_than_moving_them(
@@ -369,14 +375,41 @@ def test_turning_permutes_the_corners_rather_than_moving_them(
 ) -> None:
     """A mirror or a quarter turn is the same four points in a different
     order. Keeping it a permutation is what stops half-texel drift creeping
-    in as orientations compose."""
+    in as orientations compose.
+
+    Since 2026-09-02 the CPU does not permute anything: it stages the UV BOX
+    and the vertex stage picks which corner reads which (u, v). So the claim
+    splits in two, and both halves are checked here -- the box does not move,
+    and the rule the shader mirrors is a genuine permutation of four corners.
+    """
     bullets.assembly = "blue"
     bullets._sync()
-    straight = {tuple(c) for c in bullets._plan.uvs[0][:, :2]}
-    for turn in range(1, 8):
-        bullets.orientation = Orientation(turn)
+    straight = bullets._plan.data[0, 4:8].copy()
+    for turn in Orientation:
+        bullets.orientation = turn
         bullets._sync()
-        assert {tuple(c) for c in bullets._plan.uvs[0][:, :2]} == straight
+        assert np.array_equal(bullets._plan.data[0, 4:8], straight), (
+            f"{turn!r} moved the UV box instead of permuting its corners"
+        )
+        assert sorted(_source_corner(c, int(turn)) for c in range(4)) == [
+            0, 1, 2, 3
+        ], f"{turn!r} is not a permutation of the four corners"
+
+
+def test_the_shader_permutation_matches_the_reference_corners() -> None:
+    """`_source_corner` is the definition `quads.vert` mirrors, and `_corners`
+    is where the rule was written first. Two statements of one thing, so they
+    are checked against each other for all eight orientations rather than
+    trusted to stay in step."""
+    source = Rect(3, 5, 8, 4)
+    for turn in range(8):
+        reference = _corners(source, turn, 64, 32)[:, :2]
+        u0, v0, du, dv = uv_box(source, 64, 32)
+        box = [(u0, v0), (u0 + du, v0), (u0 + du, v0 + dv), (u0, v0 + dv)]
+        mirrored = np.array(
+            [box[_source_corner(c, turn)] for c in range(4)], np.float32
+        )
+        assert np.allclose(reference, mirrored), turn
 
 
 def _package(tmp_path: Path) -> str:

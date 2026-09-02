@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 
 from blitspersecond.common import PACKAGE_ROOT
+from blitspersecond.graphics.orientation import Orientation
 from blitspersecond.graphics.sprite import Sprite, SpriteSheet
 
 ASSETS = PACKAGE_ROOT.parent / "assets"
@@ -84,6 +85,13 @@ def _compose(window, sprite: Sprite) -> np.ndarray:
 @pytest.fixture
 def bullets() -> Sprite:
     return Sprite(SpriteSheet(str(ASSETS / "bullets" / "bullets.sprite.json")))
+
+
+@pytest.fixture
+def fumiko() -> Sprite:
+    """Art that is not symmetric, which a test of turning needs and the
+    bullet sheet cannot give -- see `test_a_mirrored_sprite_draws_mirrored`."""
+    return Sprite(SpriteSheet(str(ASSETS / "fumiko" / "fumiko.sprite.json")))
 
 
 def _lit(pixels: np.ndarray) -> np.ndarray:
@@ -326,3 +334,42 @@ def test_a_costume_swap_is_a_row_not_a_bind(window, fumiko: Sprite) -> None:
     right = pixels[16:48, 36:60, :3]
     assert _lit(left).any() and _lit(right).any()
     assert not np.array_equal(left, right)
+
+
+def test_a_mirrored_sprite_draws_mirrored(window, fumiko: Sprite) -> None:
+    """The vertex stage picks which corner reads which (u, v), and this is the
+    only test that runs that code -- `_source_corner` is checked against
+    `_corners` in the plan tests, but nothing there proves `quads.vert`
+    implements it.
+
+    **Compared as CONTENT inside the bounding box, not as position.** Two
+    earlier versions of this test did not work, and both failed silently by
+    passing:
+
+    - against the bullet sheet, whose art is an 8x8 dot symmetric on both
+      axes, so mirroring draws identical pixels;
+    - by asking whether the lit pixels moved, which they do either way --
+      `local_rect` flips the RECT on the CPU, so a shader that ignored the
+      turn entirely still draws the quad somewhere else.
+
+    What only the shader can do is mirror the ART WITHIN the quad. So the
+    check is that the flipped image, un-flipped, is the straight one.
+    """
+    fumiko.assembly = "idle-0"
+    fumiko.position = (20, 20)
+    straight = _lit(_compose(window, fumiko))
+    fumiko.orientation = Orientation.FLIP_H
+    mirrored = _lit(_compose(window, fumiko))
+
+    def content(lit):
+        rows, cols = np.flatnonzero(lit.any(axis=1)), np.flatnonzero(lit.any(axis=0))
+        assert rows.size and cols.size, "nothing was drawn"
+        return lit[rows[0]:rows[-1] + 1, cols[0]:cols[-1] + 1]
+
+    a, b = content(straight), content(mirrored)
+    assert a.shape == b.shape, f"the quad changed shape: {a.shape} vs {b.shape}"
+    assert not np.array_equal(a, b), "the art is symmetric; this proves nothing"
+    assert np.array_equal(a, b[:, ::-1]), (
+        "FLIP_H moved the quad but drew the art unmirrored -- the vertex "
+        "stage did not permute the corners"
+    )

@@ -141,16 +141,26 @@ class Tables:
     cheap even for a large population.
     """
 
-    __slots__ = ("_sheet", "_origin", "_rect", "_uv", "_built")
+    __slots__ = ("_sheet", "_origin", "_rect", "_box", "_quad", "_built")
 
     def __init__(self, sheet: "SpriteSheet", origin: Location) -> None:
         self._sheet = sheet
         self._origin = origin
         count = max(1, len(sheet.assemblies))
         self._rect = np.zeros((count, ORIENTATIONS, 4), dtype=np.int32)
-        # Four corners of (u, v, r) -- pyglet's tex_coords layout, so the draw
-        # step can hand these straight to a vertex list with no repacking.
-        self._uv = np.zeros((count, ORIENTATIONS, 4, 3), dtype=np.float32)
+        # `(u0, v0, du, dv)` per assembly, and NOT per orientation: turning a
+        # quad permutes which corner reads which (u, v) without moving the
+        # box, so the eight-fold axis this table used to carry existed only to
+        # pre-permute corners the CPU should not have been making. The vertex
+        # stage permutes now -- see `_source_corner`, which is the definition
+        # it mirrors.
+        self._box = np.zeros((count, 4), dtype=np.float32)
+        # rect and box FUSED, as float32, for the staging gather: eight floats
+        # per (assembly, orientation) so a chain reads one row per quad rather
+        # than indexing two tables with the same pair. The box is duplicated
+        # across the eight orientations to buy that, which for Chun-Li's 3198
+        # assemblies is 818 KB of table against a saving measured per frame.
+        self._quad = np.zeros((count, ORIENTATIONS, 8), dtype=np.float32)
         self._built = np.zeros(count, dtype=bool)
 
     @property
@@ -162,8 +172,13 @@ class Tables:
         return self._rect
 
     @property
-    def uv(self) -> np.ndarray:
-        return self._uv
+    def box(self) -> np.ndarray:
+        return self._box
+
+    @property
+    def quad(self) -> np.ndarray:
+        """`(assembly, orientation, 8)` of `(x, y, w, h, u0, v0, du, dv)`."""
+        return self._quad
 
     def ensure(self, ids: np.ndarray, names: Tuple[str, ...]) -> None:
         """Fill any of `ids` not yet computed. Vectorised in the common case
@@ -191,9 +206,49 @@ class Tables:
             self._rect[index, orientation] = local_rect(
                 orientation, part.offset, source, self._origin
             )
-            self._uv[index, orientation] = _corners(
-                source, orientation, image_w, image_h
-            )
+        self._box[index] = uv_box(source, image_w, image_h)
+        self._quad[index, :, :4] = self._rect[index]
+        self._quad[index, :, 4:] = self._box[index]
+
+
+def uv_box(source: Rect, image_w: int, image_h: int) -> Tuple[float, float, float, float]:
+    """`(u0, v0, du, dv)` -- one source rect as a normalised box.
+
+    Independent of orientation, which is the point: a turn changes which
+    corner reads which (u, v), not where the box is. Computed from the
+    image's dimensions rather than from a `Texture`, so the plan stays GL-free
+    and testable headless.
+    """
+    return (
+        source.x / image_w,
+        source.y / image_h,
+        source.width / image_w,
+        source.height / image_h,
+    )
+
+
+def _source_corner(corner: int, orientation: int) -> int:
+    """Which of the four (u, v) corners output `corner` reads, when turned.
+
+    **The definition `quads.vert` mirrors.** It is here, in Python, so the
+    rule can be tested -- a shader cannot be -- and so there is one statement
+    of it rather than two that drift.
+
+    `_corners` composes transpose, then FLIP_H, then FLIP_V, and each of those
+    maps an output corner to an input one. Undoing them to find the source
+    therefore runs in the OPPOSITE order: V, then H, then transpose. Getting
+    that backwards is invisible on a square, symmetric source and wrong on
+    everything else.
+    """
+    turn = int(orientation)
+    source = int(corner)
+    if turn & _FLIP_V:
+        source = 3 - source
+    if turn & _FLIP_H:
+        source = source ^ 1
+    if turn & _TRANSPOSE:
+        source = (4 - source) % 4
+    return source
 
 
 def _corners(
@@ -236,23 +291,26 @@ class FramePlan:
     at all. `quads` says how much of them is live this frame.
     """
 
-    __slots__ = ("verts", "uvs", "runs", "quads", "_tables")
+    __slots__ = ("data", "runs", "quads", "_tables")
+
+    #: Floats per quad in `data`: x, y, w, h, u0, v0, du, dv, turn. The layout
+    #: `quads.vert` reads by `gl_VertexID / 4`, and the reason this pillar
+    #: stages 36 bytes a quad where it used to manufacture 96.
+    RECORD = 9
 
     def __init__(self) -> None:
-        self.verts = np.zeros((0, 4, 3), dtype=np.float32)
-        self.uvs = np.zeros((0, 4, 3), dtype=np.float32)
+        self.data = np.zeros((0, self.RECORD), dtype=np.float32)
         self.runs: List[Run] = []
         self.quads = 0
         self._tables: Optional[Tables] = None
 
     def _reserve(self, quads: int) -> None:
-        if quads <= self.verts.shape[0]:
+        if quads <= self.data.shape[0]:
             return
-        size = max(8, self.verts.shape[0])
+        size = max(8, self.data.shape[0])
         while size < quads:
             size *= 2
-        self.verts = np.zeros((size, 4, 3), dtype=np.float32)
-        self.uvs = np.zeros((size, 4, 3), dtype=np.float32)
+        self.data = np.zeros((size, self.RECORD), dtype=np.float32)
 
     def _tables_for(self, sprite: "Sprite") -> Tables:
         tables = self._tables
@@ -289,21 +347,16 @@ class FramePlan:
         slots = sprite._slots
         ids = slots.assembly[order]
         turns = slots.orientation[order].astype(np.intp)
-        rects = tables.rect[ids, turns]
         xy = slots.position[order]
 
         first = self.quads
         last = first + order.size
-        x0 = (xy[:, 0] + rects[:, 0]).astype(np.float32)
-        y0 = (xy[:, 1] + rects[:, 1]).astype(np.float32)
-        x1 = x0 + rects[:, 2]
-        y1 = y0 + rects[:, 3]
-        verts = self.verts[first:last]
-        verts[:, 0, 0], verts[:, 0, 1] = x0, y0
-        verts[:, 1, 0], verts[:, 1, 1] = x1, y0
-        verts[:, 2, 0], verts[:, 2, 1] = x1, y1
-        verts[:, 3, 0], verts[:, 3, 1] = x0, y1
-        self.uvs[first:last] = tables.uv[ids, turns]
+        geometry = tables.quad[ids, turns]
+        record = self.data[first:last]
+        record[:, 0] = xy[:, 0] + geometry[:, 0]
+        record[:, 1] = xy[:, 1] + geometry[:, 1]
+        record[:, 2:8] = geometry[:, 2:8]
+        record[:, 8] = turns
         self.quads = last
 
         # The buffer and the bank are constant across a chain -- instanced
@@ -371,25 +424,21 @@ class FramePlan:
             tileset = sprite.sheet.tilesets[part.tileset]
             if cached is not None:
                 x, y, width, height = (
-                    int(v) for v in tables.rect[cached, turn]
+                    float(v) for v in tables.rect[cached, turn]
                 )
+                box = tables.box[cached]
             else:
                 source = tileset.atlas.rect(part.tile)
                 x, y, width, height = local_rect(
                     turn, part.offset, source, origin
                 )
+                box = uv_box(source, *tileset.atlas.size)
             index = self.quads
-            x0, y0 = float(px + x), float(py + y)
-            x1, y1 = x0 + width, y0 + height
-            self.verts[index, 0, 0], self.verts[index, 0, 1] = x0, y0
-            self.verts[index, 1, 0], self.verts[index, 1, 1] = x1, y0
-            self.verts[index, 2, 0], self.verts[index, 2, 1] = x1, y1
-            self.verts[index, 3, 0], self.verts[index, 3, 1] = x0, y1
-            if cached is not None:
-                self.uvs[index] = tables.uv[cached, turn]
-            else:
-                image_w, image_h = tileset.atlas.size
-                self.uvs[index] = _corners(source, turn, image_w, image_h)
+            record = self.data[index]
+            record[0], record[1] = px + x, py + y
+            record[2], record[3] = width, height
+            record[4:8] = box
+            record[8] = turn
             self.quads += 1
             self._add_run(
                 (

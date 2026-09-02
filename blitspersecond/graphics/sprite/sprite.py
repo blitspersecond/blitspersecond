@@ -366,11 +366,10 @@ class Sprite(Layer):
         # dirty-gated, so a still scene reaches here having changed nothing
         # and re-uploads the same bytes; the frames that matter are the ones
         # that moved.
-        batch.upload(plan.verts, plan.uvs, plan.quads)
-        # No blend state here. It is COMPOSITING state and `internal/display
-        # .py` sets it once around the whole pass -- every pillar wanted the
-        # identical two calls, and a layer that disabled blend on its way out
-        # would silently break whatever drew after it.
+        batch.upload(plan.data, plan.quads)
+        # No blend state here. It is COMPOSITING state, read per layer from
+        # `Layer.blend` by `internal/display.py`, and off by default -- see
+        # that loop for why off is the model rather than a saving.
         batch.begin()
         bound_texture = None
         bound_palette = None
