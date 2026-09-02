@@ -177,6 +177,11 @@ def build(count: int, dead: float = DEAD_FRACTION,
             swarm.color[min(3, count - 1), 3] = 0.5
         elif tint == "far":
             swarm.color[int(count * 0.75), 3] = 0.5
+        elif tint == "varied":
+            # Every presentation its own alpha: a particle fading with its own
+            # age, which is the most ordinary thing a particle system does and
+            # the one workload no path here has ever been asked to draw.
+            swarm.color[:, 3] = np.linspace(0.05, 1.0, count, dtype=np.float32)
         elif tint != "none":
             raise SystemExit(f"no such tint: {tint}")
 
@@ -299,7 +304,8 @@ def _runs_from_cuts(scene: Scene, cuts: np.ndarray, registers: np.ndarray,
     return [
         (
             id(tileset.atlas.buffer),
-            id(tileset.palettes[int(registers[begin])]),
+            id(tileset.palettes),
+            int(registers[begin]),
             tuple(colors[begin].tolist()),
             begin,
             end - begin,
@@ -315,7 +321,8 @@ def _one_run(scene: Scene, registers: np.ndarray, colors: np.ndarray,
     return [
         (
             id(tileset.atlas.buffer),
-            id(tileset.palettes[int(registers[0])]),
+            id(tileset.palettes),
+            int(registers[0]),
             tuple(colors[0].tolist()),
             0,
             count,
@@ -369,7 +376,7 @@ def _stage_general(scene: Scene, buf: Buffers, order: np.ndarray) -> List[tuple]
     registers = slots.palette[order]
     colors = slots.color[order]
     runs = _runs_from_cuts(scene, _cuts(registers, colors), registers, colors)
-    return [(b, p, c, first + o, n) for b, p, c, o, n in runs]
+    return [(b, k, r, c, first + o, n) for b, k, r, c, o, n in runs]
 
 
 # -- B: the access pattern -------------------------------------------------
@@ -666,9 +673,9 @@ def _merge(runs: List[tuple], material: tuple, first: int, count: int) -> None:
     uniform band and a uniform bulk span collapse back into ONE draw call
     despite being staged by two different functions.
     """
-    if runs and runs[-1][:3] == material and runs[-1][3] + runs[-1][4] == first:
-        buffer, palette, color, begin, length = runs[-1]
-        runs[-1] = (buffer, palette, color, begin, length + count)
+    if runs and runs[-1][:4] == material and runs[-1][4] + runs[-1][5] == first:
+        buffer, bank, row, color, begin, length = runs[-1]
+        runs[-1] = (buffer, bank, row, color, begin, length + count)
         return
     runs.append((*material, first, count))
 
@@ -713,7 +720,7 @@ def stage_tiered(scene: Scene, buf: Buffers) -> List[tuple]:
     if band.stop > band.start:
         ids = np.arange(band.start, band.stop, dtype=np.int32)
         for run in _stage_general(scene, buf, _drawable(scene.sprite, ids)):
-            _merge(runs, run[:3], run[3], run[4])
+            _merge(runs, run[:4], run[4], run[5])
 
     if bulk.stop > bulk.start:
         first, registers, colors = _stage_span(scene, buf, bulk)
@@ -1322,7 +1329,7 @@ def install_tiered() -> None:
 
 @variant(
     "instanced-rich",
-    fmt="instance",
+    fmt="instance-rich",
     needs="as `instanced-fused`, plus colour and palette row per quad",
     gives_up="nothing -- there is no material left to cut a run",
     note="what per-presentation colour costs once it is stream data, not a run",
@@ -1391,13 +1398,38 @@ def _permute(uv: np.ndarray, turn: int) -> np.ndarray:
     return uv[order]
 
 
-def canonical(scene: Scene, buf: Buffers, fmt: str) -> Tuple[np.ndarray, np.ndarray]:
-    """One variant's output as `(corners, uvs)`, whatever it staged.
+def _per_quad_material(buf: Buffers, fmt: str, runs: List[tuple], n: int
+                       ) -> Tuple[np.ndarray, np.ndarray]:
+    """What colour and palette row each staged quad draws with.
+
+    The point of asking it this way is that a variant may keep them in EITHER
+    place -- in the material of the run covering the quad, or in the quad's own
+    stream slot -- and the picture is the same either way. Comparing run
+    sequences instead would call `instanced-rich` wrong for emitting one run,
+    when emitting one run while still drawing 250,000 distinct colours is
+    precisely what it is for.
+    """
+    if fmt == "instance-rich":
+        packed = buf.instance[:n, 9].copy().view(np.uint32)
+        rgba = packed.view(np.uint8).reshape(n, 4).astype(np.float32) / 255.0
+        return rgba, buf.instance[:n, 10].copy()
+    colors = np.zeros((n, 4), np.float32)
+    rows = np.zeros(n, np.float32)
+    for _buffer, _bank, row, color, first, count in runs:
+        colors[first:first + count] = color
+        rows[first:first + count] = row
+    return colors, rows
+
+
+def canonical(scene: Scene, buf: Buffers, fmt: str, runs: List[tuple]
+              ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """One variant's output as `(corners, uvs, colours, rows)`, however staged.
 
     Every variant is judged on the picture it would draw, not on the bytes it
     wrote. A dense variant's zero-area quads are dropped here, because a quad
     the rasteriser discards is not part of the picture -- that is exactly the
-    claim being checked.
+    claim being checked. And colour and palette row are resolved to PER QUAD,
+    for the reason `_per_quad_material` gives.
     """
     n = buf.quads
     if fmt == "corners3":
@@ -1406,7 +1438,7 @@ def canonical(scene: Scene, buf: Buffers, fmt: str) -> Tuple[np.ndarray, np.ndar
     elif fmt == "corners2":
         corners = buf.corners2[:n].copy()
         uvs = buf.uvs2[:n].copy()
-    elif fmt in ("instance", "minimal"):
+    elif fmt in ("instance", "instance-rich", "minimal"):
         if fmt == "minimal":
             keys = buf.minimal[:n, 2].astype(np.int64)
             live = keys != 0
@@ -1442,17 +1474,18 @@ def canonical(scene: Scene, buf: Buffers, fmt: str) -> Tuple[np.ndarray, np.ndar
     else:
         raise ValueError(fmt)
 
+    colors, rows = _per_quad_material(buf, fmt, runs, n)
     # Drop the degenerate quads: zero width or zero height draws nothing.
     area = (corners[:, 2, 0] - corners[:, 0, 0]) * (
         corners[:, 2, 1] - corners[:, 0, 1]
     )
     live = area != 0
-    return corners[live], uvs[live]
+    return corners[live], uvs[live], colors[live], rows[live]
 
 
 def compare(baseline, candidate) -> Optional[str]:
     """Why two staged frames differ, or None if they do not."""
-    (bc, bu), (cc, cu) = baseline, candidate
+    (bc, bu, bk, br), (cc, cu, ck, cr) = baseline, candidate
     if bc.shape != cc.shape:
         return f"{cc.shape[0]:,} drawn quads against {bc.shape[0]:,}"
     if not np.array_equal(bc, cc):
@@ -1461,34 +1494,42 @@ def compare(baseline, candidate) -> Optional[str]:
     if not np.allclose(bu, cu, atol=1e-6):
         worst = float(np.abs(bu - cu).max())
         return f"texture coordinates differ, worst {worst:g}"
+    # 1/255 of tolerance, because a variant may carry colour as RGBA8 where
+    # the baseline carries float32 -- that is a representation difference, not
+    # a different picture.
+    if not np.allclose(bk, ck, atol=1.0 / 255.0 + 1e-6):
+        worst = float(np.abs(bk - ck).max())
+        return f"{int((np.abs(bk - ck) > 1/255).any(axis=1).sum()):,} quads " \
+               f"draw a different colour, worst {worst:.3f}"
+    if not np.allclose(br, cr):
+        return f"{int((br != cr).sum()):,} quads draw through a different palette row"
     return None
 
 
 def runs_match(baseline: List[tuple], candidate: List[tuple]) -> Optional[str]:
-    """Runs are compared on their MATERIAL SEQUENCE, not on quad counts.
+    """Compares only what is still genuinely PER RUN: the buffer and the bank.
 
-    Coalesced first, because "one run of 24,875" and "five adjacent runs of
-    the same material" draw the same picture and only one of them is a
-    difference worth reporting. Counts are deliberately dropped: a dense
-    variant covers more quads than the baseline by exactly the parked ones it
-    staged as degenerate, and those draw nothing -- `canonical` has already
-    established that.
+    Colour and palette row used to be checked here, by comparing material
+    sequences. They are not any more, because `canonical` resolves both to per
+    quad and `compare` checks them there -- which is the only way to judge a
+    variant that keeps them in the stream. Comparing sequences would call
+    `instanced-rich` wrong for emitting one run, when emitting one run while
+    drawing 250,000 distinct colours is the entire point of it.
 
-    What this catches is the failure that matters: a fast lane that collapses
-    a trail's four fades into one run. That is not a faster frame, it is a
-    different one.
+    What is left here cannot be per-quad data under any of these designs: a
+    buffer and a bank are texture binds, so they remain the two things a run
+    boundary is actually FOR.
     """
     def fold(runs):
         out = []
-        for buffer, palette, color, first, count in runs:
-            material = (buffer, palette, color)
-            if not out or out[-1] != material:
-                out.append(material)
+        for buffer, bank, _row, _color, _first, _count in runs:
+            if not out or out[-1] != (buffer, bank):
+                out.append((buffer, bank))
         return out
 
     a, b = fold(baseline), fold(candidate)
     if a != b:
-        return f"{len(b)} material run(s) against {len(a)}"
+        return f"{len(b)} texture run(s) against {len(a)}"
     return None
 
 
@@ -1503,7 +1544,7 @@ def measure(scene: Scene, name: str, repeat: int) -> dict:
         runs = var.fn(scene, buf)
     except Contiguity as why:
         return {"name": name, "skipped": str(why)}
-    out = canonical(scene, buf, var.fmt)
+    out = canonical(scene, buf, var.fmt, runs)
 
     samples = []
     for _ in range(repeat):
