@@ -34,25 +34,32 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 from pyglet.gl import (
-    GL_SHADER_STORAGE_BUFFER,
+    GL_R32F,
     GL_TEXTURE0,
     GL_TEXTURE1,
+    GL_TEXTURE2,
+    GL_TEXTURE_BUFFER,
     GL_TRIANGLES,
     GL_UNSIGNED_INT,
+    GLuint,
     glActiveTexture,
-    glBindBufferBase,
     glBindTexture,
+    glDeleteTextures,
     glDrawElements,
+    glGenTextures,
+    glTexBuffer,
     glUniform1f,
+    glUniform1i,
     glUniform4f,
 )
 from pyglet.graphics.vertexarray import VertexArray
 from pyglet.graphics.vertexbuffer import BufferObject
 
-#: Where `quads.vert` expects the quad records. One binding point, fixed,
-#: because there is exactly one storage buffer in this program and a name
-#: would only be a second place for it to disagree with the shader.
-QUAD_BINDING = 0
+#: Texture unit the quad records are read through. 0 is the atlas and 1 is
+#: the palette bank, so this is the next one -- fixed rather than negotiated,
+#: because there is exactly one of each in this program and a lookup would
+#: only be a second place for it to disagree with the shader.
+QUAD_UNIT = 2
 
 #: Floats per quad. Mirrors `FramePlan.RECORD` and `quads.vert`'s stride;
 #: imported rather than repeated so a change to the layout cannot leave the
@@ -92,6 +99,15 @@ class SpriteBatch:
         self._program = program
         self._loc_colors = _uniform(program, "run_colors")
         self._loc_row = _uniform(program, "run_palette_row")
+        #: The buffer texture's name. A texture over the record buffer, not a
+        #: copy of it -- `glTexBuffer` points one at the other and uploads go
+        #: on going to the buffer.
+        self._quad_texture = 0
+        #: Set with `glUniform1i` rather than `program["quad_data"] = 2`,
+        #: because pyglet's typed setter has no case for `GL_SAMPLER_BUFFER`
+        #: and raises `KeyError: 36290` on the assignment. It parses the
+        #: uniform perfectly well; it just cannot write it.
+        self._loc_quad_data = _uniform(program, "quad_data")
         self._capacity = 0
         # Still needed, and still empty: a core profile refuses to draw with
         # no vertex array bound, even by a program that reads no attributes.
@@ -119,6 +135,10 @@ class SpriteBatch:
         if self._capacity:
             self._quads.delete()
             self._indices.delete()
+        if not self._quad_texture:
+            name = GLuint()
+            glGenTextures(1, name)
+            self._quad_texture = name.value
 
         # Nine floats a quad, read by `quads.vert` at `gl_VertexID / 4`.
         # There are no vertex attribute arrays at all any more: positions and
@@ -126,6 +146,14 @@ class SpriteBatch:
         # moved to the vertex stage.
         self._quads = BufferObject(capacity * RECORD * 4)
         self._indices = BufferObject(capacity * 6 * 4)
+        # Re-pointed on every growth, because `_quads` is a NEW buffer each
+        # time and a texture attached to the old one would read freed memory
+        # rather than fail. R32F: one texel is one float, so nine of them are
+        # one quad and the record needs no padding.
+        glActiveTexture(GL_TEXTURE0 + QUAD_UNIT)
+        glBindTexture(GL_TEXTURE_BUFFER, self._quad_texture)
+        glTexBuffer(GL_TEXTURE_BUFFER, GL_R32F, self._quads.id)
+        glActiveTexture(GL_TEXTURE0)
 
         # Static index pattern: quad i -> [0,1,2, 0,2,3] + 4i. A run draws by
         # OFFSET into it, which is what lets many runs share one buffer -- and
@@ -158,9 +186,17 @@ class SpriteBatch:
         )
 
     def begin(self) -> None:
-        """Bind the VAO and the record buffer for the pass."""
+        """Bind the VAO and the record texture for the pass.
+
+        Unit 0 is left active on the way out, because `draw_run` and the
+        palette upload both assume it is -- see the note there.
+        """
         self._vao.bind()
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, QUAD_BINDING, self._quads.id)
+        if self._loc_quad_data >= 0:
+            glUniform1i(self._loc_quad_data, QUAD_UNIT)
+        glActiveTexture(GL_TEXTURE0 + QUAD_UNIT)
+        glBindTexture(GL_TEXTURE_BUFFER, self._quad_texture)
+        glActiveTexture(GL_TEXTURE0)
 
     def end(self) -> None:
         self._vao.unbind()

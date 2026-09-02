@@ -1,9 +1,9 @@
-#version 430
+#version 330
     // The sprite pillar's vertex stage: NO vertex attributes at all.
     //
-    // Every quad is nine floats in a shader storage buffer, and each of the
-    // four vertices works out which quad it belongs to and which corner it is
-    // from `gl_VertexID` alone. The index buffer is still `[0,1,2,0,2,3] + 4i`,
+    // Every quad is nine floats in a buffer texture, and each of the four
+    // vertices works out which quad it belongs to and which corner it is from
+    // `gl_VertexID` alone. The index buffer is still `[0,1,2,0,2,3] + 4i`,
     // so `gl_VertexID` takes values 0..4N-1 -- four invocations per quad, not
     // six, which is the whole reason to keep drawing elements rather than
     // arrays.
@@ -29,7 +29,19 @@
     // quad permutes which corner reads which (u, v) without moving the box,
     // so the eight-fold table the CPU used to gather twelve floats from
     // collapses to four floats per assembly.
-    layout(std430, binding = 0) readonly buffer QuadData { float quads[]; };
+    // A BUFFER TEXTURE rather than a shader storage buffer, which is the only
+    // reason this file is `#version 330` like every other shader here. An SSBO
+    // needs GL 4.3 and would put the sprite pillar's floor above the rest of
+    // the engine -- and above macOS, which stops at 4.1. A `samplerBuffer`
+    // does the identical job from GL 3.1, reads the identical bytes, and
+    // costs the CPU nothing either way: what is staged is the same 36 bytes
+    // a quad. Kris: *"use buffer texture; we dont need SSBO"*.
+    //
+    // `GL_R32F`, so one fetch is one float and the record is not padded. An
+    // RGBA32F buffer would fetch four at a time and read better, at the price
+    // of rounding nine floats up to twelve -- a third more to WRITE every
+    // frame, which is the side that costs.
+    uniform samplerBuffer quad_data;
 
     uniform WindowBlock
     {
@@ -53,11 +65,23 @@
         int corner = gl_VertexID % 4;
         int base = quad * 9;
 
-        vec2 origin = vec2(quads[base], quads[base + 1]);
-        vec2 size = vec2(quads[base + 2], quads[base + 3]);
-        vec2 uv0 = vec2(quads[base + 4], quads[base + 5]);
-        vec2 duv = vec2(quads[base + 6], quads[base + 7]);
-        int turn = int(quads[base + 8] + 0.5);
+        vec2 origin = vec2(
+            texelFetch(quad_data, base).r,
+            texelFetch(quad_data, base + 1).r
+        );
+        vec2 size = vec2(
+            texelFetch(quad_data, base + 2).r,
+            texelFetch(quad_data, base + 3).r
+        );
+        vec2 uv0 = vec2(
+            texelFetch(quad_data, base + 4).r,
+            texelFetch(quad_data, base + 5).r
+        );
+        vec2 duv = vec2(
+            texelFetch(quad_data, base + 6).r,
+            texelFetch(quad_data, base + 7).r
+        );
+        int turn = int(texelFetch(quad_data, base + 8).r + 0.5);
 
         // Corners wind top-left, top-right, bottom-right, bottom-left -- the
         // same winding the index pattern and the old staging both assumed.

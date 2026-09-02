@@ -40,6 +40,7 @@ now a number, because the bank they both belong to is one table.
 
 from typing import Optional
 
+from pyglet.gl import GL_SAMPLER_BUFFER
 from pyglet.graphics.shader import Shader, ShaderProgram
 
 from blitspersecond.common import PACKAGE_ROOT
@@ -47,6 +48,28 @@ from blitspersecond.common import PACKAGE_ROOT
 _SHADERS = PACKAGE_ROOT / "assets" / "shaders"
 
 _program: Optional[ShaderProgram] = None
+
+
+def _teach_pyglet_sampler_buffer() -> None:
+    """Register `GL_SAMPLER_BUFFER` in pyglet's uniform setter table.
+
+    pyglet builds a `_Uniform` for every uniform it introspects and looks the
+    GL type up in `_uniform_setters` while doing it. `samplerBuffer` is not in
+    that table, so a program containing one raises `KeyError: 36290` **at
+    construction** -- not at assignment, which is what makes it look like a
+    shader compile failure when it is not. The shader compiles and links
+    perfectly well.
+
+    A sampler uniform is an int naming a texture unit whatever it samples, so
+    the entry is `GL_SAMPLER_2D`'s, copied. Reaching into another library's
+    private table is not free of risk and is done here rather than anywhere
+    else so there is one place to find it: if a pyglet upgrade adds the type
+    itself, this becomes a no-op rather than a conflict.
+    """
+    from pyglet.gl import GL_SAMPLER_2D
+    from pyglet.graphics.shader import _uniform_setters
+
+    _uniform_setters.setdefault(GL_SAMPLER_BUFFER, _uniform_setters[GL_SAMPLER_2D])
 
 
 def program() -> ShaderProgram:
@@ -58,6 +81,7 @@ def program() -> ShaderProgram:
     """
     global _program
     if _program is None:
+        _teach_pyglet_sampler_buffer()
         vert = (_SHADERS / "quads.vert").read_text(encoding="utf-8")
         frag = (_SHADERS / "indexed.frag").read_text(encoding="utf-8")
         _program = ShaderProgram(

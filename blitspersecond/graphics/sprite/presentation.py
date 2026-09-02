@@ -14,9 +14,30 @@ a layer each.
 **A slot id says WHICH presentation. A chain says WHERE it draws.** They are
 deliberately not the same number.
 
-    [ before ]   ->   primary   ->   [ after ]
-     drawn first      slot 0          drawn last
-     (behind)                         (in front)
+    q q q q Q q q q q
+    |_____| ^ |_____|
+     before |  after
+          slot 0
+
+**That is ONE sequence, not three.** Every position in it is an ordinary quad
+drawn in an ordinary order; one of them is also the sprite. `before` and
+`after` are not containers -- they are what "earlier than slot 0" and "later
+than slot 0" are called, and they only exist because the order is read
+relative to that one position. `Sprite.presentations` puts the sequence back
+together and is the honest picture of it:
+
+    for slot in (*self._before, PRIMARY, *self._after)
+
+It is STORED pre-split because slot 0 is exactly where a bulk gather has to
+break anyway: it is the one position that may expand to several quads, cross
+to another tileset and hold a multipart pose. A single order array would have
+to find that position and split around it every frame. Two arrays are that
+split, kept rather than rediscovered -- an encoding, not a second idea.
+
+Slot 0 is also the only position with anything attached: the clip cursor, the
+per-tileset palette registers, the colour registers, and (later) named
+collision planes. Everything else about it is a row in the same arrays every
+other presentation uses.
 
 An earlier design made the index carry both -- signed, ascending, 0 in the
 middle -- and it cost more than it saved. Moving a presentation in the draw
@@ -229,9 +250,13 @@ class Slots:
         """Return a slot id to the free list. The primary cannot be given."""
         if slot == PRIMARY:
             raise ValueError(
-                "the primary presentation cannot be removed -- it is the "
-                "sprite's own state, and a sprite with nothing to draw would "
-                "have nowhere to keep its position"
+                "the primary presentation cannot be removed -- it is not a "
+                "member of the draw order, it is the position the draw order "
+                "is read relative to. `before` and `after` mean earlier and "
+                "later THAN THIS, so removing it would leave the other "
+                "presentations with nothing to be ordered around. Park it "
+                "instead: `visible = False` draws nothing and keeps the "
+                "sprite's position, pose and registers where they are."
             )
         self._alive[slot] = False
         self.visible[slot] = False
