@@ -91,6 +91,11 @@ SHEET = ROOT / "assets/bullets/bullets.sprite.json"
 DEFAULT_COUNTS = (25_000, 100_000, 250_000)
 REPEAT = 15
 
+#: 60fps, in ms. Here so a saving can be quoted as a share of the thing it is
+#: competing for rather than as a percentage of itself -- half of a number
+#: that is already noise is still noise.
+BUDGET_MS = 1000.0 / 60.0
+
 #: The fountain's dynamics, copied from `sprite_sweep.py` so the population
 #: this stages has the same spread of positions and the same fraction of
 #: parked slots as the run the ceiling was measured on.
@@ -1618,12 +1623,19 @@ def knee(repeat: int, dead: float = DEAD_FRACTION) -> None:
 
     So the only thing left to measure is where to put the threshold, which is
     what this does. Both paths are timed at every size on the same chain.
+
+    **Read the budget column, not the percentage.** A small chain's cost is
+    interpreter overhead in both paths, and a 48% difference between two
+    numbers that are both a rounding error is not evidence about anything.
+    Kris: *"that's expected; and note the costs are trivial at small counts
+    anyway."* The percentage says particle mode is never worse; the budget
+    share says where anyone should care, and those are different questions.
     """
     print(f"\nrouting knee: regular against particle, best of {repeat}\n")
     print(f"  {'chain':>8}  {'regular':>10}  {'particle':>10}  {'delta':>9}"
-          f"  {'us/1k regular':>14}  {'us/1k particle':>15}")
-    print("  " + "-" * 76)
-    sizes = (1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 4096,
+          f"  {'saved':>9}  {'of a frame':>11}")
+    print("  " + "-" * 68)
+    sizes = (1, 4, 16, 64, 256, 1024, 2048, 4096, 8192,
              16_384, 65_536, 250_000)
     crossed = None
     for size in sizes:
@@ -1634,19 +1646,27 @@ def knee(repeat: int, dead: float = DEAD_FRACTION) -> None:
         base = measure(scene, "current", passes)
         fast = measure(scene, "bulk", passes)
         delta = (1 - fast["best"] / base["best"]) * 100
-        if crossed is None and delta > 0:
+        saved = base["best"] - fast["best"]
+        share = saved / BUDGET_MS * 100
+        if crossed is None and share >= 1.0:
             crossed = size
         print(
             f"  {size:>8,}  {base['best'] * 1000:9.1f}u"
             f"  {fast['best'] * 1000:9.1f}u  {delta:+8.1f}%"
-            f"  {base['best'] * 1e6 / max(size, 1):>13.0f}"
-            f"  {fast['best'] * 1e6 / max(size, 1):>14.0f}"
+            f"  {saved * 1000:8.1f}u  {share:>10.2f}%"
         )
     print()
+    print("  Particle mode is never worse, at any size. That settles nothing")
+    print("  about the threshold: below a few thousand presentations the whole")
+    print("  difference is tens of microseconds, which is noise against a")
+    print(f"  {BUDGET_MS:.2f}ms frame.")
     if crossed:
-        print(f"  particle mode is ahead from {crossed:,} presentations up")
-    print("  Both paths stay live. A chain under the threshold is staged")
-    print("  exactly as it is today, so a trail costs what a trail costs.\n")
+        print(f"\n  the choice first costs 1% of a frame at {crossed:,} "
+              "presentations")
+    print("\n  So route on CAPABILITY, not on cost. Below that size the")
+    print("  decision is free either way and should be made on whether the")
+    print("  chain needs per-presentation colour; above it, a chain that")
+    print("  wanted per-presentation colour was never a swarm.\n")
 
 
 def main(argv=None) -> int:
