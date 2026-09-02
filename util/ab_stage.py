@@ -128,7 +128,8 @@ class Scene:
     fused: np.ndarray = field(default_factory=lambda: np.zeros((0, 0, 8), np.float32))
 
 
-def build(count: int, dead: float = DEAD_FRACTION) -> Scene:
+def build(count: int, dead: float = DEAD_FRACTION,
+          tint: str = "none") -> Scene:
     """One swarm, seeded mid-flight, with a realistic scatter of parked slots.
 
     Positions come from integrating each bullet forward by a random age, the
@@ -136,6 +137,13 @@ def build(count: int, dead: float = DEAD_FRACTION) -> Scene:
     to what the values ARE only through the branch-free arithmetic over them --
     but the parked fraction changes the SHAPE of the work, and that has to be
     right.
+
+    `tint` fades ONE presentation, and where it sits decides which designs
+    survive it. `near` puts it in the band adjacent to the primary, where an
+    authored effect actually lives; `far` puts it three-quarters of the way
+    down a swarm, where nothing an author writes by hand would ever be. Every
+    fast path here is a bet that the second case does not happen, and the bets
+    differ in whether they NOTICE when it does.
     """
     sprite = Sprite(SpriteSheet(str(SHEET)), tag="ab")
     sprite.assembly = None  # the primary draws nothing; this is about the chain
@@ -160,6 +168,12 @@ def build(count: int, dead: float = DEAD_FRACTION) -> Scene:
         if dead:
             corpses = rng.choice(count, size=int(count * dead), replace=False)
             swarm.visible[corpses] = False
+        if tint == "near":
+            swarm.color[min(3, count - 1), 3] = 0.5
+        elif tint == "far":
+            swarm.color[int(count * 0.75), 3] = 0.5
+        elif tint != "none":
+            raise SystemExit(f"no such tint: {tint}")
 
     plan = FramePlan()
     tables = plan._tables_for(sprite)
@@ -309,9 +323,23 @@ def _one_run(scene: Scene, registers: np.ndarray, colors: np.ndarray,
 
 @variant("current", note="the shipped `_emit_chain`, verbatim")
 def stage_current(scene: Scene, buf: Buffers) -> List[tuple]:
+    buf.quads = 0
+    return _stage_general(scene, buf, _drawable(scene.sprite, scene.chain))
+
+
+def _stage_general(scene: Scene, buf: Buffers, order: np.ndarray) -> List[tuple]:
+    """The shipped path, over any filtered order. Appends to the plan.
+
+    Lifted out whole so the tiered band is staged by the REAL general path
+    rather than by something that resembles it -- which is what makes "the
+    band behaves exactly as the pillar does today" a fact rather than a hope,
+    and what keeps a blank or parked presentation in the band contributing
+    nothing, as three tests require.
+    """
+    if not order.size:
+        return []
     slots = scene.sprite._slots
     tables = scene.tables
-    order = _drawable(scene.sprite, scene.chain)
 
     ids = slots.assembly[order]
     turns = slots.orientation[order].astype(np.intp)
@@ -319,21 +347,24 @@ def stage_current(scene: Scene, buf: Buffers) -> List[tuple]:
     xy = slots.position[order]
 
     n = order.size
+    first = buf.quads
+    last = first + n
     x0 = (xy[:, 0] + rects[:, 0]).astype(np.float32)
     y0 = (xy[:, 1] + rects[:, 1]).astype(np.float32)
     x1 = x0 + rects[:, 2]
     y1 = y0 + rects[:, 3]
-    verts = buf.corners3[:n]
+    verts = buf.corners3[first:last]
     verts[:, 0, 0], verts[:, 0, 1] = x0, y0
     verts[:, 1, 0], verts[:, 1, 1] = x1, y0
     verts[:, 2, 0], verts[:, 2, 1] = x1, y1
     verts[:, 3, 0], verts[:, 3, 1] = x0, y1
-    buf.uvs3[:n] = tables.uv[ids, turns]
-    buf.quads = n
+    buf.uvs3[first:last] = tables.uv[ids, turns]
+    buf.quads = last
 
     registers = slots.palette[order]
     colors = slots.color[order]
-    return _runs_from_cuts(scene, _cuts(registers, colors), registers, colors)
+    runs = _runs_from_cuts(scene, _cuts(registers, colors), registers, colors)
+    return [(b, p, c, first + o, n) for b, p, c, o, n in runs]
 
 
 # -- B: the access pattern -------------------------------------------------
@@ -565,6 +596,161 @@ def stage_bulk_vec2(scene: Scene, buf: Buffers) -> List[tuple]:
     buf.quads = n
 
     return _one_run(scene, slots.palette[span], slots.color[span], n)
+
+
+#: How many presentations either side of the primary are RICH. Adjacent to
+#: slot 0 in draw order, so the tail of `before` and the head of `after`.
+#: Twenty is Kris's number and it is not load-bearing -- the band's cost is
+#: flat in this range (see `tiers()`), so it can be whatever an author needs
+#: without the sweep noticing.
+BAND = 20
+
+
+def _tier_split(scene: Scene) -> Tuple[slice, slice]:
+    """`(rich, bulk)` spans of one chain, split at the band.
+
+    The band sits AGAINST the primary, so for `after` it is the head of the
+    chain and for `before` it would be the tail. This harness stages a swarm
+    in `after`, which is also the case that matters: a swarm allocated by one
+    `extend()` starts adjacent to the sprite and runs away from it.
+    """
+    first, stop = scene.span.start, scene.span.stop
+    edge = min(first + BAND, stop)
+    return slice(first, edge), slice(edge, stop)
+
+
+def _stage_span(scene: Scene, buf: Buffers, span: slice
+                ) -> Tuple[int, np.ndarray, np.ndarray]:
+    """Stage one span of slots by the dense mask path, APPENDING to the plan.
+
+    Appends rather than overwrites, because a tiered chain stages two spans in
+    draw order and the second must land after the first -- the same way
+    `FramePlan.sync` walks before, primary, after.
+    """
+    slots = scene.sprite._slots
+    tables = scene.tables
+    ids = slots.assembly[span]
+    keep = slots.visible[span] & (ids >= 0)
+    safe = np.maximum(ids, 0)
+    keep &= scene.sprite._assembly_quads[safe] == 1
+    turns = slots.orientation[span].astype(np.intp)
+    rects = tables.rect[safe, turns]
+    xy = slots.position[span]
+    n = safe.size
+    begin = buf.quads
+    end = begin + n
+
+    x0 = (xy[:, 0] + rects[:, 0]).astype(np.float32)
+    y0 = (xy[:, 1] + rects[:, 1]).astype(np.float32)
+    x1 = x0 + rects[:, 2] * keep
+    y1 = y0 + rects[:, 3] * keep
+    verts = buf.corners3[begin:end]
+    verts[:, 0, 0], verts[:, 0, 1] = x0, y0
+    verts[:, 1, 0], verts[:, 1, 1] = x1, y0
+    verts[:, 2, 0], verts[:, 2, 1] = x1, y1
+    verts[:, 3, 0], verts[:, 3, 1] = x0, y1
+    buf.uvs3[begin:end] = tables.uv[safe, turns]
+    buf.quads = end
+    return begin, slots.palette[span], slots.color[span]
+
+
+def _merge(runs: List[tuple], material: tuple, first: int, count: int) -> None:
+    """`FramePlan._add_run`, as a free function: extend or start.
+
+    Adjacent-only, exactly as the pillar does it -- which is what lets a
+    uniform band and a uniform bulk span collapse back into ONE draw call
+    despite being staged by two different functions.
+    """
+    if runs and runs[-1][:3] == material and runs[-1][3] + runs[-1][4] == first:
+        buffer, palette, color, begin, length = runs[-1]
+        runs[-1] = (buffer, palette, color, begin, length + count)
+        return
+    runs.append((*material, first, count))
+
+
+@variant(
+    "tiered",
+    needs="a contiguous chain; no flag, no scan, no uniformity gate",
+    gives_up="a fade beyond the band is DRAWN WRONG -- see `--tiers`",
+    note=f"rich within {BAND} of the primary, bulk beyond. A heuristic.",
+)
+def stage_tiered(scene: Scene, buf: Buffers) -> List[tuple]:
+    """Kris's tiering: full fat at slot 0, semi-skimmed nearby, skimmed beyond.
+
+    The bet is that **richness lives next to the sprite**. A shadow trail, a
+    tail's segments, a charge-up flare -- anything an author places by hand is
+    adjacent to the primary in draw order, because that is what it is a
+    drawing OF. A swarm is the rest.
+
+    What that buys over a gated lane is not speed, it is the removal of a
+    cliff. A gate asks "is this whole chain uniform?" and one faded bullet
+    answers no, dropping 250,000 presentations onto the slow path. Tiering
+    never asks: the band is always rich and the bulk is always flat, so there
+    is no question whose answer can change under a game.
+
+    It also deletes the 1.4ms uniformity scan outright, because nothing is
+    being detected.
+
+    **And it is a heuristic, so it can be wrong.** A fade beyond the band is
+    staged flat and drawn in the bulk span's colour. This variant is left
+    exactly that wrong on purpose -- `--tiers` shows the harness catching it --
+    because the fix is not a better heuristic, it is `tiered-contract` below.
+    """
+    band, bulk = _tier_split(scene)
+    buf.quads = 0
+    runs: List[tuple] = []
+    sheet = scene.sprite.sheet
+    tileset = sheet.tilesets[sheet.primary_tileset]
+
+    # The band goes through the REAL general path, filter and all, so a
+    # semi-skimmed presentation behaves exactly as an instanced one does
+    # today -- including a blank or parked one contributing no quad.
+    if band.stop > band.start:
+        ids = np.arange(band.start, band.stop, dtype=np.int32)
+        for run in _stage_general(scene, buf, _drawable(scene.sprite, ids)):
+            _merge(runs, run[:3], run[3], run[4])
+
+    if bulk.stop > bulk.start:
+        first, registers, colors = _stage_span(scene, buf, bulk)
+        _merge(
+            runs,
+            (
+                id(tileset.atlas.buffer),
+                id(tileset.palettes[int(registers[0])]),
+                tuple(colors[0].tolist()),
+            ),
+            first,
+            bulk.stop - bulk.start,
+        )
+    return runs
+
+
+@variant(
+    "tiered-contract",
+    needs="skimmed slots REFUSE a colour write, so there is nothing to read",
+    gives_up="per-presentation colour beyond the band -- refused, not ignored",
+    note="the same staging, with the bet turned into a rule that cannot break",
+)
+def stage_tiered_contract(scene: Scene, buf: Buffers) -> List[tuple]:
+    """Tiering where the tier is a CONTRACT rather than a guess.
+
+    Identical work to `tiered`. The whole difference is upstream: a skimmed
+    presentation raises on `alpha = 0.4` instead of accepting it, so the far
+    fade that makes `tiered` draw the wrong frame cannot be authored. The
+    chain's colour is the chain's, and a presentation that wants its own asks
+    to be in the band.
+
+    That is this codebase's existing answer to exactly this shape of problem.
+    `PaletteRegisters` refuses an unknown tileset rather than accepting a
+    write that would never be drawn, and says why; `Presentation.assembly`
+    refuses a multipart pose on an instanced slot for the same reason. A
+    silently-ignored colour is the failure both were written to prevent.
+
+    **It also means the colour array is never read for the bulk span** -- not
+    scanned, not gathered, not diffed. That is the 1.4ms floor removed rather
+    than paid, and it is the only design here that removes it.
+    """
+    return stage_tiered(scene, buf)
 
 
 # -- D: stop expanding corners on the CPU ----------------------------------
@@ -850,6 +1036,124 @@ def install_bulk() -> None:
     FramePlan.sync = sync
 
 
+def install_tiered() -> None:
+    """Patch `FramePlan.sync` to stage every chain in two tiers.
+
+    `sprite_sweep.py --stage tiered` installs this. It is `install_bulk`
+    without the uniformity gate -- which is the whole point: there is nothing
+    to detect, so there is no scan to pay for and no answer that can change
+    under a game and drop 250,000 presentations onto the slow path.
+
+    The band sits AGAINST the primary in draw order: the tail of `before`,
+    the head of `after`. That is where an authored effect lives, because an
+    authored effect is a drawing OF the sprite and is placed next to it.
+
+    Two gates remain, and both are about the bulk span rather than about
+    richness. Contiguity, because there is no slice to read without it.
+    Occupancy, because below about half full, staging everything costs more
+    than gathering the few -- and a chain shorter than the band never reaches
+    the bulk path at all, so a trail is staged exactly as it is today.
+
+    **This is a heuristic, and `util/ab_stage.py --tiers` shows it being
+    wrong**: a fade beyond the band is staged flat and drawn in the bulk
+    span's colour. Landing this for real means the tier is a contract instead
+    -- a skimmed presentation refusing the colour write, the way
+    `PaletteRegisters` refuses an unknown tileset -- so the wrong frame is
+    unreachable rather than merely unlikely.
+    """
+
+    def bulk_span(self, sprite, tables, names, span):
+        """The skimmed tier: mask instead of gather, one run, no diff."""
+        slots = sprite._slots
+        ids = slots.assembly[span]
+        keep = slots.visible[span] & (ids >= 0)
+        safe = np.maximum(ids, 0)
+        keep &= sprite._assembly_quads[safe] == 1
+        if not keep.any():
+            return
+        lo = int(np.argmax(keep))
+        hi = keep.size - int(np.argmax(keep[::-1]))
+        if lo or hi != keep.size:
+            keep = keep[lo:hi]
+            safe = safe[lo:hi]
+            span = slice(span.start + lo, span.start + hi)
+        tables.ensure(safe, names)
+
+        turns = slots.orientation[span].astype(np.intp)
+        rects = tables.rect[safe, turns]
+        xy = slots.position[span]
+        n = safe.size
+        begin = self.quads
+        end = begin + n
+        x0 = (xy[:, 0] + rects[:, 0]).astype(np.float32)
+        y0 = (xy[:, 1] + rects[:, 1]).astype(np.float32)
+        x1 = x0 + rects[:, 2] * keep
+        y1 = y0 + rects[:, 3] * keep
+        verts = self.verts[begin:end]
+        verts[:, 0, 0], verts[:, 0, 1] = x0, y0
+        verts[:, 1, 0], verts[:, 1, 1] = x1, y0
+        verts[:, 2, 0], verts[:, 2, 1] = x1, y1
+        verts[:, 3, 0], verts[:, 3, 1] = x0, y1
+        self.uvs[begin:end] = tables.uv[safe, turns]
+        self.quads = end
+
+        tileset = sprite.sheet.tilesets[sprite.sheet.primary_tileset]
+        self._add_run(
+            (
+                tileset.atlas.buffer,
+                tileset.palettes[int(slots.palette[span.start])],
+                tuple(slots.color[span.start].tolist()),
+            ),
+            begin,
+            n,
+        )
+
+    def general(self, sprite, tables, names, order):
+        """The rich tier, and the fallback: exactly what ships today."""
+        live = _drawable(sprite, order)
+        if live.size:
+            tables.ensure(sprite._slots.assembly[live], names)
+            self._emit_chain(sprite, tables, live)
+
+    def chain(self, sprite, tables, names, order, after):
+        if not order.size:
+            return
+        slots = sprite._slots
+        first, last = int(order[0]), int(order[-1])
+        width = last - first + 1
+        if (
+            width != order.size
+            or width <= BAND
+            or np.count_nonzero(slots.visible[first:last + 1]) * 2 < width
+        ):
+            general(self, sprite, tables, names, order)
+            return
+        # The band is against the primary: the head of `after`, the tail of
+        # `before`. Staged in DRAW order either way, so the two spans are
+        # emitted in the order the chain runs and never swapped.
+        if after:
+            band, bulk = order[:BAND], slice(first + BAND, last + 1)
+            general(self, sprite, tables, names, band)
+            bulk_span(self, sprite, tables, names, bulk)
+        else:
+            bulk, band = slice(first, last + 1 - BAND), order[-BAND:]
+            bulk_span(self, sprite, tables, names, bulk)
+            general(self, sprite, tables, names, band)
+
+    def sync(self, sprite):
+        names = sprite._assembly_names
+        tables = self._tables_for(sprite)
+        primary = _primary_parts(sprite)
+        self._reserve(sprite._before.size + len(primary) + sprite._after.size)
+        self.runs = []
+        self.quads = 0
+        chain(self, sprite, tables, names, sprite._before, after=False)
+        self._emit_primary(sprite, tables, primary)
+        chain(self, sprite, tables, names, sprite._after, after=True)
+
+    FramePlan.sync = sync
+
+
 # -- equivalence -----------------------------------------------------------
 
 
@@ -1121,6 +1425,49 @@ def occupancy(count: int, repeat: int) -> None:
     print("  it is about not making an idle pool worse than it is today.\n")
 
 
+def tiers(count: int, repeat: int) -> None:
+    """What each design does when a fade actually turns up.
+
+    The uniform column is the easy one and every design wins it. The other two
+    are the design, because a fast path is not chosen on its best case -- it is
+    chosen on what it does when its bet is wrong.
+
+    **near** is a fade inside the band: a trail ghost, a flare, anything an
+    author placed against the sprite. **far** is a fade three-quarters of the
+    way down a swarm, which nothing written by hand would produce and which a
+    game generating effects procedurally absolutely might.
+    """
+    print(f"\n{count:,} presentations, one fade, best of {repeat}")
+    print(f"band is {BAND} either side of the primary\n")
+    print(f"  {'variant':<18} {'uniform':>18}  {'fade near':>18}"
+          f"  {'fade far':>18}")
+    print("  " + "-" * 78)
+    scenes = {t: build(count, tint=t) for t in ("none", "near", "far")}
+    bases = {t: measure(scenes[t], "current", repeat) for t in scenes}
+    for name in ("current", "bulk", "bulk-checked", "tiered"):
+        cells = []
+        for t, scene in scenes.items():
+            row = measure(scene, name, repeat)
+            wrong = compare(bases[t]["out"], row["out"]) or runs_match(
+                bases[t]["runs"], row["runs"]
+            )
+            cells.append(f"{row['best']:6.2f}m {'WRONG' if wrong else '     '}")
+        print(f"  {name:<18} " + "  ".join(f"{c:>18}" for c in cells))
+    print()
+    print("  `bulk` is the ungated lane: fastest, and wrong the moment anything")
+    print("  fades. `bulk-checked` gates on a scan, so it is always right and")
+    print("  falls off a cliff to the slow path over ONE faded presentation --")
+    print("  250,000 dropped onto the general path to serve one of them.")
+    print()
+    print("  `tiered` has no cliff and no scan. It is wrong only where a fade")
+    print("  sits beyond the band, which is a place no author reaches by hand")
+    print("  and every procedural effect can reach by accident. That is not a")
+    print("  case for a wider band -- it is the case for making the tier a")
+    print("  CONTRACT: a skimmed slot refuses the colour write, so `fade far`")
+    print("  raises at the write instead of drawing the wrong frame, and the")
+    print("  colour array is never read for the bulk span at all.\n")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--counts", default=",".join(str(c) for c in DEFAULT_COUNTS))
@@ -1132,6 +1479,9 @@ def main(argv=None) -> int:
                         help="only the four-ghost case")
     parser.add_argument("--occupancy", type=int, metavar="SLOTS",
                         help="sweep how full a chain of this size is")
+    parser.add_argument("--tiers", type=int, nargs="?", const=250_000,
+                        metavar="SLOTS",
+                        help="what each design does when a fade turns up")
     parser.add_argument("--list", action="store_true")
     args = parser.parse_args(argv)
 
@@ -1144,6 +1494,9 @@ def main(argv=None) -> int:
         return 0
     if args.occupancy:
         occupancy(args.occupancy, args.repeat)
+        return 0
+    if args.tiers:
+        tiers(args.tiers, args.repeat)
         return 0
 
     names = [n for n in args.only.split(",") if n] or list(VARIANTS)

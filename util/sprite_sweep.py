@@ -460,9 +460,9 @@ def run_one(
     produced the shipped path's numbers, so the two rows compare.
     """
     if stage != "current":
-        from ab_stage import install_bulk
+        import ab_stage
 
-        install_bulk()
+        {"bulk": ab_stage.install_bulk, "tiered": ab_stage.install_tiered}[stage]()
     from blitspersecond import BlitsPerSecond
 
     bps = BlitsPerSecond()
@@ -706,11 +706,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--stage",
-        choices=("current", "bulk"),
+        choices=("current", "bulk", "tiered"),
         default="current",
         help="new engine only: which staging path the frame plan uses. `bulk` "
-        "installs the candidate from util/ab_stage.py, so the two runs are "
-        "the same measurement of two implementations.",
+        "and `tiered` install the candidates from util/ab_stage.py, so every "
+        "run is the same measurement of a different implementation.",
     )
     parser.add_argument("--json", type=Path, help="also write raw results here")
     args = parser.parse_args()
