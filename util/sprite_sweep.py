@@ -11,6 +11,16 @@ because the prototype it came from was doing collision as well. This answers
 that: the same workload at a sweep of populations, with the engine's own
 metrics read at each, so the target comes off a curve rather than a guess.
 
+## What happened to `--stage`
+
+It selected between candidate staging paths from `util/ab_stage.py`, which
+A/B'd them against the shipped one with an equivalence check. Both are gone as
+of 2026-09-02: every candidate either shipped or was abandoned, and the
+harness read `plan.verts` and `tables.uv`, neither of which exists now that
+the vertex stage rebuilds each quad from a record. Their findings are on the
+board card *Close the sprite compose gap against the reference* -- including
+the ones that were correct and did not ship.
+
 ## Both engines, same workload
 
 `--engine reference` runs the identical sweep against the pre-rework tree at
@@ -445,28 +455,14 @@ def _delivered(ticks: int, started: float) -> float:
 
 
 def run_one(
-    count: int, ticks: int, offscreen: bool = False, split: bool = False,
-    stage: str = "current",
+    count: int, ticks: int, offscreen: bool = False, split: bool = False
 ) -> int:
     """One population, in this process. Emits its result and stops.
 
     The result is printed rather than returned because the loop leaves the
     process rather than handing control back, so there is nothing to return
     it to.
-
-    `stage` selects which staging path the frame plan uses. `util/ab_stage.py`
-    A/B's the candidates on their own, with an equivalence check; this runs
-    the chosen one through the whole engine, on the same instrument that
-    produced the shipped path's numbers, so the two rows compare.
     """
-    if stage != "current":
-        import ab_stage
-
-        {
-            "bulk": ab_stage.install_bulk,
-            "tiered": ab_stage.install_tiered,
-            "routed": ab_stage.install_routed,
-        }[stage]()
     from blitspersecond import BlitsPerSecond
 
     bps = BlitsPerSecond()
@@ -512,7 +508,6 @@ def run_one(
             # population, which is the honest thing to report.
             "alive": int(swarm.alive.sum()),
             "engine": "new",
-            "stage": stage,
             "pace": _delivered(state["tick"] - WARMUP, state["started"]),
             "engine_pace": report.pace(),
             "sim_ms": _window(state["sim"]),
@@ -536,7 +531,6 @@ def _worker(
     split: bool = False,
     engine: str = "new",
     collide: bool = False,
-    stage: str = "current",
 ) -> dict | None:
     """Run one population in a child and bring back its result."""
     command = [
@@ -555,8 +549,6 @@ def _worker(
         command += ["--engine", engine]
     if collide:
         command.append("--collide")
-    if stage != "current":
-        command += ["--stage", stage]
     completed = subprocess.run(
         command, capture_output=True, text=True, env=os.environ.copy()
     )
@@ -708,14 +700,6 @@ def main() -> int:
         help="reference only: leave collision stamping on. Off by default so "
         "the comparison is like for like against a pillar that has none.",
     )
-    parser.add_argument(
-        "--stage",
-        choices=("current", "bulk", "tiered", "routed"),
-        default="current",
-        help="new engine only: which staging path the frame plan uses. The "
-        "candidates come from util/ab_stage.py, so every run is the same "
-        "measurement of a different implementation.",
-    )
     parser.add_argument("--json", type=Path, help="also write raw results here")
     args = parser.parse_args()
 
@@ -724,16 +708,10 @@ def main() -> int:
             return run_reference(
                 args.run, args.ticks, args.offscreen, args.collide
             )
-        return run_one(
-            args.run, args.ticks, args.offscreen, args.split, args.stage
-        )
+        return run_one(args.run, args.ticks, args.offscreen, args.split)
 
     counts = [int(n) for n in args.counts.split(",") if n.strip()]
-    label = (
-        args.engine
-        + (" +collision" if args.collide else "")
-        + (f" [{args.stage}]" if args.stage != "current" else "")
-    )
+    label = args.engine + (" +collision" if args.collide else "")
     print(f"sweeping {label} over {args.ticks} ticks")
     results = []
     for count in counts:
@@ -746,7 +724,6 @@ def main() -> int:
             args.split,
             args.engine,
             args.collide,
-            args.stage,
         )
         if row is None:
             continue
