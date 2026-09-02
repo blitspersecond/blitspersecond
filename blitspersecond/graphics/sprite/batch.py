@@ -57,6 +57,9 @@ from pyglet.gl import (
 from pyglet.graphics.vertexarray import VertexArray
 from pyglet.graphics.vertexbuffer import BufferObject
 
+from . import shader
+from .frame import FramePlan
+
 #: Texture unit the quad records are read through on the buffer-texture path.
 #: 0 is the atlas and 1 is the palette bank, so this is the next one -- fixed
 #: rather than negotiated, because there is exactly one of each in this program
@@ -102,10 +105,14 @@ class _TextureStore:
         name = GLuint()
         glGenTextures(1, name)
         self._texture = name.value
-        # Set with `glUniform1i` rather than `program["quad_data"] = 2`,
-        # because pyglet's typed setter has no case for `GL_SAMPLER_BUFFER`.
-        # See `shader._teach_pyglet_sampler_buffer` for the other half of that.
-        self._location = _uniform(program, "quad_data")
+        # Which unit the sampler reads is program state and persists, so it
+        # is set ONCE here rather than per pass. `glUniform1i` needs the
+        # program current, which is why this uses it -- and it is used at all
+        # rather than `program["quad_data"] = 2` because pyglet's typed setter
+        # has no case for `GL_SAMPLER_BUFFER`. See
+        # `shader._teach_pyglet_sampler_buffer` for the other half of that.
+        program.use()
+        glUniform1i(_uniform(program, "quad_data"), QUAD_UNIT)
 
     def attach(self, buffer: BufferObject) -> None:
         # Re-pointed on every growth, because the buffer is a NEW one each
@@ -118,8 +125,6 @@ class _TextureStore:
         glActiveTexture(GL_TEXTURE0)
 
     def bind(self) -> None:
-        if self._location >= 0:
-            glUniform1i(self._location, QUAD_UNIT)
         glActiveTexture(GL_TEXTURE0 + QUAD_UNIT)
         glBindTexture(GL_TEXTURE_BUFFER, self._texture)
         # Unit 0 left active on the way out: `draw_run` and the palette upload
@@ -135,28 +140,38 @@ class _TextureStore:
 #: How to reach the records, by the name `shader.quad_storage()` reports.
 QUAD_STORES = {"ssbo": _SsboStore, "texture": _TextureStore}
 
-#: Floats per quad. Mirrors `FramePlan.RECORD` and `quads.vert`'s stride;
-#: imported rather than repeated so a change to the layout cannot leave the
-#: buffer sized for the old one.
-from . import shader  # noqa: E402
-from .frame import FramePlan  # noqa: E402
-
+#: Floats per quad. Taken from `FramePlan` rather than repeated, so a change
+#: to the layout cannot leave the buffer sized for the old one.
 RECORD = FramePlan.RECORD
 
 
 def _uniform(program, name: str) -> int:
-    """One uniform's location, or -1 if the program has not got it.
+    """One uniform's location. Absent is an error, not a condition.
 
     Resolved once at construction rather than looked up per run: pyglet's
     `program[name] = value` is a dict lookup and a type dispatch on a path
     that runs once per draw call, and a run is 6.4us to begin with.
+
+    **It RAISES rather than returning a sentinel**, so nothing downstream
+    tests whether it worked. Every uniform asked for here is declared in
+    `quads.vert`; a missing one means the program is not the one this batch
+    was written against, which is a build fault and cannot become true later.
+    Returning -1 and guarding each write pushed that question onto every run
+    -- a branch per draw call to re-ask something settled at construction.
+
+    The entry is a DICT, exactly like `program.attributes` -- not an object
+    with a `.location`. Getting that wrong quietly resolved to -1, skipped
+    every write, left `run_colors` at its default of zero, and drew the whole
+    pillar black. Which is how it presented: "nothing was drawn".
     """
     entry = getattr(program, "uniforms", {}).get(name)
-    # A dict, exactly like `program.attributes` -- not an object with a
-    # `.location`. Getting that wrong resolves to -1, every write is skipped,
-    # `run_colors` stays at its default of zero and the whole pillar draws
-    # black. Which is how it presented: "nothing was drawn".
-    return int(entry["location"]) if entry else -1
+    if not entry:
+        raise KeyError(
+            f"the sprite program has no uniform {name!r} -- it declares "
+            f"{sorted(getattr(program, 'uniforms', {}))}. This batch is built "
+            f"against `quads.vert`; a program without it is a different one."
+        )
+    return int(entry["location"])
 
 
 class SpriteBatch:
@@ -302,11 +317,10 @@ class SpriteBatch:
         # no vertex attributes left to be generic about. Same cost shape: one
         # ctypes call each, and the row is still compared before it is written
         # for the reason above.
-        if palette_row != bound_row and self._loc_row >= 0:
+        if palette_row != bound_row:
             glUniform1f(self._loc_row, float(palette_row))
             bound_row = palette_row
-        if self._loc_colors >= 0:
-            glUniform4f(self._loc_colors, *colors)
+        glUniform4f(self._loc_colors, *colors)
         glDrawElements(
             GL_TRIANGLES, count * 6, GL_UNSIGNED_INT, first * 24
         )

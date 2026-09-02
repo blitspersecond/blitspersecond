@@ -2,8 +2,10 @@
 
 `quads.vert` + `indexed.frag`. The vertex stage is this pillar's OWN as of
 2026-09-02: it reads no vertex attributes at all and rebuilds each quad from
-a shader storage buffer indexed by `gl_VertexID / 4`. The tilemap and console
-keep `default.vert`.
+a buffer indexed by `gl_VertexID / 4` -- a shader storage buffer where the
+driver has one, a buffer texture otherwise. See `quad_storage`. The tilemap
+and console keep `default.vert`.
+
 Why these live beside the code that issues them rather than in a keyed
 `Shader.get(vert, frag)` cache is argued at length in
 `graphics/console/shader.py`; the same reasoning applies and is not repeated.
@@ -25,17 +27,17 @@ the pillar's colour model work at all -- per-presentation palette registers, a
 recolourable character with pinned effects, a mirror match costing one sheet.
 An RGBA sprite would have none of it.
 
-## What is per draw here, and why there is more of it
+## What is per draw here
 
-`colors` is a generic vertex attribute (`glVertexAttrib4f`, no buffer), and
-the tilemap sets it ONCE per layer. This pillar sets it **per run**, because
-colour registers are per presentation -- a shadow trail's fade is four
-presentations carrying four values, which is four runs sharing one texture
-bind. Same mechanism, used at a finer grain.
+`run_colors` and `run_palette_row` are uniforms set per RUN. They were generic
+vertex attributes until this pillar stopped having vertex attributes at all;
+same shape, same cost, one ctypes call each.
 
-`palette_row` is the same shape and arrived for the same reason. A costume
-swap between two presentations used to be a second texture on unit 1; it is
-now a number, because the bank they both belong to is one table.
+Only the row is really per run. Colour belongs to the SPRITE since the tier
+collapse, so a chain carries one value and cannot cut a run with it -- see
+`Presentation.red`. The row can: a costume swap between two presentations used
+to be a second texture on unit 1 and is a number now, because the bank they
+both belong to is one table.
 """
 
 import os
@@ -59,6 +61,13 @@ _forced: Optional[str] = None
 
 #: What `BPS_QUAD_STORAGE` and `force_quad_storage` accept.
 QUAD_STORAGE = ("ssbo", "texture")
+
+#: The answer, once. Cached because it is asked TWICE -- when the program is
+#: built and when the batch is built -- and those two must agree: the path is
+#: compiled into the program and bound by the batch, so a driver query that
+#: returned differently on the second call would leave a program reading an
+#: SSBO while the batch filled a texture, with nothing raising.
+_storage: Optional[str] = None
 
 
 def _from_environment() -> Optional[str]:
@@ -95,10 +104,11 @@ def quad_storage() -> str:
     forces each in turn rather than testing whatever this box happens to
     support.
     """
-    kind = _forced if _forced is not None else _from_environment()
-    if kind is not None:
-        return kind
-    return "ssbo" if gl_info.have_version(4, 3) else "texture"
+    global _storage
+    if _storage is None:
+        kind = _forced if _forced is not None else _from_environment()
+        _storage = kind or ("ssbo" if gl_info.have_version(4, 3) else "texture")
+    return _storage
 
 
 def force_quad_storage(kind: Optional[str]) -> None:
@@ -108,13 +118,14 @@ def force_quad_storage(kind: Optional[str]) -> None:
     changing it after the fact would leave a program that disagrees with the
     binding the batch is about to make.
     """
-    global _forced, _program
+    global _forced, _program, _storage
     if kind is not None and kind not in QUAD_STORAGE:
         raise ValueError(
             f"no such quad storage: {kind!r} -- it is one of "
             f"{', '.join(QUAD_STORAGE)}, or None to ask the driver"
         )
     _forced = kind
+    _storage = None
     _program = None
 
 
