@@ -38,9 +38,10 @@ swap between two presentations used to be a second texture on unit 1; it is
 now a number, because the bank they both belong to is one table.
 """
 
+import os
 from typing import Optional
 
-from pyglet.gl import GL_SAMPLER_BUFFER
+from pyglet.gl import GL_SAMPLER_BUFFER, gl_info
 from pyglet.graphics.shader import Shader, ShaderProgram
 
 from blitspersecond.common import PACKAGE_ROOT
@@ -48,6 +49,73 @@ from blitspersecond.common import PACKAGE_ROOT
 _SHADERS = PACKAGE_ROOT / "assets" / "shaders"
 
 _program: Optional[ShaderProgram] = None
+
+#: Forced path. `None` asks the driver. Seeded from `BPS_QUAD_STORAGE` so the
+#: whole suite can be run either way on one machine --
+#: `BPS_QUAD_STORAGE=texture pytest` -- which is the only thing that stops the
+#: path this box does not use from rotting.
+_forced: Optional[str] = None
+
+
+#: What `BPS_QUAD_STORAGE` and `force_quad_storage` accept.
+QUAD_STORAGE = ("ssbo", "texture")
+
+
+def _from_environment() -> Optional[str]:
+    """`BPS_QUAD_STORAGE`, checked here rather than trusted downstream.
+
+    A typo would otherwise surface as a `KeyError` on a dict of store classes
+    in the batch, several frames from the environment variable that caused it
+    and after a program has already been built the other way.
+    """
+    kind = os.environ.get("BPS_QUAD_STORAGE") or None
+    if kind is not None and kind not in QUAD_STORAGE:
+        raise ValueError(
+            f"BPS_QUAD_STORAGE={kind!r} is not a quad storage path -- it is "
+            f"one of {', '.join(QUAD_STORAGE)}, or unset to take whatever the "
+            f"driver supports"
+        )
+    return kind
+
+
+def quad_storage() -> str:
+    """Which way the vertex stage reaches the quad records: `"ssbo"` or
+    `"texture"`.
+
+    A shader storage buffer where the driver has one and a buffer texture
+    otherwise, decided once and reported so a caller can say which it got.
+    The SSBO is measurably better -- 15.42ms against 15.96ms at 250,000, and a
+    materially better p99 -- and it needs GL 4.3, which is above where every
+    other shader in this engine sits and above macOS, which stops at 4.1.
+
+    **Both paths run the same geometry.** `quads.vert` forks at the fetch and
+    nowhere else, so the corner expansion and the turn permutation exist once.
+    What a second path really costs is that only one of them runs on any given
+    machine, so the other rots -- which is why `tests/test_indexed_draw.py`
+    forces each in turn rather than testing whatever this box happens to
+    support.
+    """
+    kind = _forced if _forced is not None else _from_environment()
+    if kind is not None:
+        return kind
+    return "ssbo" if gl_info.have_version(4, 3) else "texture"
+
+
+def force_quad_storage(kind: Optional[str]) -> None:
+    """Pin the storage path, or `None` to ask the driver again.
+
+    For tests, and it rebuilds the program: the choice is compiled in, so
+    changing it after the fact would leave a program that disagrees with the
+    binding the batch is about to make.
+    """
+    global _forced, _program
+    if kind is not None and kind not in QUAD_STORAGE:
+        raise ValueError(
+            f"no such quad storage: {kind!r} -- it is one of "
+            f"{', '.join(QUAD_STORAGE)}, or None to ask the driver"
+        )
+    _forced = kind
+    _program = None
 
 
 def _teach_pyglet_sampler_buffer() -> None:
@@ -82,7 +150,16 @@ def program() -> ShaderProgram:
     global _program
     if _program is None:
         _teach_pyglet_sampler_buffer()
-        vert = (_SHADERS / "quads.vert").read_text(encoding="utf-8")
+        # The version and the path are prepended rather than written into the
+        # file, because they are the only two things that differ and a second
+        # copy of the file would be a second copy of the geometry.
+        storage = quad_storage()
+        header = (
+            "#version 430\n#define BPS_QUAD_SSBO 1\n"
+            if storage == "ssbo"
+            else "#version 330\n"
+        )
+        vert = header + (_SHADERS / "quads.vert").read_text(encoding="utf-8")
         frag = (_SHADERS / "indexed.frag").read_text(encoding="utf-8")
         _program = ShaderProgram(
             Shader(vert, "vertex"),

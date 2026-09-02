@@ -373,3 +373,42 @@ def test_a_mirrored_sprite_draws_mirrored(window, fumiko: Sprite) -> None:
         "FLIP_H moved the quad but drew the art unmirrored -- the vertex "
         "stage did not permute the corners"
     )
+
+
+def test_the_two_quad_storage_paths_draw_the_same_frame(window, fumiko: Sprite) -> None:
+    """The vertex stage can reach the quad records as a shader storage buffer
+    or through a buffer texture, and only one of those runs on any given
+    machine -- so the other rots unless something forces it.
+
+    **This is the test that makes carrying two paths safe.** Not that each
+    runs, which a smoke test would show, but that they draw the SAME FRAME:
+    the fetch is the only thing `quads.vert` forks on, and this is what says
+    so rather than assuming it.
+    """
+    from pyglet.gl import gl_info
+
+    from blitspersecond.graphics.sprite import shader
+
+    if not gl_info.have_version(4, 3):
+        pytest.skip("no GL 4.3 here, so only the buffer-texture path exists")
+
+    fumiko.assembly = "idle-0"
+    fumiko.position = (16, 16)
+    fumiko.orientation = Orientation.TRANSPOSE | Orientation.FLIP_H
+    frames = {}
+    try:
+        for kind in ("ssbo", "texture"):
+            shader.force_quad_storage(kind)
+            # The choice is compiled into the program, so the batch built
+            # against the old one has to go with it.
+            fumiko._batch = None
+            frames[kind] = _compose(window, fumiko)
+            assert _lit(frames[kind]).any(), f"{kind} drew nothing at all"
+    finally:
+        shader.force_quad_storage(None)
+        fumiko._batch = None
+
+    assert np.array_equal(frames["ssbo"], frames["texture"]), (
+        "the two storage paths drew different frames -- something other than "
+        "the fetch differs between them"
+    )
