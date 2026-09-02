@@ -445,14 +445,24 @@ def _delivered(ticks: int, started: float) -> float:
 
 
 def run_one(
-    count: int, ticks: int, offscreen: bool = False, split: bool = False
+    count: int, ticks: int, offscreen: bool = False, split: bool = False,
+    stage: str = "current",
 ) -> int:
     """One population, in this process. Emits its result and stops.
 
     The result is printed rather than returned because the loop leaves the
     process rather than handing control back, so there is nothing to return
     it to.
+
+    `stage` selects which staging path the frame plan uses. `util/ab_stage.py`
+    A/B's the candidates on their own, with an equivalence check; this runs
+    the chosen one through the whole engine, on the same instrument that
+    produced the shipped path's numbers, so the two rows compare.
     """
+    if stage != "current":
+        from ab_stage import install_bulk
+
+        install_bulk()
     from blitspersecond import BlitsPerSecond
 
     bps = BlitsPerSecond()
@@ -498,6 +508,7 @@ def run_one(
             # population, which is the honest thing to report.
             "alive": int(swarm.alive.sum()),
             "engine": "new",
+            "stage": stage,
             "pace": _delivered(state["tick"] - WARMUP, state["started"]),
             "engine_pace": report.pace(),
             "sim_ms": _window(state["sim"]),
@@ -521,6 +532,7 @@ def _worker(
     split: bool = False,
     engine: str = "new",
     collide: bool = False,
+    stage: str = "current",
 ) -> dict | None:
     """Run one population in a child and bring back its result."""
     command = [
@@ -539,6 +551,8 @@ def _worker(
         command += ["--engine", engine]
     if collide:
         command.append("--collide")
+    if stage != "current":
+        command += ["--stage", stage]
     completed = subprocess.run(
         command, capture_output=True, text=True, env=os.environ.copy()
     )
@@ -690,6 +704,14 @@ def main() -> int:
         help="reference only: leave collision stamping on. Off by default so "
         "the comparison is like for like against a pillar that has none.",
     )
+    parser.add_argument(
+        "--stage",
+        choices=("current", "bulk"),
+        default="current",
+        help="new engine only: which staging path the frame plan uses. `bulk` "
+        "installs the candidate from util/ab_stage.py, so the two runs are "
+        "the same measurement of two implementations.",
+    )
     parser.add_argument("--json", type=Path, help="also write raw results here")
     args = parser.parse_args()
 
@@ -698,10 +720,16 @@ def main() -> int:
             return run_reference(
                 args.run, args.ticks, args.offscreen, args.collide
             )
-        return run_one(args.run, args.ticks, args.offscreen, args.split)
+        return run_one(
+            args.run, args.ticks, args.offscreen, args.split, args.stage
+        )
 
     counts = [int(n) for n in args.counts.split(",") if n.strip()]
-    label = args.engine + (" +collision" if args.collide else "")
+    label = (
+        args.engine
+        + (" +collision" if args.collide else "")
+        + (f" [{args.stage}]" if args.stage != "current" else "")
+    )
     print(f"sweeping {label} over {args.ticks} ticks")
     results = []
     for count in counts:
@@ -714,6 +742,7 @@ def main() -> int:
             args.split,
             args.engine,
             args.collide,
+            args.stage,
         )
         if row is None:
             continue
