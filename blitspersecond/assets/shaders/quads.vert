@@ -1,6 +1,7 @@
+#version 330
     // The sprite pillar's vertex stage: NO vertex attributes at all.
     //
-    // Every quad is nine floats in a buffer the vertex stage reads directly,
+    // Every quad is nine floats in a buffer texture the vertex stage reads,
     // and each of the four vertices works out which quad it belongs to and
     // which corner it is from `gl_VertexID` alone. The index buffer is still `[0,1,2,0,2,3] + 4i`,
     // so `gl_VertexID` takes values 0..4N-1 -- four invocations per quad, not
@@ -28,33 +29,25 @@
     // quad permutes which corner reads which (u, v) without moving the box,
     // so the eight-fold table the CPU used to gather twelve floats from
     // collapses to four floats per assembly.
-    // ## Two ways in, one geometry
+    // ## Where the records live
     //
-    // The record can be reached either way and the difference is four lines,
-    // so the fetch is what forks and nothing else is duplicated. Everything
-    // below -- the corner expansion, the turn permutation -- is written once,
-    // because two copies of it would be two chances to drift and the drift
-    // would be invisible on a square, symmetric source.
+    // A BUFFER TEXTURE, which is why this is `#version 330` like every other
+    // shader here. A shader storage buffer would do the same job and needs
+    // GL 4.3 -- above the rest of the engine, and above macOS at 4.1. Both
+    // were built and measured, four samples each in one session: 15.16ms
+    // against 15.32ms at 250,000 presentations, about 1%, with the ranges
+    // overlapping. Kris: *"I don't think the complexity of maintaining two
+    // paths warrants the marginal performance gain"*. So the SSBO went and
+    // this stayed, and the geometry below is written once because there is
+    // now only one place it could be written.
     //
-    // `#version` and `BPS_QUAD_SSBO` are prepended by `shader.py`, which picks
-    // the path from `gl_info.have_version(4, 3)`:
-    //
-    //   SSBO     GL 4.3+. Measurably better -- 15.42ms against 15.96ms at
-    //            250,000, and a materially better p99.
-    //   texture  GL 3.1+, which is where every other shader in this engine
-    //            sits, and where macOS stops (4.1).
-    //
-    // R32F either way, so one fetch is one float and the record needs no
-    // padding. An RGBA32F buffer would fetch four at a time and read better,
-    // at the price of rounding nine floats up to twelve -- a third more to
-    // WRITE every frame, which is the side that costs.
-#ifdef BPS_QUAD_SSBO
-    layout(std430, binding = 0) readonly buffer QuadData { float quad_data[]; };
-    float quad_at(int i) { return quad_data[i]; }
-#else
+    // R32F, so one fetch is one float and the record needs no padding.
+    // RGBA32F was tried too -- three fetches a quad instead of nine, at the
+    // price of rounding nine floats up to twelve -- and it is 3.6% SLOWER:
+    // the extra third of writing costs more than the better fetch saves,
+    // which is the answer this pillar gives every time. The CPU side is the
+    // one that costs.
     uniform samplerBuffer quad_data;
-    float quad_at(int i) { return texelFetch(quad_data, i).r; }
-#endif
 
     uniform WindowBlock
     {
@@ -78,11 +71,19 @@
         int corner = gl_VertexID % 4;
         int base = quad * 9;
 
-        vec2 origin = vec2(quad_at(base), quad_at(base + 1));
-        vec2 size = vec2(quad_at(base + 2), quad_at(base + 3));
-        vec2 uv0 = vec2(quad_at(base + 4), quad_at(base + 5));
-        vec2 duv = vec2(quad_at(base + 6), quad_at(base + 7));
-        int turn = int(quad_at(base + 8) + 0.5);
+        vec2 origin = vec2(
+            texelFetch(quad_data, base).r, texelFetch(quad_data, base + 1).r
+        );
+        vec2 size = vec2(
+            texelFetch(quad_data, base + 2).r, texelFetch(quad_data, base + 3).r
+        );
+        vec2 uv0 = vec2(
+            texelFetch(quad_data, base + 4).r, texelFetch(quad_data, base + 5).r
+        );
+        vec2 duv = vec2(
+            texelFetch(quad_data, base + 6).r, texelFetch(quad_data, base + 7).r
+        );
+        int turn = int(texelFetch(quad_data, base + 8).r + 0.5);
 
         // Corners wind top-left, top-right, bottom-right, bottom-left -- the
         // same winding the index pattern and the old staging both assumed.

@@ -35,7 +35,6 @@ from typing import List, Optional, Tuple
 import numpy as np
 from pyglet.gl import (
     GL_R32F,
-    GL_SHADER_STORAGE_BUFFER,
     GL_TEXTURE0,
     GL_TEXTURE1,
     GL_TEXTURE2,
@@ -44,7 +43,6 @@ from pyglet.gl import (
     GL_UNSIGNED_INT,
     GLuint,
     glActiveTexture,
-    glBindBufferBase,
     glBindTexture,
     glDeleteTextures,
     glDrawElements,
@@ -57,88 +55,13 @@ from pyglet.gl import (
 from pyglet.graphics.vertexarray import VertexArray
 from pyglet.graphics.vertexbuffer import BufferObject
 
-from . import shader
 from .frame import FramePlan
 
-#: Texture unit the quad records are read through on the buffer-texture path.
-#: 0 is the atlas and 1 is the palette bank, so this is the next one -- fixed
-#: rather than negotiated, because there is exactly one of each in this program
-#: and a lookup would only be a second place for it to disagree with the
-#: shader. The SSBO path uses binding 0 for the same reason.
+#: Texture unit the quad records are read through. 0 is the atlas and 1 is the
+#: palette bank, so this is the next one -- fixed rather than negotiated,
+#: because there is exactly one of each in this program and a lookup would only
+#: be a second place for it to disagree with the shader.
 QUAD_UNIT = 2
-QUAD_BINDING = 0
-
-
-class _SsboStore:
-    """Reach the quad records as a shader storage buffer. GL 4.3+.
-
-    The faster of the two -- 15.42ms against 15.96ms at 250,000, and a
-    materially better p99 -- and the reason the pillar does not simply take
-    the portable path and stop.
-    """
-
-    kind = "ssbo"
-
-    def __init__(self, program) -> None:
-        self._buffer = 0
-
-    def attach(self, buffer: BufferObject) -> None:
-        self._buffer = buffer.id
-
-    def bind(self) -> None:
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, QUAD_BINDING, self._buffer)
-
-    def release(self) -> None:
-        pass
-
-
-class _TextureStore:
-    """Reach the quad records through a buffer texture. GL 3.1+.
-
-    Where every other shader in this engine sits, and where macOS stops
-    (4.1). Costs about 3.5% on the mean and rather more on the tail.
-    """
-
-    kind = "texture"
-
-    def __init__(self, program) -> None:
-        name = GLuint()
-        glGenTextures(1, name)
-        self._texture = name.value
-        # Which unit the sampler reads is program state and persists, so it
-        # is set ONCE here rather than per pass. `glUniform1i` needs the
-        # program current, which is why this uses it -- and it is used at all
-        # rather than `program["quad_data"] = 2` because pyglet's typed setter
-        # has no case for `GL_SAMPLER_BUFFER`. See
-        # `shader._teach_pyglet_sampler_buffer` for the other half of that.
-        program.use()
-        glUniform1i(_uniform(program, "quad_data"), QUAD_UNIT)
-
-    def attach(self, buffer: BufferObject) -> None:
-        # Re-pointed on every growth, because the buffer is a NEW one each
-        # time and a texture attached to the old one would read freed memory
-        # rather than fail. R32F: one texel is one float, so nine of them are
-        # one quad and the record needs no padding.
-        glActiveTexture(GL_TEXTURE0 + QUAD_UNIT)
-        glBindTexture(GL_TEXTURE_BUFFER, self._texture)
-        glTexBuffer(GL_TEXTURE_BUFFER, GL_R32F, buffer.id)
-        glActiveTexture(GL_TEXTURE0)
-
-    def bind(self) -> None:
-        glActiveTexture(GL_TEXTURE0 + QUAD_UNIT)
-        glBindTexture(GL_TEXTURE_BUFFER, self._texture)
-        # Unit 0 left active on the way out: `draw_run` and the palette upload
-        # both assume it is.
-        glActiveTexture(GL_TEXTURE0)
-
-    def release(self) -> None:
-        if self._texture:
-            glDeleteTextures(1, GLuint(self._texture))
-            self._texture = 0
-
-
-#: How to reach the records, by the name `shader.quad_storage()` reports.
-QUAD_STORES = {"ssbo": _SsboStore, "texture": _TextureStore}
 
 #: Floats per quad. Taken from `FramePlan` rather than repeated, so a change
 #: to the layout cannot leave the buffer sized for the old one.
@@ -189,11 +112,17 @@ class SpriteBatch:
         self._program = program
         self._loc_colors = _uniform(program, "run_colors")
         self._loc_row = _uniform(program, "run_palette_row")
-        #: How the vertex stage reaches the records. Chosen by `shader.py`
-        #: from what the driver has, and compiled INTO the program, so the
-        #: batch must take the same answer the program was built with rather
-        #: than ask again.
-        self._store = QUAD_STORES[shader.quad_storage()](program)
+        # The records are read through a buffer texture on unit 2. Which unit
+        # a sampler reads is program state and persists, so it is set ONCE
+        # here rather than per pass -- `glUniform1i` needs the program
+        # current, which is why it is used, and it is used at all rather than
+        # `program["quad_data"] = 2` because pyglet's typed setter has no case
+        # for `GL_SAMPLER_BUFFER`. See `shader._teach_pyglet_sampler_buffer`.
+        name = GLuint()
+        glGenTextures(1, name)
+        self._quad_texture = name.value
+        program.use()
+        glUniform1i(_uniform(program, "quad_data"), QUAD_UNIT)
         self._capacity = 0
         # Still needed, and still empty: a core profile refuses to draw with
         # no vertex array bound, even by a program that reads no attributes.
@@ -228,7 +157,14 @@ class SpriteBatch:
         # moved to the vertex stage.
         self._quads = BufferObject(capacity * RECORD * 4)
         self._indices = BufferObject(capacity * 6 * 4)
-        self._store.attach(self._quads)
+        # Re-pointed on every growth, because `_quads` is a NEW buffer each
+        # time and a texture attached to the old one would read freed memory
+        # rather than fail. R32F: one texel is one float, so nine of them are
+        # one quad and the record needs no padding.
+        glActiveTexture(GL_TEXTURE0 + QUAD_UNIT)
+        glBindTexture(GL_TEXTURE_BUFFER, self._quad_texture)
+        glTexBuffer(GL_TEXTURE_BUFFER, GL_R32F, self._quads.id)
+        glActiveTexture(GL_TEXTURE0)
 
         # Static index pattern: quad i -> [0,1,2, 0,2,3] + 4i. A run draws by
         # OFFSET into it, which is what lets many runs share one buffer -- and
@@ -261,9 +197,15 @@ class SpriteBatch:
         )
 
     def begin(self) -> None:
-        """Bind the VAO and the quad records for the pass."""
+        """Bind the VAO and the record texture for the pass.
+
+        Unit 0 is left active on the way out, because `draw_run` and the
+        palette upload both assume it is.
+        """
         self._vao.bind()
-        self._store.bind()
+        glActiveTexture(GL_TEXTURE0 + QUAD_UNIT)
+        glBindTexture(GL_TEXTURE_BUFFER, self._quad_texture)
+        glActiveTexture(GL_TEXTURE0)
 
     def end(self) -> None:
         self._vao.unbind()
