@@ -244,7 +244,7 @@ class Buffers:
     uvs3: np.ndarray = field(default_factory=lambda: np.zeros((0, 4, 3), np.float32))
     corners2: np.ndarray = field(default_factory=lambda: np.zeros((0, 4, 2), np.float32))
     uvs2: np.ndarray = field(default_factory=lambda: np.zeros((0, 4, 2), np.float32))
-    instance: np.ndarray = field(default_factory=lambda: np.zeros((0, 9), np.float32))
+    instance: np.ndarray = field(default_factory=lambda: np.zeros((0, 11), np.float32))
     minimal: np.ndarray = field(default_factory=lambda: np.zeros((0, 3), np.float32))
     quads: int = 0
 
@@ -253,7 +253,7 @@ class Buffers:
         self.uvs3 = np.zeros((n, 4, 3), np.float32)
         self.corners2 = np.zeros((n, 4, 2), np.float32)
         self.uvs2 = np.zeros((n, 4, 2), np.float32)
-        self.instance = np.zeros((n, 9), np.float32)
+        self.instance = np.zeros((n, 11), np.float32)
         self.minimal = np.zeros((n, 3), np.float32)
 
 
@@ -1315,6 +1315,57 @@ def install_tiered() -> None:
         chain(self, sprite, tables, names, sprite._after, after=True)
 
     FramePlan.sync = sync
+
+
+@variant(
+    "instanced-rich",
+    fmt="instance",
+    needs="as `instanced-fused`, plus colour and palette row per quad",
+    gives_up="nothing -- there is no material left to cut a run",
+    note="what per-presentation colour costs once it is stream data, not a run",
+)
+def stage_instanced_rich(scene: Scene, buf: Buffers) -> List[tuple]:
+    """`instanced-fused`, carrying colour and palette row per quad.
+
+    The question this exists to answer is a CPU question, not a draw one. A
+    palette bind is 15.5us and a colour cut 5.5us, and a swarm has one of
+    each -- so nothing about binds or run counts is worth a millisecond at
+    this scale. Kris, cutting that whole line of argument off: *"the cost
+    isn't the gpu, it's cpu."*
+
+    What per-quad colour is actually worth is what it removes from the STAGING:
+    the material diff, which is 3.7ms at 250,000. And what it costs is reading
+    the colour array and writing it into the stream, which is not free either.
+    This measures the difference between those two, which is the only form of
+    the question that matters.
+
+    Colour goes in as RGBA8 packed into one float32 slot rather than as four
+    floats: the vertex stage unpacks it for nothing, and four extra float
+    columns would be a strided write into a wide record, which is exactly the
+    shape that costs 1.45ms where the packed form costs a fraction of it.
+    """
+    slots = scene.sprite._slots
+    span = scene.span
+    ids, keep, _ = _dense_keep(scene)
+    turns = slots.orientation[span].astype(np.intp)
+    geom = scene.fused[ids, turns]
+    xy = slots.position[span]
+    n = ids.size
+
+    inst = buf.instance[:n]
+    inst[:, 0] = xy[:, 0] + geom[:, 0]
+    inst[:, 1] = xy[:, 1] + geom[:, 1]
+    inst[:, 2] = geom[:, 2] * keep
+    inst[:, 3] = geom[:, 3] * keep
+    inst[:, 4:8] = geom[:, 4:8]
+    inst[:, 8] = turns
+    # The two fields that used to cut runs, now just data.
+    rgba = (slots.color[span] * 255.0).astype(np.uint8)
+    inst[:, 9] = rgba.view(np.uint32).ravel().view(np.float32)
+    inst[:, 10] = slots.palette[span]
+    buf.quads = n
+
+    return _one_run(scene, slots.palette[span], slots.color[span], n)
 
 
 # -- equivalence -----------------------------------------------------------
