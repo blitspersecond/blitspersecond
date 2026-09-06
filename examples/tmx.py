@@ -8,7 +8,7 @@ know or care which road its world arrived by.
 
 That is the point of the example. TMX is a convenience and not the way in: a
 game generating its world procedurally is doing an ordinary thing, and the
-loader adds no capability that ``empty_map`` and an assignment do not have.
+loader adds no capability that ``cell`` and one assignment do not have.
 
 Change ``MODE`` to compare them. Run from the repository root:
 
@@ -22,7 +22,7 @@ import numpy as np
 
 from blitspersecond import BlitsPerSecond
 from blitspersecond.common import PACKAGE_ROOT, SCREEN
-from blitspersecond.graphics import TiledFile, TileMap, empty_map
+from blitspersecond.graphics import TiledFile, TileMap
 
 MAP = PACKAGE_ROOT.parent / "assets/gorillaz/island.tmx"
 MODE = "file"  # "file" or "sheet"
@@ -42,16 +42,20 @@ def from_hand() -> TileMap:
     """Every tile of the same sheet, in atlas order, as a world nobody
     authored.
 
-    `empty_map` gives the grid, `arange` fills it, and the result is the same
-    kind of array the loader produces -- which is why it can be handed to the
-    same constructor. Reshaping to (cols, rows) and transposing is what makes
-    the sheet read left-to-right then down: a world is x-major, and atlas
-    order is not.
+    A fresh map hands back its own empty world through `cell[:, :]` -- right
+    shape, right dtype, every cell `EMPTY_TILE` -- so there is nothing to
+    build and nothing to import. `arange` fills it and one block write puts it
+    back, which is the whole bulk road.
+
+    Reshaping to (cols, rows) and transposing is what makes the sheet read
+    left-to-right then down: a world is x-major, and atlas order is not.
     """
     tileset = TiledFile(str(MAP)).layer("blue_island").tileset
-    world = empty_map(tileset.cols, tileset.rows)
+    tilemap = TileMap(tileset, tileset.cols, tileset.rows, tag="sheet")
+    world = tilemap.cell[:, :]
     world["tile"] = np.arange(len(tileset)).reshape(tileset.rows, tileset.cols).T
-    return TileMap(tileset, world, tag="sheet")
+    tilemap.cell[:, :] = world
+    return tilemap
 
 
 def centre(tilemap: TileMap) -> None:

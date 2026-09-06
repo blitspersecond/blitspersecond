@@ -161,9 +161,19 @@ and `cursor.py` merged into the one class in `console.py` -- plus `Pen`,
 `shader.py`, and everything they lean on: `PixelBuffer`, `Palette`,
 `PaletteTexture`, `Orientation`, `Layer`.
 
-**Outstanding:** `CollisionQuery`/`CWORD`/`Collidable`, which the mask and
-`collides_with` want; they backport with the tile engine, since that is what
-supplies something worth colliding with.
+Collision landed 2026-09-05, once the tile and sprite pillars had supplied
+something worth colliding with. **This pillar is the one that pulls**: the
+planes derive on demand in `Console.collision_plane` and nothing is added to
+the recompose, because reading and writing text are the main uses and
+colliding with it is the oddball. A console nobody asks retains no mask
+memory; `_touch` -- already the one funnel every write reaches -- drops what
+is held. The vocabulary is `PLANE_0`..`PLANE_3`, the pen's own slot indices,
+so what a plane draws and what it collides as are one number; a plane whose
+pen slot is transparent draws nothing and collides all the same, which is how
+a level painted in glyphs yields three collision planes from one layer. See
+`docs/bps/COLLISION.md`.
+
+**Outstanding:** nothing in this pillar.
 
 `echo()` landed 2026-08-31 on the input stream. The line it draws is a
 `TextInput` reducer owning its own buffer -- a console line may be open for
@@ -178,7 +188,7 @@ it exactly, and 640x360 is fixed rather than configured.
 
 from .charset import CharSet
 from .console import Console
-from .pen import Pen, SYSTEM_SLOTS
+from .pen import PLANE_0, PLANE_1, PLANE_2, PLANE_3, Pen, SYSTEM_SLOTS
 
 #: What you BUILD. The four access faces -- `CellAccess`, `GlyphAccess`,
 #: `PaintAccess`, `Cursor` -- are reached through a console and never
@@ -186,6 +196,10 @@ from .pen import Pen, SYSTEM_SLOTS
 __all__ = [
     "CharSet",
     "Console",
+    "PLANE_0",
+    "PLANE_1",
+    "PLANE_2",
+    "PLANE_3",
     "Pen",
     "SYSTEM_SLOTS",
 ]

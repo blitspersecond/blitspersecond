@@ -8,10 +8,11 @@ accepts the subset that maps exactly onto `TileMap` and refuses the rest by
 name, at load, where the file is still the thing you can fix.
 
 **This is a convenience and not the road in.** A world comes from a file OR
-from the game's own arrays, and both are first-class -- `PLANE_DTYPE`, `EMPTY`
-and `empty_map` live with the pillar precisely so a game generating its own
-world never imports a file loader to reach them. Nothing here is a capability
-the hand-built road lacks; it is one way of filling in the same array.
+from a game writing through `cell`, and both are first-class. Nothing here is
+a capability the hand-built road lacks; it is one way of filling in the same
+cells, and it is the only caller of `TileMap._from_plane` -- a `.tmx` layer
+arrives as a world already made, so building an empty map in order to
+overwrite every cell of it would be work for its own sake.
 
 Nothing in this module touches GL. It reads XML, decodes indices and cuts an
 `Atlas`, all of which a `PixelBuffer` does without a window.
@@ -34,7 +35,8 @@ from blitspersecond.common import CacheableResource, Location, Size
 from ..atlas import Atlas
 from ..orientation import Orientation, applies_to
 from ..pixel_buffer import PixelBuffer
-from .tilemap import EMPTY, PLANE_DTYPE, TileMap
+from .internal import EMPTY_TILE, PLANE_DTYPE
+from .tilemap import TileMap
 
 # Tiled packs a cell into one uint32: the top bits say how the tile is turned,
 # the rest is a global id. The three orientation bits are the same three
@@ -228,7 +230,7 @@ class TiledFile(CacheableResource):
         game can move it afterwards like any other.
         """
         entry = self.layer(name)
-        tilemap = TileMap(
+        tilemap = TileMap._from_plane(
             entry.tileset,
             np.array(entry.map),
             collidable=collidable,
@@ -473,7 +475,7 @@ def _load_layer(
     tileset = next(ts for ts in tilesets if ts.name == owner)
 
     plane = np.zeros((rows, cols), dtype=PLANE_DTYPE)
-    plane["tile"] = EMPTY
+    plane["tile"] = EMPTY_TILE
     occupied = raw != 0
     if owners:
         plane["tile"][occupied] = (

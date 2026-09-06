@@ -304,30 +304,42 @@ class PaletteBank:
                     f"{type(palette).__name__}"
                 )
 
-    def extend(self, palettes: Iterable[Palette]) -> Tuple[int, ...]:
+    def extended(self, palettes: Iterable[Palette]) -> "PaletteBank":
         """Append rows and hand back the register values that select them.
 
-            shades = bank.extend(
+            shades = chun.palettes.add(
+                "character",
                 costume.shadowed(HAIR, mix=k / 6, dim=k / 8) for k in range(1, 7)
             )
-            ghost.palettes["character"] = shades[0]
 
-        **A load-time door.** A bank is a tileset's whole table and the GPU
-        stores it as one texture, so growing one after a frame has been drawn
-        makes the next draw rebuild that texture -- correct, and not something
-        to do per tick. `PaletteTexture` handles the size change rather than
-        blitting a taller table into a shorter texture, which is what it used
-        to do.
+        **A NEW bank, because this one does not change.** A `SpriteSheet` is
+        immutable and interned by path, and a bank is part of one -- so growing
+        a bank in place made an immutable object mutable through a side door,
+        and every other holder of that sheet saw the extra rows. Worse, it grew
+        again on every load that reached it, for as long as anything at all
+        kept the sheet alive. `A shared palette bank grows once per load` on
+        the board is the record.
+
+        **Copying costs almost nothing here.** A bank holds a tuple of
+        `Palette` REFERENCES, so a new one shares every table with the old --
+        `self._palettes + added` was already building that tuple; the mutating
+        version merely assigned it back. What is genuinely duplicated is the
+        GPU projection, one 256xN RGBA texture, and that is the small thing.
+
+        **A load-time door.** The GPU stores a bank as one texture, so a new
+        bank means a new upload -- correct, and not something to do per tick.
+        `PaletteTexture` keys on the bank's identity, so an unextended sprite
+        keeps sharing the sheet's texture and its bind.
 
         Rows are appended, never inserted, so **every register already handed
-        out keeps meaning what it meant.** That is the whole reason this is
-        `extend` and not something that takes a position: a palette register
-        is a number a game is holding, and moving one would silently recolour
-        whatever held it.
+        out keeps meaning what it meant** -- in the new bank and the old alike.
+        That is why this appends rather than taking a position: a palette
+        register is a number a game is holding, and moving one would silently
+        recolour whatever held it.
 
-        The bank is shared, because a `SpriteSheet` is interned by path -- so
-        four sisters over one sheet grow ONE bank between them, and each takes
-        the slice of it she asked for.
+        The new rows are `range(len(old), len(new))`; `PaletteRegisters.add`
+        is the public road and hands those back, because a caller wants the
+        numbers rather than the bank.
         """
         added = tuple(palettes)
         for index, palette in enumerate(added):
@@ -336,9 +348,7 @@ class PaletteBank:
                     f"palette bank row {len(self._palettes) + index}: expected "
                     f"Palette, got {type(palette).__name__}"
                 )
-        first = len(self._palettes)
-        self._palettes = self._palettes + added
-        return tuple(range(first, len(self._palettes)))
+        return PaletteBank(self._palettes + added)
 
     def __len__(self) -> int:
         return len(self._palettes)

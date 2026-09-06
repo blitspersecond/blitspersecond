@@ -572,13 +572,25 @@ def test_extending_a_bank_appends_and_never_renumbers() -> None:
     silently recolour whatever held it, which is why this only appends."""
     bank = _fixture_bank()
     before = [tuple(p.raw()) for p in bank]
-    added = bank.extend([bank[0].shadowed((0, 0, 0), dim=0.5)])
-    assert added == (2,)
-    assert len(bank) == 3
-    assert [tuple(p.raw()) for p in bank][:2] == before
+    grown = bank.extended([bank[0].shadowed((0, 0, 0), dim=0.5)])
+    assert len(grown) == 3
+    assert [tuple(p.raw()) for p in grown][:2] == before
+
+
+def test_extending_a_bank_leaves_the_original_alone() -> None:
+    """The bank belongs to an IMMUTABLE, INTERNED sheet, so growing one in
+    place reached every other holder of that sheet -- and grew again on every
+    load that reached it. `extended` hands back a new bank instead."""
+    bank = _fixture_bank()
+    grown = bank.extended([bank[0].shadowed((0, 0, 0), dim=0.5)])
+    assert (len(bank), len(grown)) == (2, 3)
+    assert grown is not bank
+    # The rows are SHARED, not copied: a bank is a tuple of references, so
+    # what a copy really costs is one more GPU texture and nothing else.
+    assert grown[0] is bank[0]
 
 
 def test_a_bank_refuses_a_non_palette_row() -> None:
     bank = _fixture_bank()
     with pytest.raises(TypeError, match="row 2"):
-        bank.extend([object()])  # type: ignore[list-item]
+        bank.extended([object()])  # type: ignore[list-item]

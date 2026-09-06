@@ -391,7 +391,7 @@ class FramePlan:
             self._add_run(
                 (
                     tileset.atlas.buffer,
-                    tileset.palettes,
+                    sprite._bank(sprite.sheet.primary_tileset),
                     int(registers[begin]),
                     color,
                 ),
@@ -443,7 +443,7 @@ class FramePlan:
             self._add_run(
                 (
                     tileset.atlas.buffer,
-                    tileset.palettes,
+                    sprite._bank(part.tileset),
                     sprite.palettes[part.tileset],
                     color,
                 ),

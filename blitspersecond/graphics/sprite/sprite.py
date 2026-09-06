@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from math import floor
-from typing import Iterator, Optional, Tuple, Union
+from typing import FrozenSet, Hashable, Iterator, Optional, Tuple, Union
 
 import numpy as np
 
@@ -15,6 +15,7 @@ from ..orientation import Orientation
 from .internal import PaletteRegisters
 from .animation import Animation
 from .batch import SpriteBatch
+from .collision import SpriteCollision
 from .frame import FramePlan
 from .shader import program as sprite_program
 from .presentation import NO_ASSEMBLY, PRIMARY, Chain, Presentation, Slots
@@ -152,6 +153,12 @@ class Sprite(Layer):
         # Slot 0 alone gets a register per tileset, because slot 0 alone may
         # present art from more than one. Instanced slots keep their single
         # register in the per-slot array with everything else.
+        # Banks this sprite has grown for itself, by tileset name. Empty for
+        # almost every sprite: adding rows is what puts one here, and until
+        # then the sheet's own bank is what draws -- so unextended siblings
+        # share a bank object, and `PaletteTexture` keys on identity, so they
+        # share its texture and its bind too.
+        self._banks: dict = {}
         self._slot0_palettes = {
             name: tileset.default_palette
             for name, tileset in sheet.tilesets.items()
@@ -162,6 +169,9 @@ class Sprite(Layer):
         # have changed. Nothing reads either yet.
         self._dirty = True
         self._collision_dirty = True
+        # Built on the first render that needs it and dropped when collision
+        # is switched off, so a layer nobody collides costs nothing for it.
+        self._collision: Optional[SpriteCollision] = None
         # Retained across frames and rewritten in place, so a still scene
         # allocates nothing. Nothing reads it until the draw lands.
         self._plan = FramePlan()
@@ -325,17 +335,93 @@ class Sprite(Layer):
         return None if name is None else self._sheet.assembly(name)
 
     def _sync(self) -> None:
-        """Rebuild the frame plan if anything moved.
+        """Rebuild the frame plan, and the collision plane, if anything moved.
 
         Private, and called from `_composite` -- not a phase a game runs.
         Reference exposed this as `prepare()` and called it from exactly one
         place: the first line of its own composite. Same finding and same fix
         as the other two pillars.
+
+        **The masks are rendered with the frame**, which is the engine's own
+        cycle: clear, read input, run the game, render the frame and the
+        masks. So a collidable sprite leaves the compose with its plane
+        already composed and the tick that asks about it spends nothing.
+
+        Two flags, because the two projections are invalidated by different
+        things. `visible` moves the draw and not the plane; `collide` moves
+        the plane and not the draw. A blinking sprite must not recompose a
+        silhouette it could not have changed.
         """
-        if not self._dirty:
-            return
-        self._plan.sync(self)
-        self._dirty = False
+        if self._dirty:
+            self._plan.sync(self)
+            self._dirty = False
+        if self._collidable and self._collision_dirty:
+            self._collision_mask().compose()
+            self._collision_dirty = False
+
+    # -- collision ---------------------------------------------------------
+
+    def _collision_refusal(self) -> Optional[str]:
+        """A sprite can always collide -- and does not have to.
+
+        There is nothing to refuse: both doors into a sheet reject a
+        non-indexed surface outright (*"a sprite sheet is an indexed (P)
+        surface; use a TileMap for RGB(A) pictures"*), so the palettised rule
+        the base states is already met before a `Sprite` exists. Reference
+        expressed this as a constant `True`; the reason it could is here.
+
+        Participation is a different question and is asked twice more:
+        `collidable` switches the layer, and `collide` decides each
+        presentation. **All or nothing per presentation** -- a multipart pose
+        contributes every part or none, because a part carries no flag of its
+        own.
+        """
+        return None
+
+    @Layer.collidable.setter  # type: ignore[misc]
+    def collidable(self, value: bool) -> None:
+        Layer.collidable.fset(self, value)  # type: ignore[misc]
+        if value:
+            # Whatever was composed last is about to be stale -- the sprite
+            # kept moving while collision was off.
+            self._collision_dirty = True
+        else:
+            self._collision = None
+
+    def _collision_mask(self) -> SpriteCollision:
+        """This layer's plane, built on first use.
+
+        Sized from the sheet, so building one walks its rects; that happens on
+        the first render that needs it rather than at construction, because a
+        sprite nobody collides should not pay for a scan or for 40KB.
+        """
+        if self._collision is None:
+            self._collision = SpriteCollision(self)
+        return self._collision
+
+    @property
+    def planes(self) -> FrozenSet[Hashable]:
+        """Every named collision plane this sheet's assemblies author.
+
+        The sheet's vocabulary, precalculated across every assembly -- so a
+        move that only some frames have an `attack` box on still declares
+        `attack`, and asking on a frame without one answers no rather than
+        raising. Empty is the common case and not a degenerate one: it is the
+        R-Type heritage path, where the silhouette is all there is.
+        """
+        return self._sheet.planes
+
+    def collision_plane(self, name: Optional[Hashable] = None) -> np.ndarray:
+        """One composed plane: the silhouette, or a name from `planes`.
+
+        `collider()` has already checked the name against the vocabulary, so
+        an unknown one never reaches here.
+        """
+        mask = self._collision_mask()
+        if self._collision_dirty:
+            mask.compose()
+            self._collision_dirty = False
+        return mask.plane(name)
 
     def _composite(self) -> None:
         """Draw this sprite: sync, upload, then one draw per run.
@@ -678,6 +764,18 @@ class Sprite(Layer):
         self.primary.orientation = value
 
     # -- what it is drawn with ---------------------------------------------
+
+    def _bank(self, tileset: str):
+        """The bank this sprite draws `tileset` through.
+
+        Its own if it has grown one, otherwise the sheet's. The draw path reads
+        this once per CHAIN -- `FramePlan` treats the bank as constant across
+        one, and depends on that for the bind -- so a sprite with its own bank
+        costs one more palette texture and one more bind, and a trail of 25,000
+        ghosts still costs one of each because a trail is one sprite.
+        """
+        bank = self._banks.get(tileset)
+        return self._sheet.tilesets[tileset].palettes if bank is None else bank
 
     @property
     def palettes(self) -> PaletteRegisters:

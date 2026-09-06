@@ -167,19 +167,27 @@ def main() -> None:
         # reading different tables out of the same tileset.
         sprite.palettes["character"] = palette
 
-        # Her six shades, derived once and appended to the shared bank. Step 1
-        # is the faintest change and step GHOSTS is the deepest, so the list
+        # Her six shades, derived once and added to THIS SPRITE's table. Step
+        # 1 is the faintest change and step GHOSTS is the deepest, so the list
         # reads oldest-last and is indexed backwards below -- `before[0]` is
         # drawn first and is therefore the oldest.
-        bank = sheet.tilesets["character"].palettes
-        costume = bank[palette]
-        shades = bank.extend(
-            costume.shadowed(
-                signature,
-                mix=step / GHOSTS,
-                dim=DEEPEST * step / GHOSTS,
-            )
-            for step in range(1, GHOSTS + 1)
+        #
+        # `add` copies the sheet's bank for this sprite rather than growing
+        # the sheet's own: a `SpriteSheet` is immutable and interned by path,
+        # so appending to it would reach every other holder -- her sister two
+        # layers up, or the same level loaded again. The copy shares every
+        # existing row; what it really costs is one more palette texture.
+        costume = sheet.tilesets["character"].palettes[palette]
+        shades = sprite.palettes.add(
+            "character",
+            (
+                costume.shadowed(
+                    signature,
+                    mix=step / GHOSTS,
+                    dim=DEEPEST * step / GHOSTS,
+                )
+                for step in range(1, GHOSTS + 1)
+            ),
         )
 
         # The trail. Allocated once and never grown: what changes per tick is

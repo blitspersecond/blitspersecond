@@ -8,7 +8,16 @@ package's `__init__.py`.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Iterator, Optional, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    FrozenSet,
+    Hashable,
+    Iterator,
+    Optional,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 from pyglet.gl import (
@@ -21,6 +30,7 @@ from pyglet.gl import (
 
 from blitspersecond.common import SCREEN, Size
 
+from ..collision import pack_store
 from ..internal import Layer, PaletteTexture
 from ..orientation import Orientation, applies_to
 from ..palette import Palette, system_palette
@@ -32,7 +42,7 @@ if TYPE_CHECKING:
     from blitspersecond.input.kbm import TextInput
 from .charset import CHAR_COUNT, GLYPH_MASK, CharSet
 from .internal import CellAccess, Cursor, GlyphAccess, PaintAccess
-from .pen import Pen
+from .pen import PLANE_0, PLANE_1, PLANE_2, PLANE_3, Pen
 
 #: One variant table slot per orientation, indexed BY THE ORIENTATION VALUE.
 #:
@@ -70,6 +80,13 @@ _VARIANTS = 8
 #: no static pattern to precompute. It belongs to the palette or to a
 #: per-frame pass. That is the line -- a variant is a function of the cell.
 _FACING_SHIFT = 8
+
+#: The collision vocabulary: the four glyph planes, by number. Built from the
+#: pen's constants rather than written out, so the two ends of one index --
+#: what a plane draws, what it collides as -- cannot drift apart.
+_PLANES: FrozenSet[Hashable] = frozenset(
+    (PLANE_0, PLANE_1, PLANE_2, PLANE_3)
+)
 
 
 class Console(Layer):
@@ -206,6 +223,11 @@ class Console(Layer):
         # Built on first composite: a vertex list needs a current GL context
         # and construction must not.
         self._quad = None
+        # Collision planes, derived on demand and keyed by plane index with
+        # None for the silhouette. Empty is the resting state and the correct
+        # one: a console nobody asks retains nothing. Set before `clear()`,
+        # which composes and therefore reaches `_touch`.
+        self._collision: dict[Optional[int], np.ndarray] = {}
         self.clear()
         # IS-A Layer: content and place are one object.
         super().__init__()
@@ -791,6 +813,12 @@ class Console(Layer):
         Returns True if the caller should recompose them itself, False if a
         deferral has taken responsibility. Every path that would redraw goes
         through here, so there is one place that knows the rule."""
+        # Whatever changed, the derived planes no longer describe it. This is
+        # the one funnel every write reaches -- a cell, a run of text, a paint
+        # band, a replaced glyph pattern, a scroll, a clear -- so the masks are
+        # invalidated once here rather than at each of them, and the deferral
+        # branch below is beside the point: content changed either way.
+        self._collision.clear()
         if self._defer_depth == 0:
             return True
         self._dirty_top = min(self._dirty_top, first)
@@ -953,20 +981,36 @@ class Console(Layer):
         # the check belongs in this one place rather than at each of them.
         if not self._touch(0, self._rows):
             return
-        # Cells are (x, y, gh, gw); the image is row-major, so the transpose to
-        # (y, gh, x, gw) is where the two orders meet -- once, here. Colour is
-        # already screen-shaped, so it takes no part in the reshuffle. Facing
-        # needs no unpacking: a packed cell IS the index into the variant
-        # table, so this is a plain gather with no arithmetic.
-        planes = (
-            self._flat[self._grid]
-            .transpose(1, 2, 0, 3)
-            .reshape(self._colours.shape[:2])
-        )
+        planes = self._plane_indices(0, self._rows)
         self._image.pixels[:] = np.take_along_axis(
             self._colours, planes[..., None], axis=2
         )[..., 0]
         self._image.dirty = True
+
+    def _plane_indices(self, first: int, last: int) -> np.ndarray:
+        """Cell rows `first`..`last` as screen-shaped glyph plane indices, 0..3.
+
+        Cells are (x, y, gh, gw); the image is row-major, so the transpose to
+        (y, gh, x, gw) is where the two orders meet -- once, here. Colour is
+        already screen-shaped, so it takes no part in the reshuffle. Facing
+        needs no unpacking: a packed cell IS the index into the variant table,
+        so this is a plain gather with no arithmetic.
+
+        **Both readers of the console's glyphs come through here**: the
+        recompose, which turns these into colours through the pen, and the
+        collision derivation, which turns them into bits. That is the reason
+        it is a method rather than three copies of one expression -- the two
+        must agree about which plane a pixel belongs to or a hitbox drifts off
+        the thing it was drawn on.
+        """
+        return (
+            self._flat[self._grid[:, first:last]]
+            .transpose(1, 2, 0, 3)
+            .reshape(
+                (last - first) * self._char_height,
+                self._cols * self._char_width,
+            )
+        )
 
     def _refresh_rows(self, first: int, last: int) -> None:
         """Recompose only rows `first` up to `last` into the image.
@@ -975,11 +1019,7 @@ class Console(Layer):
         paying for 30 of them."""
         top = first * self._char_height
         bottom = last * self._char_height
-        planes = (
-            self._flat[self._grid[:, first:last]]
-            .transpose(1, 2, 0, 3)
-            .reshape(bottom - top, self._cols * self._char_width)
-        )
+        planes = self._plane_indices(first, last)
         self._image.pixels[top:bottom] = np.take_along_axis(
             self._colours[top:bottom], planes[..., None], axis=2
         )[..., 0]
@@ -999,6 +1039,104 @@ class Console(Layer):
         self._image.dirty = True
 
     # -- drawing -------------------------------------------------------------
+
+    # -- collision: derived on demand, off the frame path --------------------
+
+    def _collision_refusal(self) -> Optional[str]:
+        """Never refused -- a console's image is indexed, always.
+
+        The gate asks whether the art CAN derive a mask at all. `_image` is
+        mode "P" from construction with no way to make it anything else, so
+        unlike a tilemap -- whose tileset may be RGBA -- there is nothing to
+        check. Eligible is not the same as on: `Layer` starts every layer at
+        `collidable = False` and this pillar keeps that default, which costs a
+        console that never collides exactly nothing.
+        """
+        return None
+
+    @property
+    def planes(self) -> FrozenSet[Hashable]:
+        """All four glyph planes, by number: `PLANE_0` .. `PLANE_3`.
+
+        The pen's slot indices, because a pen slot and a collision plane are
+        one index seen from two ends -- the pen says what a plane draws, this
+        says what it collides as.
+
+        Plane 0 is offered with the rest. It is conventionally the glyph's
+        ground and so usually the holes, but a pen may paint it a real colour,
+        and reserving it here would assume a convention `Pen` explicitly
+        declines to assume.
+
+        Numbers where a sprite has `attack` and `body_hurt`, and that is the
+        vocabulary being opaque rather than this pillar being odd: plane names
+        come from the art, and a font has none to give.
+        """
+        return _PLANES
+
+    def collision_plane(self, name: Optional[Hashable] = None) -> np.ndarray:
+        """One packed screen-space plane: the silhouette, or one glyph plane.
+
+        **Derived on demand, and the console is the only pillar that pulls.**
+        Kris, 2026-09-04: *"collisions on the console are the oddball path;
+        reading writing are the main uses -- so favour internal
+        representations that prefer the main case."* So `_refresh` gains
+        nothing, `_refresh_rows` keeps its partial band, and a console nobody
+        asks about retains no mask memory at all. Every write reaches
+        `_touch`, which drops the cache, so what is held is never stale and
+        the frame path stays exactly as long as it was.
+
+        **The two derivations cost very differently**, measured on an 80x30
+        console at 640x360:
+
+            silhouette      0.020ms     rides `image.mask`, already there
+            named plane     0.217ms     pays the glyph gather itself
+            cached read     0.0002ms    a dict hit
+            (`_refresh`     1.172ms     for scale -- a whole recompose)
+
+        The silhouette is nearly free because the recompose already built the
+        pixels it reads. A named plane is not: it needs `_plane_indices`, and
+        that gather IS most of a recompose. Asking for three named planes in
+        one frame therefore pays the gather three times, and the obvious fix
+        -- cache the 900KB index array between them -- is not taken, because
+        it would trade the one property this design has (a console that is not
+        asked holds nothing) for a case nobody has yet. When one turns up it
+        is four lines, and it should be added then, with the game that wants
+        it to measure against.
+
+        The silhouette is `image.mask` -- `pixels != 0` -- and deliberately
+        NOT `_plane_indices(...) != 0`. A pen slot may legitimately hold
+        palette index 0, and `paint_buffer` resolves through colour rather
+        than through the glyph, so only the composed pixels know what was
+        actually drawn. Drawn and solid stay one predicate.
+
+        A named plane asks the other question and may disagree with it: plane
+        2 with the pen leaving slot 2 transparent is drawn as nothing and
+        collides as something, which is how a level painted in glyphs gets
+        three collision planes out of one layer. That breaches nothing -- the
+        one-predicate law is about the default silhouette, and a named plane
+        has always been authored geometry independent of what is drawn, which
+        is what a sprite's `attack` box is.
+
+        No offset and no apron. `collision_offset` stays the base's `(0, 0)`
+        because these planes ARE the screen; a tilemap needs both only because
+        it has a camera over a world larger than one.
+
+        `_sync` runs first so an open `defer()` block cannot answer about an
+        image it has not composed yet -- the named planes read cells, which
+        are current, and the silhouette reads pixels, which are not, and the
+        two must not be allowed to describe different frames.
+        """
+        self._sync()
+        plane = self._collision.get(name)
+        if plane is None:
+            bits = (
+                self._image.mask
+                if name is None
+                else self._plane_indices(0, self._rows) == name
+            )
+            plane = pack_store(bits)
+            self._collision[name] = plane
+        return plane
 
     def _build_quad(self, program, texture) -> None:
         """One quad covering the console, built once.

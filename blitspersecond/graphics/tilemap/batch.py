@@ -110,6 +110,12 @@ def _uv_perms() -> Tuple[Tuple[int, ...], ...]:
 
 _UV_PERMS = _uv_perms()
 
+#: The same eight permutations as an array, for the bulk road. `set_quad`
+#: indexes a tuple per call; `set_quads` gathers with `take_along_axis` over a
+#: whole block, and one statement of the permutation must serve both or they
+#: drift -- silently, because the identity orientation agrees either way.
+_UV_PERM_ROWS = np.array(_UV_PERMS, dtype=np.intp)
+
 #: The per-quad state pyglet's Sprite keeps as full vertex streams, fed here as
 #: generic attributes instead: (attribute name, glVertexAttrib fn, values).
 #: `translate` is generic too but is not constant -- it is the scroll register,
@@ -260,6 +266,29 @@ class TileBatch:
         if orientation:
             uv = uv[list(_UV_PERMS[int(orientation) & 7])]
         self._uv[index] = uv
+        self._uv_dirty = True
+
+    def set_quads(
+        self, start: int, uvs: np.ndarray, flags: np.ndarray
+    ) -> None:
+        """N quads' texture rects at once, from `start`.
+
+        `uvs` is `(n, 4, 3)` straight off `Atlas.uvs` -- one gather, already in
+        corner order -- and `flags` is one orientation per quad. The turn is
+        `take_along_axis` over the permutation table, which is the same eight
+        permutations `set_quad` indexes one at a time.
+
+        The bulk counterpart of `set_quad`, and the reason a refill can build a
+        whole window without a Python loop: everything a placement contributes
+        to the GPU mirror is a row of an array, so N of them is a slice
+        assignment rather than N assignments.
+        """
+        if not len(uvs):
+            return
+        turned = np.take_along_axis(
+            uvs, _UV_PERM_ROWS[flags & 7][:, :, None], axis=1
+        )
+        self._uv[start : start + len(uvs)] = turned
         self._uv_dirty = True
 
     def compact(self, indices: np.ndarray) -> None:

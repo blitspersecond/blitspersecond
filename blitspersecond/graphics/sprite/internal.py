@@ -95,7 +95,9 @@ class PaletteRegisters:
 
     def __setitem__(self, tileset: str, index: int) -> None:
         self._check(tileset)
-        available = len(self._sprite.sheet.tilesets[tileset].palettes)
+        # THIS sprite's bank, not the sheet's -- a sprite that grew rows of
+        # its own must be able to select one, and only it can see them.
+        available = len(self._sprite._bank(tileset))
         index = int(index)
         if not 0 <= index < available:
             raise ValueError(
@@ -104,9 +106,39 @@ class PaletteRegisters:
             )
         if self._index == PRIMARY:
             self._sprite._slot0_palettes[tileset] = index
+
         else:
             self._sprite._slots.palette[self._index] = index
         self._sprite._touch()
+
+    def add(self, tileset: str, palettes) -> Tuple[int, ...]:
+        """Grow `tileset`'s table for THIS SPRITE, and hand back the new rows.
+
+            shades = chun.palettes.add(
+                "character",
+                (costume.shadowed(HAIR, mix=k / 6) for k in range(1, 7)),
+            )
+            for ghost, row in zip(chun.before.extend(6), shades):
+                ghost.palettes["character"] = row
+
+        **Copy on write, and the copy is the point.** A `SpriteSheet` is
+        immutable and interned by path, so growing its bank in place reached
+        every other holder of that sheet -- and grew again on every load, for
+        as long as anything kept it alive. This gives the sprite a bank of its
+        own instead, leaving the sheet's untouched: *"you just change a new
+        copy and dont disturb others"* (Kris, 2026-09-05).
+
+        The copy is a tuple of `Palette` REFERENCES -- no table is duplicated,
+        and the sheet's rows are shared with the new bank. What is really made
+        is one more GPU palette texture, which is the small thing.
+
+        Rows are appended, so a register handed out before still means what it
+        meant, and the numbers returned are the new rows in order.
+        """
+        current = self._sprite._bank(tileset)
+        grown = current.extended(palettes)
+        self._sprite._banks[tileset] = grown
+        return tuple(range(len(current), len(grown)))
 
     def __contains__(self, tileset: object) -> bool:
         return tileset in self._names

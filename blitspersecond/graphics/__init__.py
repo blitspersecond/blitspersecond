@@ -38,14 +38,15 @@ the things that play it, and what they share is caching behaviour, which is
 
 `TileMap` is a world of cells over one sheet, and IS a layer: build one,
 `bps.layers.add` it, and it draws. `Tile` is a cell of its sheet, which only
-that map will draw; `PLANE_DTYPE`, `EMPTY` and `empty_map` are how you author
-a world by hand rather than loading one, which is a first-class road and not a
-workaround.
+that map will draw. `TileMap(sheet, cols, rows)` makes an empty world and
+`tilemap.cell[x, y]` is the only road into it -- for reading, for writing, and
+for a whole block in one write. `EMPTY_TILE` is the word for a cell holding
+nothing, needed when you fill a buffer taken off `cell[:, :]` by hand.
 
 `TiledFile` is the other road -- `TiledFile("island.tmx").tilemap("trees")` --
-and it is a convenience, not the way in. It fills the same array `empty_map`
-hands you empty, so a game generating its own world never imports it and loses
-nothing by not doing so.
+and it is a convenience, not the way in. A `.tmx` layer arrives as a world
+already made, so it has a door of its own; a game generating its own world
+writes through `cell` and never imports it.
 
 The remaining engine -- sprite -- and the rest of the material they draw from
 land here as the rebuild brings them back; this file is the list of what a
@@ -61,13 +62,11 @@ package's docstring for why the public-looking half is still internal.
 from .atlas import Atlas
 from .pixel_buffer import PixelBuffer
 from .tilemap import (
-    EMPTY,
-    PLANE_DTYPE,
+    EMPTY_TILE,
     Tile,
     TileMap,
     TiledFile,
     TiledLayer,
-    empty_map,
 )
 from .orientation import (
     FLIP_OF,
@@ -110,9 +109,7 @@ __all__ = [
     "Tile",
     "TiledFile",
     "TiledLayer",
-    "PLANE_DTYPE",
-    "EMPTY",
-    "empty_map",
+    "EMPTY_TILE",
     "Orientation",
     "SHAPE_PRESERVING",
     "swaps_axes",

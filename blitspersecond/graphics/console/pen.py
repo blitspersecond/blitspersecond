@@ -136,6 +136,31 @@ from ..orientation import Orientation
 SYSTEM_SLOTS: tuple[int, int, int, int] = (0, 1, 0, 0)
 _SLOTS = len(SYSTEM_SLOTS)
 
+#: The four slots by number, for both of the things a slot index selects.
+#:
+#: A pen slot and a glyph collision plane are the SAME index seen from two
+#: ends -- the pen says what a plane draws, `Console.collider` asks what it
+#: collides as -- so they get one set of names rather than two:
+#:
+#:     pen[PLANE_2] = YELLOW              # what it draws
+#:     console.collider(PLANE_2)          # what it collides as
+#:
+#: Numbered, and that is the point. Naming the INDEX prejudges nothing;
+#: naming what it DRAWS would, which is the same reason `SYSTEM_SLOTS`
+#: declines to paint 2 and 3 -- a font decides what a plane is for. All four
+#: are offered, plane 0 included: it is conventionally the glyph's ground and
+#: so usually the holes, but nothing stops a pen painting it a real colour,
+#: and reserving it would assume a convention this module explicitly does not.
+#:
+#: Module constants rather than an `IntEnum`, because `Plane.PLANE_2` stutters
+#: and these sit beside `SYSTEM_SLOTS`, already a plain tuple of the same four
+#: indices. They are plain `int`s, so `pen[2]` and `pen[PLANE_2]` are one
+#: thing and no API grows a second spelling it has to accept.
+PLANE_0 = 0
+PLANE_1 = 1
+PLANE_2 = 2
+PLANE_3 = 3
+
 #: What one slot may hold: a palette index, or a whole plane once someone has
 #: taken the per-pixel road (decision 4 -- a slot read describes what you last
 #: SET, so setting a ramp means reading one back).

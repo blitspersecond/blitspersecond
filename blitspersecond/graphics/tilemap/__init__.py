@@ -26,6 +26,9 @@ get more collision identities; sharing art between them is free, because
                   validation both doors into a world go through, and the
                   placement SoA that stamping fills
     tile.py       Tile: one cell of the sheet, owned by the map that minted it
+    collision.py  CollisionMask: the bit-packed screen-space plane a
+                  collidable map stamps into, with the border that makes
+                  scrolling it cheap
     tiled.py      TiledFile: reading a world out of a Tiled file -- one road
                   in among two, and not the privileged one
     internal.py   the `tile[n]` face -- a shape you reach through and never
@@ -38,24 +41,32 @@ survives from the reference tree, what does not, and why -- and the board
 carries one card per step at the top of `bps-board/tasks/todo`.
 
 **Landed:** `shader.py`, `batch.py`, the shell, placement, the draw, TMX
-loading, the camera, and `wrap` -- worlds with no edges, per axis. A `TileMap` you `bps.layers.add` paints its own
-window and streams as `scroll` moves -- one texture bind and one draw call
-however much of the world is showing, and no buffer written at all between
-cell boundaries.
+loading, the camera, `wrap` -- worlds with no edges, per axis -- and
+collision. A `TileMap` you `bps.layers.add` paints its own window and streams
+as `scroll` moves -- one texture bind and one draw call however much of the
+world is showing, and no buffer written at all between cell boundaries.
 
-**Still to come:** the colour registers, and collision.
+Collision rides the same split, and lands in the same phase. A tile's bits
+are stamped when its quad is, so the mask is filled by the three occasions a
+tile is drawn at all: the first frame's whole screen, a hand `blit`, and the
+gutter a scroll exposes. A coarse step slides the stored plane in whole words
+and whole rows; a fine one moves nothing on either side of the machine,
+because `_fine` is one number and both the vertex attribute and the query's
+offset read it -- latched, because a collision is a fact about the frame that
+was painted.
+
+**Still to come:** the colour registers.
 """
 
 from .tile import Tile
 from .tiled import TiledFile, TiledLayer
-from .tilemap import EMPTY, PLANE_DTYPE, TileMap, empty_map
+from .internal import EMPTY_TILE
+from .tilemap import TileMap
 
 __all__ = [
-    "EMPTY",
-    "PLANE_DTYPE",
+    "EMPTY_TILE",
     "Tile",
     "TileMap",
     "TiledFile",
     "TiledLayer",
-    "empty_map",
 ]

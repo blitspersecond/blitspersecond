@@ -1,13 +1,29 @@
-from typing import Optional
+from typing import FrozenSet, Hashable, Optional, Tuple
 from uuid import uuid4
+
+import numpy as np
+
+from ..collision import Collider, CollisionQuery, as_collider
 
 
 class Layer:
     """A place in the compositor's draw order -- and, in every subclass, the
     content that place shows. A pillar IS its layer: `Console` is one and
     `TileMap` will be, so building one builds both the thing you draw with
-    and where it sits. The base class owns only the compositing concerns --
-    enabled, tag, blend, stack position; opacity/offset later.
+    and where it sits. The base class owns the compositing concerns --
+    enabled, tag, blend, stack position; opacity/offset later -- and the
+    collision question, which is the one thing here that is not about
+    drawing.
+
+    **Collision is on the base because the answer must not depend on which
+    pillar asked.** *A layer is one texture, one draw call, and one
+    answerable collision identity*, so `collides_with` means the same thing
+    between two tile layers, a sprite and a console, or either against the
+    other, and there is one statement of it rather than one per pillar that
+    can drift. What a subclass supplies is the geometry -- `collidable`,
+    `planes` and `collision_plane` below -- and the bare base supplies
+    none, so an ordinary layer refuses the question loudly instead of
+    answering False about a mask it never had.
 
     You construct a pillar yourself and `bps.layers.add(layer)` places it.
     Until it is added it is unattached and off-screen, and reordering an
@@ -19,6 +35,7 @@ class Layer:
     def __init__(self, tag: Optional[str] = None) -> None:
         self._id: str = str(uuid4())
         self._enabled: bool = True
+        self._collidable: bool = False
         self._blend: bool = False
         self._tag: Optional[str] = tag
         self._layers = None  # back-reference, set by Layers.add
@@ -157,6 +174,184 @@ class Layer:
         """Move to the foreground (drawn last)."""
         self._bound()._to_front(self)
         return self
+
+    # -- collision (the shared question; the geometry is a subclass's) -----
+
+    def _collision_refusal(self) -> Optional[str]:
+        """Why this layer may not be made collidable, or None if it may be.
+
+        The subclass hook behind the `collidable` setter, so the rule that
+        decides it is stated once per pillar rather than once per place that
+        checks. The bare base refuses, because a layer with no masks behind
+        it answering collision questions is the silent bug the whole gate
+        exists to prevent.
+        """
+        return f"{type(self).__name__} keeps no collision masks"
+
+    def _require_collidable(self) -> None:
+        """Raise unless this layer is taking part in collision right now.
+
+        **The one statement of the gate**, called both where a handle is
+        minted and where a question is asked, so the two doors cannot come
+        to mean different things. Nothing here answers False: a layer that
+        is out of collision has no answer to give, and inventing one would
+        hide a game asking about geometry it switched off -- which is the
+        bug that looks exactly like working code until a level ships with
+        its hazards inert.
+
+        The two refusals read differently because the fixes differ. Art that
+        can never collide wants authoring differently; a switch you turned
+        off wants turning back on.
+        """
+        if self._collidable:
+            return
+        refusal = self._collision_refusal()
+        if refusal is not None:
+            raise ValueError(
+                f"{self} cannot take part in a collision question: {refusal}."
+            )
+        raise ValueError(
+            f"{self} has collidable=False, so it stamps nothing and a "
+            f"question involving it has no answer. Set collidable=True to "
+            f"take part again."
+        )
+
+    @property
+    def collidable(self) -> bool:
+        """Whether this layer takes part in collision at all -- **a switch**,
+        and the cheapest one there is.
+
+            hazards.collidable = False      # the whole layer, off
+
+        Turning it off stops the layer stamping -- on a sprite, the
+        per-frame recomposition of every plane it owns -- and makes every
+        question involving it RAISE. Not answer False: a layer that is out of
+        collision has no answer to give, and a False would be indistinguishable
+        from "these two do not touch", which is how a level ships with its
+        hazards silently inert. The switch is therefore read at the question
+        as well as at the stamp, and neither reads stale bits, because the
+        planes a switched-off layer stopped maintaining are never consulted.
+
+        **Not every layer may be switched on.** Solidity is keyed on palette
+        index 0 meaning transparent, so a layer whose art is not palettised
+        has nothing to derive a mask from -- collision there is unbuildable
+        rather than off, and setting this True raises saying so. Both sides
+        of a question must be collidable, which is therefore one rule and not
+        two: everything that collides is palettised.
+        """
+        return self._collidable
+
+    @collidable.setter
+    def collidable(self, value: bool) -> None:
+        if not isinstance(value, bool):
+            raise ValueError("collidable must be a boolean")
+        if value:
+            refusal = self._collision_refusal()
+            if refusal is not None:
+                raise ValueError(refusal)
+        self._collidable = value
+
+    @property
+    def planes(self) -> FrozenSet[Hashable]:
+        """The named collision planes this layer's art authored.
+
+        Empty on everything that keeps a single mask -- tiles -- which is not
+        a degenerate case but the common one. The vocabulary is opaque to the
+        engine: keys come from the art and mean whatever the game decides.
+
+        **Opaque includes the type.** A sprite sheet authors strings --
+        `attack`, `body_hurt` -- and a console authors the four glyph plane
+        numbers, because a font has no names to give. So a key is anything
+        hashable, and the engine reserves no spelling of one.
+        """
+        return frozenset()
+
+    @property
+    def collision_offset(self) -> Tuple[int, int]:
+        """Where screen `(0, 0)` sits inside this layer's collision planes.
+
+        `(0, 0)` for anything whose planes ARE the screen -- a sprite is at a
+        coordinate and a console is screen space, so neither has anywhere else
+        to be. A tilemap has a camera over a world larger than the screen, so
+        its planes are stored with a border and it reports that border plus
+        whatever sub-word remainder its camera has not moved.
+
+        **One number carries both**, because they are the same kind of thing:
+        a constant displacement between where a bit is stored and where it
+        appears. Splitting them would mean two things to keep in step.
+
+        It exists so the mask never has to move for fine scrolling. The
+        compiled query reads each plane through its own offset for nothing
+        (measured: 0.52us against 0.53us), where shifting the plane instead
+        would cost tens of microseconds per layer per frame.
+        """
+        return (0, 0)
+
+    def collision_plane(self, name: Optional[Hashable] = None) -> np.ndarray:
+        """One packed screen-space plane: `None` for the default silhouette,
+        or a name from `planes`.
+
+        The subclass hook. Everything above reaches geometry through here,
+        so a pillar implements one method to join the protocol, and the
+        gates that decide whether a call is even legal have already run in
+        `collider()`.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} keeps no collision mask"
+        )
+
+    def collider(self, name: Optional[Hashable] = None) -> Collider:
+        """A handle on this layer's geometry -- the default plane, or one
+        named plane of it.
+
+            wall = terrain.collider()
+            fist = chunli.collider("attack")
+
+        **Both gates fire here**, in the call that named the thing, rather
+        than inside an `.at()` further down the frame. A layer not taking
+        part raises -- one answering False forever is a silent bug that looks
+        like working code -- and so does an unknown plane name, because a
+        typo'd hitbox that never hits is the same bug wearing a costume. The
+        two refusals read differently on purpose: art that can never collide
+        wants fixing, and a switch you turned off wants turning back on.
+
+        Handles are worth keeping. One resolves its plane on every read and
+        caches nothing, so a handle made at setup keeps answering correctly
+        as the world moves underneath it.
+        """
+        self._require_collidable()
+        if name is None:
+            return Collider(self, None)
+        vocabulary = self.planes
+        if name not in vocabulary:
+            if not vocabulary:
+                raise KeyError(
+                    f"{name!r}: this layer authors no named collision planes, "
+                    f"so its silhouette -- collider() with no name -- is all "
+                    f"there is to select."
+                )
+            raise KeyError(
+                f"{name!r}: unknown collision plane. This layer authors "
+                f"{sorted(vocabulary)}."
+            )
+        return Collider(self, name)
+
+    def collides_with(self, other) -> CollisionQuery:
+        """Prepare a collision question against another layer or collider.
+
+            if player.collides_with(ladders).at(x, y, w, h):
+
+        Sugar for `self.collider().collides_with(other)` -- a bare layer on
+        either side means its default plane, so a game that never names one
+        never meets `Collider`. Nothing is computed until `.at()` runs.
+
+        **`enabled` is not consulted.** A layer turned off keeps answering,
+        the same split a sprite makes one level down between `visible` and
+        `collide`: what is drawn is a view decision and what is solid is a
+        world one. To take a layer's contents out of play, clear their
+        collide bits rather than hiding the layer.
+        """
+        return CollisionQuery(self.collider(), as_collider(other))
 
     def _composite(self) -> None:
         """Draw this layer's content into the current framebuffer. Called once

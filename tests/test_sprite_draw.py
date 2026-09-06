@@ -376,8 +376,8 @@ def test_a_mirrored_sprite_draws_mirrored(window, fumiko: Sprite) -> None:
 
 
 def test_a_bank_that_grows_after_drawing_still_draws(window, fumiko: Sprite) -> None:
-    """`PaletteBank.extend` derives a trail's shades, and a game may reach it
-    after a frame has already been drawn.
+    """`palettes.add` derives a trail's shades, and a game may reach it after
+    a frame has already been drawn.
 
     The texture is sized to the row count it was FIRST asked for, so growing
     the bank used to blit a taller table into a shorter texture -- which is
@@ -392,9 +392,16 @@ def test_a_bank_that_grows_after_drawing_still_draws(window, fumiko: Sprite) -> 
     assert _lit(before).any(), "nothing was drawn at all"
 
     bank = fumiko.sheet.tilesets["character"].palettes
-    grown = bank.extend([bank[0].shadowed((255, 40, 40), mix=1.0, dim=0.5)])
-    fumiko.palettes["character"] = grown[0]
+    shades = fumiko.palettes.add(
+        "character", [bank[0].shadowed((255, 40, 40), mix=1.0, dim=0.5)]
+    )
+    fumiko.palettes["character"] = shades[0]
     after = _compose(window, fumiko)
+
+    # Copy on write: the sheet is immutable and interned, so the rows this
+    # sprite grew are ITS rows and no other holder of the sheet can see them.
+    assert len(fumiko.sheet.tilesets["character"].palettes) == len(bank)
+    assert fumiko._bank("character") is not bank
 
     assert _lit(after).any(), "the grown bank drew nothing"
     assert np.array_equal(_lit(before), _lit(after)), (

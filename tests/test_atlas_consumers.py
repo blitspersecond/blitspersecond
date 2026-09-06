@@ -18,11 +18,10 @@ The sprite pillar is the one that takes either, which is the whole point of
 the unification, and is tested with the sheet when it lands.
 """
 
-import numpy as np
 import pytest
 
 from blitspersecond.common import Rect
-from blitspersecond.graphics import PLANE_DTYPE, Atlas, PixelBuffer, TileMap
+from blitspersecond.graphics import Atlas, PixelBuffer, TileMap
 from blitspersecond.graphics.console import CharSet, Console
 
 GLYPHS = 256
@@ -39,16 +38,9 @@ def given(buffer: PixelBuffer) -> Atlas:
     return Atlas(buffer, {f"r{i}": Rect(0, 0, 8, 8) for i in range(GLYPHS)})
 
 
-@pytest.fixture
-def world() -> np.ndarray:
-    return np.zeros((4, 4), dtype=PLANE_DTYPE)
-
-
-def test_tilemap_refuses_rects_given_outright(
-    given: Atlas, world: np.ndarray
-) -> None:
+def test_tilemap_refuses_rects_given_outright(given: Atlas) -> None:
     with pytest.raises(ValueError) as excinfo:
-        TileMap(given, world)
+        TileMap(given, 4, 4)
     message = str(excinfo.value)
     assert "autogrid" in message
     # It gives the pillar's OWN reason, not the atlas's.
@@ -73,10 +65,8 @@ def test_the_refusal_beats_the_cell_read(given: Atlas) -> None:
         Console(given)
 
 
-def test_tilemap_still_takes_an_autogrid(
-    buffer: PixelBuffer, world: np.ndarray
-) -> None:
-    tilemap = TileMap(Atlas(buffer, 16, 16), world)
+def test_tilemap_still_takes_an_autogrid(buffer: PixelBuffer) -> None:
+    tilemap = TileMap(Atlas(buffer, 16, 16), 4, 4)
     assert tilemap.tileset.gridded
     assert tuple(tilemap.tile_size) == (16, 16)
 
