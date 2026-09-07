@@ -25,8 +25,8 @@ screen. That is why a paint-buffer READ hands back a read-only view: a write
 through a captured view would reach the buffer without passing this way, and
 the frame would silently not change.
 
-`Cursor` is here for a different reason -- see its own docstring, and the
-package `__init__` for how it got here.
+The recompose band, and how `Cursor` ended up here after being taken apart
+and put back together: `bps/reference/console.md`.
 """
 
 from __future__ import annotations
@@ -59,16 +59,13 @@ class PaintAccess:
     would point the wrong way down the pipeline. It holds palette indices
     rather than colours besides, which `paint` says and `colour` does not.
 
-    THE AXES ARE NOT THE CELL GRID'S. `cell[x, y]` is screen order because
-    that grid is the engine's to define; this is `[row, col]` because it is
-    the screen's, and the screen is row-major all the way down to the GPU.
-    Storing it the other way round would not fix that -- it would only move
-    the transpose into the recompose and make it unconditional. Measured, a
-    transposed whole-plane write costs 1.2ms against 21us native, so the order
-    is not negotiable and the NAMES carry the warning instead:
+    THE AXES ARE NOT THE CELL GRID'S, and the names carry the warning:
 
         x, y        screen order      -- cell[x, y]
         row, col    array order       -- paint_buffer[row, col]
+
+    The order is not negotiable -- see `bps/reference/console.md`, "Colour is
+    not a cell attribute", for the measurement that settles it.
 
     This is the advanced road. Colour is NOT a per-cell attribute and never
     was; the pen stamps it cellwise because that is what text wants, but the

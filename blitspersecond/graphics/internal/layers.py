@@ -1,6 +1,19 @@
-from typing import List, Optional
+from time import perf_counter
+from typing import TYPE_CHECKING, List, Optional
+
+from pyglet.gl import (
+    GL_BLEND,
+    GL_ONE_MINUS_SRC_ALPHA,
+    GL_SRC_ALPHA,
+    glBlendFunc,
+    glDisable,
+    glEnable,
+)
 
 from .layer import Layer
+
+if TYPE_CHECKING:
+    from blitspersecond.internal.framebuffer import Framebuffer
 
 
 class Layers:
@@ -22,18 +35,17 @@ class Layers:
     off-screen until `add` gives it somewhere to be, and off-screen again
     after `remove` -- those two verbs are the whole of what this owns.
 
-    Keeping the building elsewhere is what keeps this file free of every
-    engine: `Layers` imports no layer class, so adding a fourth kind of layer
-    needs no line here. It used to mint them -- `bps.layers.tile(...)`,
-    `.sprite(...)`, `.glyph(...)` -- which named all three engines in the
-    signatures and had to import their classes inside each method body,
-    because importing them at module scope closed a cycle through `graphics`.
-    The deferred imports went with the mint methods; there is no longer a
-    cycle to defer around.
+    **`Layers` imports no layer class**, so adding a fourth kind of layer
+    needs no line here -- and there is no import cycle through `graphics` to
+    defer around. Keep it that way: building belongs to the thing being built.
+
+    The design record is `bps/reference/layers.md`.
     """
 
     def __init__(self):
         self._layers: List[Layer] = []
+        self._background: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        self._commit_duration: float = 0.0
 
     def add(self, layer: Layer) -> None:
         """Place a layer at the foreground of the draw order, and so on screen.
@@ -44,12 +56,9 @@ class Layers:
         not build, and it does not move.
 
         Adding a layer that is already in this order RAISES rather than
-        moving it to the front. Placing and repositioning are different
-        questions asked in different words: `first()`, `last()`, `before()`
-        and `after()` on the layer itself are the second one, and they say
-        where they are putting it. `add` reading as a silent send-to-front
-        would make the two spellings for the same intent disagree about
-        whether the layer had to be somewhere else already.
+        moving it to the front: placing and repositioning are different
+        questions, and `first()`/`last()`/`before()`/`after()` are the second
+        one.
 
         A layer sits in one draw order at a time; `remove()` it from the
         other first."""
@@ -66,25 +75,6 @@ class Layers:
             )
         self._layers.append(layer)
         layer._bind(self)
-
-    def _advance(self) -> None:
-        """One game tick of playback across every layer that has any.
-
-        The engine loop calls this once per fixed tick, AFTER the game's tick
-        callback and BEFORE the compose -- so a clip the engine moved on and
-        one the game moved on by hand land in the same frame, and a `play()`
-        issued this tick starts on this tick's frame.
-
-        Only sprite layers do anything; tiles and glyphs have no clips, and
-        `Layer._advance` is a no-op for them. A sprite with nothing playing
-        costs one `is None` test, so a scene that animates nothing pays
-        nothing.
-
-        Billed OUTSIDE `gameloop.ms` on purpose: an animating scene must not
-        read as a computing one.
-        """
-        for layer in self._layers:
-            layer._advance()
 
     def remove(self, layer: Layer) -> None:
         """Take a layer out of the draw order, leaving it built but off-screen.
@@ -103,6 +93,115 @@ class Layers:
             raise ValueError(f"{layer!r} is not in this Layers collection")
         self._layers.remove(layer)
         layer._bind(None)
+
+    # -- the frame: prepare, then commit ---------------------------------
+    #
+    # The engine calls these two either side of the game's tick, and names no
+    # per-layer step itself:
+    #
+    #     layers.prepare()      # BEGIN
+    #     game_loop()           # the game mutates
+    #     layers.commit(...)    # COMMIT, and the tidy that follows it
+    #
+    # This collection is the compositor. It used to be `Display._compose`,
+    # which meant a window object read `Layer.enabled` and `Layer.blend` --
+    # state the collection owns and the display had no business knowing. The
+    # display now only hands over the buffer to draw into.
+
+    @property
+    def background(self) -> tuple[float, float, float]:
+        """The colour the frame clears to before any layer draws."""
+        return self._background
+
+    @background.setter
+    def background(self, colour: tuple[float, float, float]) -> None:
+        self._background = colour
+
+    @property
+    def commit_duration(self) -> float:
+        """Seconds the last commit took, excluding the present path.
+
+        Billed at game rate: one commit per tick, whatever the panel does.
+        Note this now INCLUDES `prepare`'s work, which previously fell between
+        `gameloop_ms` and the old `compose_duration` and was in neither.
+        """
+        return self._commit_duration
+
+    def prepare(self) -> None:
+        """Bring every attached layer up to date for the tick about to run.
+
+        **Every ATTACHED layer, not every enabled one.** Attachment is the
+        statement of participation: a layer you do not want processed is one
+        you do not add. `enabled` therefore means exactly one thing -- whether
+        the layer is drawn -- and a hidden layer keeps advancing its clips and
+        keeps repainting a typed line.
+
+        Called BEFORE the game's tick, so the game reads a world already
+        current: a sprite's pose and a console's echoed line are this tick's
+        when the game looks at them, the same guarantee the input cut gives.
+
+        A layer with nothing to do costs one `is None` test, so a scene that
+        animates nothing and types nothing pays nothing.
+        """
+        for layer in self._layers:
+            layer.prepare()
+
+    def commit(self, fbo: "Framebuffer") -> None:
+        """Draw the frame the tick produced into `fbo`.
+
+        Writes the buffer it is handed and nothing else. It does not flag the
+        frame finished, does not know a second buffer exists, and takes no
+        part in showing this one -- swapping, promoting and presenting are
+        the display's, and so is deciding when a written frame counts as
+        done.
+
+        An empty draw order costs exactly the clear, so a game that has added
+        no layers costs one clear and a swap. Deliberate rather than
+        incidental: the frame-pacing numbers in
+        `docs/bps/DECOUPLED_PRESENTATION.md` were all measured against a
+        clear-and-swap, and stay comparable only while the no-layer case
+        still IS one.
+        """
+        started = perf_counter()
+        fbo.clear(self._background)
+        if self._layers:
+            with fbo.as_target():
+                self._draw()
+        self._commit_duration = perf_counter() - started
+
+    def _draw(self) -> None:
+        """Every layer, background to foreground, blend tracked.
+
+        EVERY layer, not every enabled one. The walk calls `composite` on all
+        of them and reads none of their state; a layer that is not being
+        drawn returns without drawing. What `enabled` means belongs to the
+        layer, the same way what a tick means belongs to it -- a walk that
+        interpreted the flag would be a second place that knows what it
+        implies.
+
+        Blend is COMPOSITING state and is READ here, per layer, from
+        `Layer.blend`. It used to be established once around the whole loop,
+        because every pillar wanted the identical two calls. That stopped
+        being right when indexed art became strictly drawn-or-discarded: the
+        engine paints back to front with no depth test and no resolve, so
+        colour is last-writer-wins and `indexed.frag` discards index 0 rather
+        than blending it away. A sprite layer over a tilemap composes
+        correctly with blending OFF -- transparent texels never reach here.
+
+        The func is set unconditionally: it is inert while blend is off, and
+        setting it once beats tracking whether it still holds. The present
+        pass disables blend again for its own quad, which is why even this
+        much is re-established per frame rather than at startup.
+        """
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        blending = False
+        for layer in self._layers:
+            if layer.blend != blending:
+                blending = layer.blend
+                (glEnable if blending else glDisable)(GL_BLEND)
+            layer.composite()  # decides whether it draws; issues its own draw
+        if blending:
+            glDisable(GL_BLEND)
 
     def find(self, *, tag: str) -> Optional[List[Layer]]:
         """Bound layers carrying `tag`, in stack order -- or None if none do.
@@ -135,13 +234,10 @@ class Layers:
     def _target(self, other: object) -> Layer:
         """Check that `other` is a layer in THIS order, and hand it back.
 
-        RAISES rather than returning None. This used to be a silent `return`:
-        ordering against a non-layer, or against a layer in another
-        collection, quietly did nothing and the frame just came out wrong.
-        That is the worst failure mode available here -- nothing reports it,
-        and the picture is merely subtly incorrect, so the search starts at
-        the drawing rather than at the ordering. A reorder that cannot happen
-        must say so.
+        RAISES rather than returning None. A silently ignored reorder leaves
+        a frame that is merely subtly wrong -- nothing reports it, and the
+        search starts at the drawing rather than at the ordering. A reorder
+        that cannot happen must say so.
         """
         if not isinstance(other, Layer):
             raise TypeError(f"expected a Layer; got {type(other)}")

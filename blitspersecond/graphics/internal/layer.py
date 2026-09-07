@@ -65,17 +65,14 @@ class Layer:
         """Whether this layer's fragments blend with what is already drawn.
 
         **Off by default, and that is the engine's model rather than a
-        performance default.** BPS paints back to front with no depth test and
-        no resolve, so colour information is last-writer-wins: a pixel is
-        drawn or it is not. Indexed art carries that through -- index 0 is
-        transparent, everything else is opaque, and `indexed.frag` discards
-        the one rather than blending it away.
+        performance default.** Indexed art is drawn or discarded -- index 0 is
+        transparent and `indexed.frag` discards it -- so a sprite layer over a
+        tilemap composes correctly with blending off.
 
-        So translucency is a per-LAYER effect and this is where it lives: a
-        see-through overlay, an additive flash, a fog sheet over the world.
-        What it is not is a way to fade one sprite among many -- that is a
-        palette row, which costs a number rather than a blend and is what the
-        hardware this engine models actually did.
+        Translucency is a per-LAYER effect and this is where it lives: a
+        see-through overlay, an additive flash, a fog sheet. Not a way to fade
+        one sprite among many; that is a palette row. See
+        `bps/reference/layers.md`.
         """
         return self._blend
 
@@ -97,29 +94,30 @@ class Layer:
     def attached(self) -> bool:
         """Whether this layer is in a draw order, and so on screen.
 
-        The one thing a layer knows that its collection does not tell you for
-        free: `bps.layers` can be asked whether it contains something, but a
-        layer handed to a helper cannot ask that without also being handed
-        the engine.
+        A bool, deliberately: a layer reports whether it has a place and
+        cannot hand out the order it sits in. Reordering THIS layer is what
+        `before/after/first/last/swap_with` below are for.
 
-        This used to expose the collection itself, as `layer.layers`. It is a
-        bool now for two reasons. The engine has exactly ONE Layers, so
-        `layer.layers` was `bps.layers` in every real program and bought
-        nothing that having `bps` did not -- except this answer. And handing
-        the collection back invited reaching sideways through a layer to
-        reorder or remove OTHER layers, which reads as though the layer had
-        authority over the order it merely sits in. Reordering THIS layer is
-        what `before/after/first/last/swap_with` below are for."""
+        The one thing a layer knows that its collection does not tell you for
+        free -- a layer handed to a helper cannot ask `bps.layers` without
+        also being handed the engine."""
         return self._layers is not None
 
-    def _advance(self) -> None:
-        """One game tick of playback. A no-op unless the layer has any.
+    def prepare(self) -> None:
+        """Bring this layer up to date for the tick about to run. A no-op
+        unless the layer has something to do.
 
-        A real method rather than a `getattr` probe. It was the probe until
-        its one intended consumer arrived: sprite layers play clips, tiles and
-        glyphs have nothing to advance. Typed and greppable now, and not
-        satisfiable by accident by an unrelated attribute that happens to be
-        called `_advance`.
+        The BEGIN slot, called by `Layers.prepare` before the game's tick.
+        Sprites move a clip on; a console repaints the line being echoed;
+        tiles have neither.
+
+        **One slot, and the walk knows nothing else.** Whatever a pillar
+        calls its own per-tick work -- `_update_animations`, `_repaint_input`
+        -- the compositor reaches it only through this method. Probing for
+        pillar-specific names would make those names an interface without
+        declaring one, discoverable only by reading the walk. A real method
+        rather than a `getattr` probe for the same reason: it is typed and
+        greppable and cannot be satisfied by accident.
         """
 
     def _bind(self, layers) -> None:
@@ -134,10 +132,8 @@ class Layer:
     def _bound(self):
         """The collection this layer sits in, or raise saying it sits in none.
 
-        Reordering used to no-op silently when unbound, which made an
-        off-screen layer look like a draw-order bug. There is no sensible
-        quiet answer -- a position in an order you are not in is undefined --
-        so asking is an error."""
+        There is no sensible quiet answer: a position in an order you are not
+        in is undefined, so asking is an error rather than a no-op."""
         if self._layers is None:
             raise RuntimeError(
                 f"{type(self).__name__} is not in a draw order, so it cannot "
@@ -353,11 +349,27 @@ class Layer:
         """
         return CollisionQuery(self.collider(), as_collider(other))
 
+    def composite(self) -> None:
+        """The COMMIT slot: draw this layer, if it is being drawn.
+
+        The compositor calls this on every layer in the order and reads none
+        of their state -- what `enabled` MEANS is decided here, by the layer
+        it belongs to, exactly as `prepare` decides what a tick means to it.
+        A walk that interpreted layer state would be a second place that
+        knows what a flag implies, and the two would drift.
+
+        `enabled` is a view decision and only that: a layer turned off draws
+        nothing and keeps everything else, still advancing on `prepare` and
+        still answering collision questions.
+        """
+        if self._enabled:
+            self._composite()
+
     def _composite(self) -> None:
-        """Draw this layer's content into the current framebuffer. Called once
-        per frame by the compositor while the FBO + projection are bound.
-        Subclasses ARE the content and override this; the bare base draws
-        nothing."""
+        """Draw this layer's content into the bound framebuffer.
+
+        The subclass hook, reached through `composite` above. Subclasses ARE
+        the content and override this; the bare base draws nothing."""
 
     def __str__(self) -> str:
         return f"id: {self._id} [{self._tag}]"

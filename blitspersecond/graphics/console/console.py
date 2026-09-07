@@ -47,38 +47,26 @@ from .pen import PLANE_0, PLANE_1, PLANE_2, PLANE_3, Pen
 #: One variant table slot per orientation, indexed BY THE ORIENTATION VALUE.
 #:
 #: Eight rather than four, and the index is the facing itself rather than a
-#: shifted subset. Reference had four and packed `facing >> 1`, which works
-#: only while TRANSPOSE is clear -- it hardcoded "a console cannot turn" into
-#: the arithmetic. The rule is `applies_to`: a SQUARE cell may take all eight,
-#: and 8x8 is a charset BPS ships. Indexing by the raw facing costs the
-#: shift, serves both cases with no branch, and leaves the four turning slots
-#: simply unfilled on a rectangular cell -- where the pen setter refuses them
-#: anyway, so nothing ever gathers from them.
+#: shifted subset, so a SQUARE cell may take all eight (`applies_to`) with no
+#: branch. On a rectangular cell the four turning slots stay unfilled and the
+#: pen setter refuses them, so nothing ever gathers from them.
 #:
-#: The price is table memory: `_flat` materialises every slot, 256 glyphs
-#: times the cell. 192KB at 8x12, half of it unused there; 128KB at 8x8 with
-#: none wasted. Small enough to stay resident either way.
+#: Why eight and what the table costs: `bps/reference/console.md`, "The
+#: variant table".
 _VARIANTS = 8
 
 #: A cell is ONE number: `facing << _FACING_SHIFT | glyph`.
 #:
 #: Two per-cell attributes, one plane. The shift is 8 because a console
 #: addresses 256 glyphs (`charset.CHAR_COUNT`) and so a glyph id is a byte,
-#: which makes the packed value *identical* to the index into `_flat`
-#: -- so the render gather gathers, and does no arithmetic. It also means the
-#: two halves cannot drift apart: `scroll` moves one buffer, `clear` fills one
+#: which makes the packed value *identical* to the index into `_flat` -- so
+#: the render gather gathers, and does no arithmetic. It also means the two
+#: halves cannot drift apart: `scroll` moves one buffer, `clear` fills one
 #: buffer, and there is no second array to forget.
 #:
-#: The upper field is a VARIANT index; facing is merely all it currently
-#: holds, in 3 of its 8 bits. That distinction is what the spare room is for:
-#: a variant is a pre-computed remap of a glyph's plane indices, so ANY
-#: per-cell attribute expressible as such a remap can widen this field and
-#: stay free at render time. Inverse video is the obvious next one -- swap
-#: plane 0 and plane 1 -- and would cost table memory and nothing else.
-#:
-#: Blink cannot join them: it varies with TIME, not with the cell, so there is
-#: no static pattern to precompute. It belongs to the palette or to a
-#: per-frame pass. That is the line -- a variant is a function of the cell.
+#: The upper field is a VARIANT index and facing is only what it holds today.
+#: What may widen it, and what may not: `bps/reference/console.md`, "A cell is
+#: one number".
 _FACING_SHIFT = 8
 
 #: The collision vocabulary: the four glyph planes, by number. Built from the
@@ -659,12 +647,21 @@ class Console(Layer):
             else:
                 self._move_cursor(x, self._cursor.y)
 
-    def _advance(self) -> None:
-        """One tick of playback: repaint the line being typed, if any.
+    def prepare(self) -> None:
+        """The `Layer` BEGIN slot. This pillar's work is the typed line."""
+        self._repaint_input()
 
-        Called by `Layers._advance` after the game's tick and before the frame
-        is composed, so a character settled this frame is on screen in the
-        frame it was settled in.
+    def _repaint_input(self) -> None:
+        """Bring the drawn input line up to date: repaint it while it is
+        being typed, or paint its finished state once it is not.
+
+        Runs before the game's tick, so a line the game reads this tick is
+        already on screen as the game sees it.
+
+        `_settle_echo` is NOT this method's to own -- every write path calls
+        it first, because a game that learns a line completed during its tick
+        prints the reply before the layer is next prepared, and that reply
+        must land on the row below the answer.
         """
         entry = self._echo
         if entry is None:
@@ -763,20 +760,9 @@ class Console(Layer):
                 console.cell[:, :] = codes.T
                 console.paint_buffer[:] = field
 
-        NOT called `batch`, deliberately: `Batch` is pyglet's word for a draw
-        batch, and this engine already uses it that way. Both of those are
-        nouns holding geometry; this is a verb that holds off.
-
         Every write recomposes what it touched, which is right for one write
-        and wasteful for two: the pair above recomposes the whole screen
-        twice, and the first result is discarded by the second. Measured on a
-        full-screen demo that is ~1.26ms a frame of pure waste, against 3.74ms
-        for the whole thing.
-
-        Explicit rather than lazy on purpose. A console that deferred by
-        itself would have to guess when you were finished, and the honest
-        moment to guess is `composite` -- by which time a collision query may
-        already have answered against a screen that had not been drawn yet.
+        and wasteful for two: without the block the pair above recomposes the
+        whole screen twice and the first result is discarded by the second.
 
         Nests, so a helper may defer without knowing whether its caller
         already did. Recomposes on the way out of an exception too: leaving
@@ -784,7 +770,11 @@ class Console(Layer):
         into a rendering bug much further away.
 
         The dirty region is a SPAN of cell rows, not a set, so touching row 2
-        and row 28 recomposes everything between them."""
+        and row 28 recomposes everything between them.
+
+        Why it is explicit rather than lazy, why it is not called `batch`, and
+        what the waste measures: `bps/reference/console.md`, "What changed,
+        and what recomposes"."""
         self._defer_depth += 1
         try:
             yield self
@@ -1186,8 +1176,9 @@ class Console(Layer):
         glBindTexture(palette.target, palette.id)
         glActiveTexture(GL_TEXTURE0)
         glBindTexture(texture.target, texture.id)
-        # Blend belongs to the compositor: it is on for the whole walk. See
-        # `Display._compose`.
+        # Blend is the compositor's, read per layer from `Layer.blend` and
+        # OFF by default -- indexed art is drawn or discarded, never blended.
+        # See `Display._compose`.
         assert self._quad is not None
         self._quad.draw(GL_TRIANGLES)
         program.stop()

@@ -144,7 +144,6 @@ class BlitsPerSecond(metaclass=SingletonMeta):
             self._display = Display(
                 width=self.width,
                 height=self.height,
-                layers=self._layers,
                 events=self._event_bus,
             )
         except Exception as error:
@@ -223,7 +222,7 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         moment a real engine layer can draw.
 
         DELETING IT: drop this property and its setter, drop
-        `Display._background`, and let `_compose` call `fbo.clear()` bare --
+        `Layers._background`, and let `commit` call `fbo.clear()` bare --
         it already defaults to black. A game wanting a coloured backdrop then
         makes a layer that draws one, which is the only thing that can
         resolve a palette index in the first place. Nothing else reads it.
@@ -239,11 +238,11 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         `graphics/palette.py`. That mismatch is a reason to delete it, not a
         reason to give the clear path a palette.
         """
-        return self._display.background
+        return self._layers.background
 
     @background.setter
     def background(self, colour: tuple[float, float, float]) -> None:
-        self._display.background = colour
+        self._layers.background = colour
 
     @property
     def logger(self) -> Logger:

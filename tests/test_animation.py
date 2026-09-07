@@ -178,10 +178,10 @@ def test_play_applies_its_first_frame_immediately(fumiko: Sprite) -> None:
 
 
 def test_a_clip_advances_on_the_tick(fumiko: Sprite, sheet: SpriteSheet) -> None:
-    """`_advance` is the `Layer` hook the loop calls once per fixed tick."""
+    """`prepare` is the `Layer` hook the compositor calls once per tick."""
     fumiko.play("walk")
     for _ in range(_hold(sheet, "walk")):
-        fumiko._advance()
+        fumiko.prepare()
     assert fumiko.assembly == sheet.clips["walk"].frames[1].assembly
 
 
@@ -195,7 +195,7 @@ def test_a_sprite_reports_a_finished_one_shot(fumiko: Sprite, sheet) -> None:
     fumiko.play("attack", loop=False)
     assert fumiko.done is False
     for _ in range(sum(f.duration_ticks for f in sheet.clips["attack"].frames)):
-        fumiko._advance()
+        fumiko.prepare()
     assert fumiko.done is True
 
 
@@ -208,7 +208,7 @@ def test_writing_a_pose_by_hand_takes_the_sprite_off_its_clip(
     fumiko.assembly = "idle-0"
     assert fumiko.playing is None
     for _ in range(50):
-        fumiko._advance()
+        fumiko.prepare()
     assert fumiko.assembly == "idle-0"
 
 
@@ -234,7 +234,7 @@ def test_advancing_does_not_cancel_itself(fumiko: Sprite) -> None:
     the setter."""
     fumiko.play("walk")
     for _ in range(200):
-        fumiko._advance()
+        fumiko.prepare()
     assert fumiko.playing == "walk"
 
 
@@ -243,7 +243,7 @@ def test_a_sprite_with_no_clip_advances_for_free(fumiko: Sprite) -> None:
     cost nothing."""
     fumiko.assembly = "idle-0"
     for _ in range(10):
-        fumiko._advance()
+        fumiko.prepare()
     assert fumiko.assembly == "idle-0"
     assert fumiko.playing is None
 
@@ -256,25 +256,25 @@ def test_presentations_are_never_played(fumiko: Sprite, sheet) -> None:
     fumiko.play("walk")
     ghost.assembly = "idle-0"
     for _ in range(_hold(sheet, "walk") * 3):
-        fumiko._advance()
+        fumiko.prepare()
     assert ghost.assembly == "idle-0"
 
 
 # -- the layer hook ------------------------------------------------------
 
 
-def test_every_layer_has_a_real_advance_method() -> None:
+def test_every_layer_has_a_real_prepare_method() -> None:
     """A real method, not a `getattr` probe -- so it is typed, greppable, and
     cannot be satisfied by accident by an unrelated attribute."""
     from blitspersecond.graphics.console import CharSet, Console
     from blitspersecond.graphics.internal.layer import Layer
 
-    assert "_advance" in vars(Layer)
+    assert "prepare" in vars(Layer)
     console = Console(CharSet.ASCII8X12)
-    console._advance()  # a no-op, and must not raise
+    console.prepare()  # a no-op, and must not raise
 
 
-def test_layers_advance_walks_every_layer(fumiko: Sprite, sheet) -> None:
+def test_layers_prepare_walks_every_layer(fumiko: Sprite, sheet) -> None:
     from blitspersecond.graphics.console import CharSet, Console
     from blitspersecond.graphics.internal.layers import Layers
 
@@ -283,5 +283,5 @@ def test_layers_advance_walks_every_layer(fumiko: Sprite, sheet) -> None:
     layers.add(fumiko)
     fumiko.play("walk")
     for _ in range(_hold(sheet, "walk")):
-        layers._advance()
+        layers.prepare()
     assert fumiko.assembly == sheet.clips["walk"].frames[1].assembly

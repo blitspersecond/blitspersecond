@@ -22,7 +22,7 @@ def _row(console: Console, y: int, width: int = 24) -> str:
 def _frame(keyboard: KeyboardIngress, console: Console, frame: int) -> None:
     """One engine frame: settle input, then let the layer draw."""
     keyboard.cut(frame)
-    console._advance()
+    console.prepare()
 
 
 def test_typing_appears_as_it_happens():

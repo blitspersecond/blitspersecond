@@ -180,7 +180,8 @@ class Sprite(Layer):
         # long before there is a window.
         self._batch: Optional[SpriteBatch] = None
         # The clip cursor, and one of the three things only the primary has.
-        # `None` means nothing is playing, which is what `_advance` tests --
+        # `None` means nothing is playing, which is what `_update_animations`
+        # tests --
         # reference kept a SET of animating instances because a layer held N
         # of them; one sprite has at most one clip, so the set is gone.
         self._animation: Optional[Animation] = None
@@ -579,8 +580,12 @@ class Sprite(Layer):
         never true for a looping clip."""
         return self._animation is not None and self._animation.done
 
-    def _advance(self) -> None:
-        """One tick of playback -- the `Layer` hook, called by the loop.
+    def prepare(self) -> None:
+        """The `Layer` BEGIN slot. This pillar's work is its animations."""
+        self._update_animations()
+
+    def _update_animations(self) -> None:
+        """One tick of playback.
 
         Costs one `is None` test on a sprite with no clip, which is what makes
         a swarm of 25,000 presentations that animates nothing free.

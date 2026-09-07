@@ -851,7 +851,7 @@ class TileMap(Layer):
         # The masks are part of the render, not of whoever asks about them.
         # A collidable map therefore leaves the compose with its plane already
         # filled, and the game's tick spends nothing building one -- the same
-        # reason `layers._advance` is billed outside `gameloop.ms`. Last,
+        # reason `layers.prepare` runs before the game's tick. Last,
         # because by here the placements are this frame's and a fresh plane
         # built from them needs no translate.
         if self._collidable and self._collision is None:

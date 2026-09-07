@@ -245,7 +245,7 @@ def test_the_render_builds_the_mask_and_not_the_question(window) -> None:
 
     Doing it the other way round -- lazily, on the first question -- gives the
     same answer and bills it to the game, which is the same mistake
-    `layers._advance` is billed outside `gameloop.ms` to avoid.
+    `layers.prepare` runs before the game's tick to avoid.
     """
     tilemap = _map()
     assert tilemap._collision is None, "constructing a map renders nothing"

@@ -13,12 +13,11 @@ from pyglet.gl import (
 )
 from pyglet.math import Mat4
 
-from blitspersecond.graphics.internal import Layers
 from blitspersecond.system import Logger
 from blitspersecond.system.frame_pacing import FramePacingRecorder
 
 from .events import EventBus
-from .framebuffer import FramebufferPair
+from .framebuffer import Framebuffer, FramebufferPair
 from .pacing.session import PresentationSession
 from .window.surface import Surface
 
@@ -30,7 +29,6 @@ class Display:
         self,
         width: int,
         height: int,
-        layers: Layers,
         events: Optional[EventBus] = None,
     ) -> None:
         self.width = width
@@ -43,20 +41,10 @@ class Display:
         self._framebuffer = FramebufferPair(
             self.width,
             self.height,
+            self._surface,
         )
-        # Handed in, not built here. `BlitsPerSecond` owns the one draw order
-        # there is and lends it out as `bps.layers`; display is where it gets
-        # WALKED, which is not the same as where it lives. Building it here
-        # would put the object a game reaches for behind a screen the game
-        # cannot name.
-        self._layers = layers
         self._logger = Logger()
         self._swap_duration = 0.0
-        self._compose_duration = 0.0
-        # Stands in for the layer compose pass while the graphics rebuild is
-        # out. Every frame is this colour; a game that sets it is the
-        # simplest possible proof that ticks reach the panel.
-        self._background = (0.0, 0.0, 0.0)
 
     # State Management
     @property
@@ -77,15 +65,6 @@ class Display:
 
     def close(self):
         self._surface.close()
-
-    @property
-    def background(self) -> tuple[float, float, float]:
-        """The colour the screen clears to, until layers return."""
-        return self._background
-
-    @background.setter
-    def background(self, colour: tuple[float, float, float]) -> None:
-        self._background = colour
 
     # event dispatcher stuff
     def dispatch_events(self):
@@ -118,62 +97,43 @@ class Display:
             frame_pacing_factory=FramePacingRecorder.from_environment,
         )
 
-    def _compose(self) -> None:
-        """Draw each enabled layer into the framebuffer, background to foreground.
+    @property
+    def pending(self) -> Framebuffer:
+        """The buffer free to write into: composed this frame, not yet shown.
 
-        The render space is declared explicitly from the framebuffer's own size
-        rather than inherited from whatever projection/viewport the window last
-        left active. Layers are authored at this internal resolution, so the
-        projection is a 1:1 ortho over it and the viewport matches it exactly --
-        independent of the on-screen window size or scale.
+        The display's whole part in composition -- it owns the targets and
+        hands the writable one over. `present` flips which of the two this
+        is, so nothing that writes a frame ever learns a swap happened, and a
+        buffer declares its own render space when drawn into, so nothing that
+        writes one needs to know a window exists either.
 
-        An empty draw order returns after the clear, so a game that has added
-        no layers costs exactly what it did before this pass existed: one
-        clear. That is deliberate rather than incidental -- the frame-pacing
-        numbers in `docs/bps/DECOUPLED_PRESENTATION.md` were all measured
-        against a clear-and-swap, and they stay comparable only while the
-        no-layer case still IS a clear and a swap.
+        **Read it, never keep it.** There are two buffers, built once and
+        alive for the process; this returns whichever is currently free. A
+        present that PROMOTES exchanges the two references, so a reference
+        held across one would write into the buffer being shown. Nothing is
+        allocated to make that happen and no pixels are copied -- see
+        `FramebufferPair.promote`.
+
+        Nothing in the engine has to remember the rule, because the order
+        makes it moot: the pacer swaps and only then issues the tick, so the
+        tick resolves this property fresh and always gets the buffer that
+        just stopped being displayed. The game never meets a buffer.
         """
-        fbo = self._framebuffer.next
-        fbo.clear(self._background)
-        if not len(self._layers):
-            return
+        return self._framebuffer.pending
 
-        w, h = fbo.width, fbo.height
-        fbo.bind()
-        self._surface.projection = Mat4.orthogonal_projection(0, w, 0, h, -1, 1)
-        glViewport(0, 0, w, h)
-        # Blend is COMPOSITING state and it is READ here, per layer, from
-        # `Layer.blend`. It used to be established once around the whole loop,
-        # because every pillar wanted the identical two calls and repeating
-        # them was N redundant state changes. That was right while a layer
-        # drawn over another had to respect its alpha; it stopped being right
-        # on 2026-09-02, when indexed art became strictly drawn-or-discarded.
-        #
-        # **Off is now the correct default, not a saving.** The engine paints
-        # back to front with no depth test and no resolve, so colour
-        # information is last-writer-wins, and `indexed.frag` discards index 0
-        # rather than blending it away. A sprite layer over a tilemap composes
-        # correctly with blending off -- transparent texels never reach here.
-        # Blending is for a layer that deliberately wants to be see-through,
-        # and it says so.
-        #
-        # The func is set unconditionally: it is inert while blend is off, and
-        # setting it once beats tracking whether it still holds. The present
-        # pass disables blend again for its own quad, which is why even this
-        # much has to be re-established per frame rather than at startup.
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        blending = False
-        for layer in self._layers:
-            if not layer.enabled:
-                continue
-            if layer.blend != blending:
-                blending = layer.blend
-                (glEnable if blending else glDisable)(GL_BLEND)
-            layer._composite()  # syncs its own GPU state, executes its own draw
-        if blending:
-            glDisable(GL_BLEND)
-        fbo.unbind()
+    @property
+    def current(self) -> Framebuffer:
+        """The buffer on the display surface -- the frame being shown."""
+        return self._framebuffer.current
+
+    def frame_complete(self) -> bool:
+        """Flag the drawn frame finished and ready to be shown.
+
+        Returns whether a finished frame was discarded unshown -- the engine
+        outran the panel and overwrote one the display never promoted.
+        Expected below the rate crossover; above it, an overrun.
+        """
+        return self._framebuffer.complete()
 
     @property
     def swap_duration(self) -> float:
@@ -184,14 +144,6 @@ class Display:
         return self._swap_duration
 
     @property
-    def compose_duration(self) -> float:
-        """Seconds the last compose took, excluding the present path entirely.
-
-        Billed at game rate: one compose per tick, whatever the panel does.
-        """
-        return self._compose_duration
-
-    @property
     def dropped(self) -> int:
         """Frames composed but never shown. See `FramebufferPair.dropped`."""
         return self._framebuffer.dropped
@@ -200,26 +152,6 @@ class Display:
     def repeated(self) -> int:
         """Presents that re-showed the held frame. See `FramebufferPair`."""
         return self._framebuffer.repeated
-
-    def compose(self) -> bool:
-        """Engine side: build one frame into `next` and flag it complete.
-
-        Returns whether a finished frame was discarded unshown -- the engine
-        outran the panel and overwrote a frame display never promoted.
-
-        Called once per simulation tick, never per present. Composition
-        therefore bills at GAME rate whatever the panel is doing, which is
-        what the old `recompose=False` flag existed to arrange and now falls
-        out of the buffer pair instead.
-
-        The engine does not wait for this frame to be shown, and does not
-        learn whether it ever was. Overwriting an unpromoted frame is
-        decimation working as designed above the crossover.
-        """
-        start = perf_counter()
-        self._compose()
-        self._compose_duration = perf_counter() - start
-        return self._framebuffer.complete()
 
     def present(self) -> bool:
         """Display side: promote the newest finished frame, draw it, swap.

@@ -1,8 +1,10 @@
-from typing import TYPE_CHECKING
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Iterator
 
 import pyglet
 import pyglet.image.buffer
 from pyglet.graphics import shader
+from pyglet.math import Mat4
 
 from blitspersecond.common import PACKAGE_ROOT
 
@@ -44,8 +46,13 @@ class Framebuffer(pyglet.image.buffer.Framebuffer):
         self,
         width: int,
         height: int,
+        surface: "Surface",
     ):
         super().__init__()
+        # Held to declare this buffer's render space -- see `as_target`. The
+        # projection is a window-level uniform in pyglet, so establishing it
+        # needs the window even though the space itself is the buffer's.
+        self._surface = surface
         self._color_buffer = pyglet.image.Texture.create(
             width,
             height,
@@ -72,6 +79,31 @@ class Framebuffer(pyglet.image.buffer.Framebuffer):
         pyglet.gl.glClearColor(red, green, blue, 1.0)
         pyglet.gl.glClear(pyglet.gl.GL_COLOR_BUFFER_BIT)
         self.unbind()
+
+    @contextmanager
+    def as_target(self) -> Iterator["Framebuffer"]:
+        """Bind this buffer and declare its render space, for the duration.
+
+        The space is DECLARED from this buffer's own size rather than
+        inherited from whatever the window last left bound -- the present
+        pass sets a window-sized viewport on its way out, so the internal
+        resolution has to be re-established each time something draws here.
+        A 1:1 ortho over the buffer with a viewport to match, independent of
+        the on-screen window size or scale.
+
+        Whoever draws through this needs to know nothing about the window,
+        which is the point: a caller says "draw into this buffer" and does
+        not acquire a part in presenting it.
+        """
+        self.bind()
+        self._surface.projection = Mat4.orthogonal_projection(
+            0, self.width, 0, self.height, -1, 1
+        )
+        pyglet.gl.glViewport(0, 0, self.width, self.height)
+        try:
+            yield self
+        finally:
+            self.unbind()
 
     def draw(self, surface: "Surface") -> None:
         self.unbind()
@@ -128,18 +160,18 @@ class Framebuffer(pyglet.image.buffer.Framebuffer):
 class FramebufferPair:
     """The handoff between a free-running engine and a display on its own grid.
 
-    The engine composes into `next` and calls `complete()`. Display calls
+    The engine composes into `pending` and calls `complete()`. Display calls
     `promote()` and draws `current`. That is the entire contract between the
     two sides -- they share this buffer pair and nothing else. Neither asks
     the other for permission, which is what keeps a late present from
     becoming a late simulation.
 
     **Both sides of the rate crossover fall out of it, with no policy code.**
-    Engine faster than the panel (60fps on 40Hz): `next` is overwritten
+    Engine faster than the panel (60fps on 40Hz): `pending` is overwritten
     before it is ever promoted, so the engine decimates by DISCARD -- and
     because the producer never batches, every tick still gets its own event
     pump and input snapshot regardless of what the panel can show. Panel
-    faster than the engine (60fps on 144Hz): `next` is not ready, so
+    faster than the engine (60fps on 144Hz): `pending` is not ready, so
     `current` is drawn again. That held-frame re-present is what retires the
     old `recompose` flag; re-showing the last picture stops being a special
     case and becomes the default.
@@ -159,14 +191,14 @@ class FramebufferPair:
     at 640x360.
     """
 
-    def __init__(self, width: int, height: int) -> None:
-        self._next = Framebuffer(width, height)
-        self._current = Framebuffer(width, height)
+    def __init__(self, width: int, height: int, surface: "Surface") -> None:
+        self._pending = Framebuffer(width, height, surface)
+        self._current = Framebuffer(width, height, surface)
         # Cleared at construction so the first presents show black rather
         # than whatever the driver left in the texture. Presentation starts
         # before the first tick completes -- the clock owes frame one a full
         # step -- so something IS shown before anything is composed.
-        self._next.clear()
+        self._pending.clear()
         self._current.clear()
         self._ready = False
         self._primed = False
@@ -174,13 +206,18 @@ class FramebufferPair:
         self._repeated = 0
 
     @property
-    def next(self) -> Framebuffer:
-        """The buffer the engine composes into. Never the one being shown."""
-        return self._next
+    def pending(self) -> Framebuffer:
+        """The buffer free to write: composed into, not yet shown."""
+        return self._pending
+
+    @property
+    def current(self) -> Framebuffer:
+        """The buffer on the display surface -- the frame being shown."""
+        return self._current
 
     @property
     def dropped(self) -> int:
-        """Frames composed but never shown -- `next` overwritten unpromoted.
+        """Frames composed but never shown -- `pending` overwritten unpromoted.
 
         The visible artefact of running BELOW the crossover -- a panel slower
         than the authored rate, so the engine composes frames faster than
@@ -202,7 +239,7 @@ class FramebufferPair:
         return self._repeated
 
     def complete(self) -> bool:
-        """Engine: the frame in `next` is finished. True if one was dropped.
+        """Engine: the frame in `pending` is finished. True if one was dropped.
 
         A drop means the PREVIOUS frame was never promoted and has just been
         composed over. That is decimation working as designed, but it is
@@ -219,14 +256,16 @@ class FramebufferPair:
     def promote(self) -> bool:
         """Display: take the newest finished frame. True if the picture moved.
 
-        Swapping rather than copying means the engine's next compose targets
-        the buffer that just stopped being shown -- correct, and free.
+        Swapping the two REFERENCES rather than copying pixels means the
+        engine's next compose targets the buffer that just stopped being
+        shown -- correct, and free. This is the flip, and it is the display's
+        alone: nothing that writes a frame ever learns it happened.
         """
         if not self._ready:
             if self._primed:
                 self._repeated += 1
             return False
-        self._next, self._current = self._current, self._next
+        self._pending, self._current = self._current, self._pending
         self._ready = False
         return True
 

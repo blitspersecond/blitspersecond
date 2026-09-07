@@ -37,8 +37,18 @@ if TYPE_CHECKING:
     from ..blitspersecond import BlitsPerSecond
 
 
-def _advance(engine, clock, metrics, display, layers, inputs) -> None:
-    """Run one game tick and compose the frame it produced.
+def _frame(engine, clock, metrics, display, layers, inputs) -> None:
+    """One frame, end to end: prepare, run the game, commit.
+
+    The shape is a transaction. Everything the engine needs true before the
+    game looks happens in PREPARE; the game's tick then mutates the world;
+    COMMIT draws what that world implies and leaves each layer ready for next
+    time. The game therefore sees a coherent world and can never observe a
+    half-written frame.
+
+        prepare   close the interval, turn the clock, bring layers current
+        ---       the game's tick runs and mutates
+        commit    draw the frame, flag it complete
 
     Composition happens once per TICK, never per slot -- it bills at game
     rate whatever the panel is doing, which is what the retired `recompose`
@@ -46,8 +56,15 @@ def _advance(engine, clock, metrics, display, layers, inputs) -> None:
     since the last tick belongs to the frame now closing, including the
     swaps that showed it, so a tick and its presentations share one slot.
 
-    Input settles here too, before the game is handed control, so a tick reads
-    one frozen input world for the whole of its duration.
+    The loop names the two phases and no per-layer step. Which layers are
+    prepared, which are drawn and what each does is the compositor's, and the
+    compositor is `Layers` -- see `graphics/internal/layers.py`.
+
+    **This runs AFTER the slot's present, which is what makes `pending` free.**
+    The pacer swaps and then issues the tick, so by the time COMMIT resolves
+    `display.pending` it is the buffer that just stopped being shown. Nobody
+    reasons about which of the two they hold, because nobody holds one across
+    a present that could exchange them.
     """
     metrics.advance()
     # The third frame-closing operation, beside the other two and for the same
@@ -63,6 +80,12 @@ def _advance(engine, clock, metrics, display, layers, inputs) -> None:
     # presses a key, and is wrong exactly when the player pauses mid-motion.
     inputs.cut(clock.frame)
     clock.tick()
+    # BEGIN. Every ATTACHED layer is brought current before the game looks at
+    # it, so a sprite's pose and a console's echoed line are this tick's when
+    # the game reads them -- the same guarantee the input cut above gives.
+    # Attachment is the statement of participation; `enabled` decides only
+    # whether a layer is drawn, so a hidden layer keeps advancing.
+    layers.prepare()
     # Latch the scene before the call; rebinding `loop` therefore takes
     # effect next complete tick. Never None -- an unset loop is a do-nothing
     # lambda -- so this is a bare call, not a test.
@@ -75,17 +98,14 @@ def _advance(engine, clock, metrics, display, layers, inputs) -> None:
         # The tick called stop(). Composing into a dead GL context raises
         # rather than draws.
         return
-    # Playback advances AFTER the game's tick and BEFORE the compose that
-    # shows it, so a clip moved on by the engine and one moved on by the
-    # game land in the same frame. Outside `gameloop.ms` on purpose: this is
-    # the engine's work, and billing it to the game would make a scene that
-    # animates look like a scene that computes.
-    layers._advance()
-    if display.compose():
+    # COMMIT. The compositor writes the buffer the display handed over; the
+    # display decides when that counts as a finished frame.
+    layers.commit(display.pending)
+    if display.frame_complete():
         # The previous frame was overwritten before it was ever shown.
         # Expected below the crossover; above it, an overrun.
         metrics.frames_dropped.push()
-    metrics.compose_ms.push(display.compose_duration * 1000.0)
+    metrics.compose_ms.push(layers.commit_duration * 1000.0)
 
 
 class Loop:
@@ -141,7 +161,7 @@ class Loop:
         # ceiling prime, and it arrives out of the arithmetic rather than
         # being arranged -- on a 144Hz panel the first slot at or after
         # 16.67ms is slot 3, so frame one gets a whole interval on screen.
-        _advance(engine, clock, metrics, display, layers, inputs)
+        _frame(engine, clock, metrics, display, layers, inputs)
         try:
             while lifecycle.running:
                 try:
@@ -227,7 +247,7 @@ class Loop:
                         # at the authored period; see the metric's own note.
                         metrics.frame_ms.push((started - last_tick) * 1000.0)
                     last_tick = started
-                    _advance(engine, clock, metrics, display, layers, inputs)
+                    _frame(engine, clock, metrics, display, layers, inputs)
                     presentation.observe_work(perf_counter() - started)
                 except Exception as error:
                     engine._logger.error(f"Error during main loop: {error}")

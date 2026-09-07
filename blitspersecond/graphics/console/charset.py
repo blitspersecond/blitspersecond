@@ -1,22 +1,13 @@
 """The fonts BPS ships, and the one thing a console demands of one.
 
 `CharSet` is public -- it is what you hand `Console(...)`. The rest is the
-console's constraint on a font, which is a COUNT and not a shape: a cell
-packs its glyph id into a byte, so a console addresses 256 glyphs, so a
-charset atlas must hold at least that many cells.
+console's constraint on a font, which is a COUNT and not a shape: a cell packs
+its glyph id into a byte, so a console addresses 256 glyphs, so a charset
+atlas must hold at least that many cells. A charset therefore DECLARES its own
+cell size, because an image of a grid does not carry its grid.
 
-**It used to be a shape, and that was cargo cult.** This module asserted a
-16x16 atlas and divided the image by 16 to learn the glyph size. Kris: *"16x16
-is cargo culting from 2 example images I drew because the size was
-convenient."* Exactly so -- both shipped charsets happen to be 16 across, and
-nothing ever made that a rule. A 32x8 sheet holds the same 256 glyphs and was
-being refused for no reason.
-
-The consequence is that a charset must now DECLARE its cell size, below,
-because an image of a grid does not carry its grid: 128x192 is 256 glyphs of
-8x12, or 384 of 8x8, or one enormous one, and only the author knows which.
-The previous arrangement did not know either -- it guessed, and the guess was
-right twice.
+Why that constraint is a count rather than the 16x16 shape this module used to
+assert: `bps/reference/console.md`, "Not a 16x16 charset".
 """
 
 from __future__ import annotations

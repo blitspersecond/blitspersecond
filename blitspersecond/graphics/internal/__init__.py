@@ -10,27 +10,19 @@ in a hint?" -- if no, it's internal.
   palette_texture.py PaletteTexture: the GPU projection of a palette table,
                      the 256xN texture the indexed shader samples on unit 1.
 
-`PaletteTexture` is internal in the plain sense: a game never names a
-palette's GPU row, and it needs a current GL context, so it is draw-time
-machinery rather than anything to hold. It is shared rather than per-engine
-because a table is: one `PixelBuffer`'s palette can back a tile layer and a
-sprite layer at once, and they should sample one row. Shader PROGRAMS
-are not shared that way -- each engine compiles its own, in its own
-`shader.py`; see `graphics/console/shader.py` for why.
+**`Layer` is not exported from `graphics`, though its API is public.** A game
+constructs a pillar and calls a layer's methods constantly; what it never does
+is name this base class, and exporting it would invite `class MyLayer(Layer)`
+-- a bare Layer composites nothing, because the content is what the subclass
+IS. `Layers` is not named by a game either: `BlitsPerSecond` builds the one
+that exists and lends it out as `bps.layers`, a getter with no setter.
 
-The draw-order pair is subtler, and the two halves qualify differently.
-`Layers` is never NAMED by a game: `BlitsPerSecond` builds the one that
-exists and lends it out as `bps.layers`, a getter with no setter, so there is
-no second one to construct and no way to swap this one. `Layer` is
-different: a game DOES construct one, because a pillar IS one -- `Console(...)`
-is a Layer, and `TileMap(...)` will be -- and calls its methods constantly
-(`hud.after(actors)`, `layer.enabled = False`). What a game never does is name
-this base class.
+`PaletteTexture` is shared rather than per-engine because a table is: one
+`PixelBuffer`'s palette can back a tile layer and a sprite layer at once, and
+they should sample one row. Shader PROGRAMS are not shared that way -- each
+engine compiles its own.
 
-Which is why `Layer` is not exported from `graphics` even though its API is
-public. Exporting it would invite `class MyLayer(Layer)`, and a bare Layer
-composites nothing -- the content is what the subclass IS. You construct the
-pillar, never the base.
+The design record is `bps/reference/layers.md`.
 """
 
 from .layer import Layer
