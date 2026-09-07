@@ -63,7 +63,7 @@ def _compose(window, layer) -> np.ndarray:
     glClear(GL_COLOR_BUFFER_BIT)
     glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-    layer._composite()
+    layer.composite()
     glDisable(GL_BLEND)
     buffer = (pyglet.gl.GLubyte * (SIZE * SIZE * 4))()
     glReadPixels(0, 0, SIZE, SIZE, GL_RGBA, GL_UNSIGNED_BYTE, buffer)

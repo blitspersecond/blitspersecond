@@ -78,7 +78,7 @@ def _compose(window, sprite: Sprite) -> np.ndarray:
     # shader that had no discard in it.
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
     glDisable(GL_BLEND)
-    sprite._composite()
+    sprite.composite()
     return _read(window)
 
 
@@ -217,7 +217,7 @@ def test_index_zero_is_discarded_not_drawn_black(window, bullets: Sprite) -> Non
     glClearColor(0.0, 0.0, 1.0, 1.0)
     glClear(GL_COLOR_BUFFER_BIT)
     glDisable(GL_BLEND)
-    bullets._composite()
+    bullets.composite()
     pixels = _read(window)
 
     ground = (pixels[:, :, 2] > 200) & (pixels[:, :, 0] < 50)

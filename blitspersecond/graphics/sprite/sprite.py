@@ -356,6 +356,14 @@ class Sprite(Layer):
         if self._dirty:
             self._plan.sync(self)
             self._dirty = False
+
+    def _settle_collision(self) -> None:
+        """Recompose the plane if a presentation moved. The `Layer` hook.
+
+        Split out of `_sync` so a HIDDEN sprite layer still reaches it: the
+        plan is a draw projection and belongs behind `enabled`, the plane is a
+        world one and does not.
+        """
         if self._collidable and self._collision_dirty:
             self._collision_mask().compose()
             self._collision_dirty = False
@@ -417,12 +425,16 @@ class Sprite(Layer):
 
         `collider()` has already checked the name against the vocabulary, so
         an unknown one never reaches here.
+
+        **A read composes nothing.** The plane is whatever `_sync` left at the
+        last commit, which is the finalised state of the frame that was
+        painted -- and a sprite roster has no earlier moment that means
+        anything, because nothing knows every member is drawn until every
+        member is drawn. Recomposing here would answer about a frame nobody
+        has seen and bill the game for building it; `_collision_dirty` is
+        therefore read at commit and nowhere else.
         """
-        mask = self._collision_mask()
-        if self._collision_dirty:
-            mask.compose()
-            self._collision_dirty = False
-        return mask.plane(name)
+        return self._collision_mask().plane(name)
 
     def _composite(self) -> None:
         """Draw this sprite: sync, upload, then one draw per run.

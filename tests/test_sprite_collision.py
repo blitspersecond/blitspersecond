@@ -79,7 +79,7 @@ def _drawn(window, sprite: Sprite) -> np.ndarray:
     glClearColor(0.0, 0.0, 0.0, 1.0)
     glClear(GL_COLOR_BUFFER_BIT)
     glDisable(GL_BLEND)
-    sprite._composite()
+    sprite.composite()
     raw = (pyglet.gl.GLubyte * (SCREEN.width * SCREEN.height * 4))()
     glReadPixels(
         0, 0, SCREEN.width, SCREEN.height, GL_RGBA, GL_UNSIGNED_BYTE, raw
@@ -102,8 +102,10 @@ def _disagreement(window, sprite: Sprite) -> int:
 def test_a_sprite_collides_where_it_draws(window, fumiko: Sprite) -> None:
     fumiko.assembly = "idle-0"
     fumiko.position = (300, 180)
-    assert fumiko.collider().unpacked.any(), "composed nothing at all"
+    # The draw first, always: the plane is the frame that was PAINTED, so a
+    # question asked before one exists is answered about nothing.
     assert _disagreement(window, fumiko) == 0
+    assert fumiko.collider().unpacked.any(), "composed nothing at all"
 
 
 @pytest.mark.parametrize("turn", list(range(8)))
@@ -192,6 +194,21 @@ def test_a_chain_of_mixed_poses_keys_on_orientation_too(
 # -- the three levels of participation ------------------------------------
 
 
+def test_a_hidden_layer_still_recomposes_its_plane(window, fumiko) -> None:
+    """`enabled` is a view decision. A layer turned off keeps colliding, and
+    keeps colliding WHERE IT IS -- the plane that froze at the moment of
+    hiding would answer True about a sprite that has walked away."""
+    fumiko.assembly = "idle-0"
+    fumiko.position = (80, 80)
+    _drawn(window, fumiko)
+
+    fumiko.enabled = False
+    fumiko.position = (400, 250)
+    fumiko.composite()
+    assert not fumiko.collider().unpacked[80:120, 80:120].any(), "froze"
+    assert fumiko.collider().unpacked[250:290, 400:440].any()
+
+
 def test_a_ghost_is_drawn_and_hits_nothing(window, fumiko: Sprite) -> None:
     """`visible` and `collide` are two bits over one presence. A trail's
     ghosts are the most visible thing on screen and must contribute nothing."""
@@ -226,6 +243,7 @@ def test_a_parked_slot_contributes_nothing(window, fumiko: Sprite) -> None:
     """A fresh presentation arrives with BOTH bits off."""
     fumiko.assembly = "idle-0"
     fumiko.position = (300, 180)
+    _drawn(window, fumiko)
     before = fumiko.collider().unpacked.copy()
     parked = fumiko.after.append()
     parked.assembly = "idle-0"

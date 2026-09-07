@@ -361,9 +361,43 @@ class Layer:
         `enabled` is a view decision and only that: a layer turned off draws
         nothing and keeps everything else, still advancing on `prepare` and
         still answering collision questions.
+
+        **So a commit has two halves and only one of them is gated.**
+        `_settle_collision` runs every frame for every attached layer and
+        brings the world half current -- masks, and whatever a pillar has to
+        move to keep them honest. `_composite` draws, and is the only thing
+        `enabled` decides.
+
+        Unconditional rather than gated on `collidable` as well, which would
+        save a little on a layer that is neither drawn nor solid: a layer must
+        behave the same whether or not it is visible, and the only difference
+        allowed is that its pixels do not reach the framebuffer. Making
+        hidden-and-uncollidable a third case would mean a layer whose camera
+        froze while it was hidden and caught up when it came back -- two
+        behaviours where the point is that there is one.
+
+        The case that forces the split is a collider layer nobody sees -- the
+        ladders a map author paints for the engine rather than the player. It
+        scrolls with everything else, so its plane has to keep moving while
+        nothing draws it.
         """
+        self._settle_collision()
         if self._enabled:
             self._composite()
+
+    def _settle_collision(self) -> None:
+        """Bring this layer's collision geometry up to date for the commit.
+
+        A no-op unless the layer keeps a mask. Every pillar reaches this from
+        the top of its own `_composite` as well, so a layer being drawn does
+        it once, as part of drawing; this exists for the layer that is NOT
+        being drawn and still has to answer.
+
+        It is not `prepare`. That runs before the game's tick and brings a
+        layer's presentation current for the tick about to run; this runs at
+        the commit and settles what the NEXT tick will ask about, which is the
+        frame just painted -- or, here, the frame that would have been.
+        """
 
     def _composite(self) -> None:
         """Draw this layer's content into the bound framebuffer.

@@ -184,10 +184,19 @@ class TileMap(Layer):
         # noticing, which is the exact hole `cell` exists to close.
         self._map: np.ndarray = np.zeros((int(cols), int(rows)), dtype=PLANE_DTYPE)
         self._map["tile"] = EMPTY_TILE
-        # Built on demand and dropped when collision is switched off, so it is
-        # the one thing here that IS rebindable. Assigned before `collidable`
-        # because that setter reaches for it.
-        self._collision: Optional[CollisionMask] = None
+        # Allocated here and never rebound, so every write site asks about
+        # `collidable` rather than about the buffer's existence -- ONE question
+        # on the stamp path, and the same one the switch itself is.
+        #
+        # Unconditional, including for an unpalettised sheet that can never be
+        # switched on. The two planes are 41KB each; making that case save the
+        # bytes would put an `Optional` back through every stamp, every cull
+        # and both reads to buy 82KB from the one map that cannot use them.
+        self._collision: CollisionMask = CollisionMask(tileset)
+        # Starts set, so the first compose fills through the same branch every
+        # later one uses and there is no separate no-prior path. See the board
+        # card *Collision answers about two different frames*.
+        self._collision_dirty: bool = True
         # Through the base's setter, so the one rule about palettised art
         # fires here and wherever a game flips the switch later.
         self.collidable = bool(collidable)
@@ -342,23 +351,35 @@ class TileMap(Layer):
     @Layer.collidable.setter  # type: ignore[misc]
     def collidable(self, value: bool) -> None:
         Layer.collidable.fset(self, value)  # type: ignore[misc]
-        if not value:
-            # Switching off DROPS the mask rather than leaving it to go stale.
-            # That is what makes off actually free -- no stamp on a blit, no
-            # translate on a scroll, and the two 41KB buffers handed back --
-            # and it is why every write path asks one question (`is not None`)
-            # rather than two. The next render builds it again, from the
-            # placements the map kept drawing meanwhile.
-            self._collision = None
+        if value:
+            # Whatever is in the buffers describes a frame this map was not
+            # masking, so the next compose rebuilds from the placements it
+            # kept drawing meanwhile. Until then the plane reads empty, which
+            # is the honest answer: this layer was not collidable when the
+            # last frame was painted.
+            self._collision_dirty = True
+        else:
+            # Switching off ZEROES rather than drops. What `collidable` buys
+            # is the WORK -- no stamp on a blit, no translate on a scroll --
+            # and every write path asks that one question directly now, so
+            # handing the buffers back would buy nothing and cost an `is None`
+            # everywhere. Zeroed rather than left stale so a read between here
+            # and the next compose finds nothing rather than history.
+            self._collision.clear()
 
-    def _collision_mask(self) -> CollisionMask:
-        """This map's mask, built from the current placements if it has none.
+    def _rebuild_collision(self) -> None:
+        """Refill the whole plane from the placements. Called by `_stream`.
 
-        **Normally it has one.** The engine's cycle renders the frame and the
-        masks together, so `_stream` leaves a collidable map's plane filled and
-        a question asked in the next tick finds it waiting. This exists for the
-        two moments there is nothing to find: the very first compose, and a
-        game that switched `collidable` back on partway through its own tick.
+        **Twice in a game's life.** The engine's cycle renders the frame and
+        the masks together, and after the first fill the plane is maintained
+        by the drawing itself, so this exists for the two moments there is
+        nothing to find: the very first compose, and a game that switched
+        `collidable` back on. `_collision_dirty` names both, which is why it
+        starts set rather than needing a no-prior branch beside it.
+
+        NOT reachable from a read. A query answers about the frame that was
+        painted, so a build on the read path would answer about a frame nobody
+        has seen and bill the game 3.6ms for the privilege.
 
         The build is not a per-frame path and never becomes one -- and it is
         bounded anyway, because the placements are at most one bordered
@@ -371,22 +392,27 @@ class TileMap(Layer):
         wrap resolution and the clamp to the world's edges, and re-deriving
         those here would be a second statement of `_refill`.
         """
-        if self._collision is None:
-            mask = CollisionMask(self._tileset)
-            for row in self._placements[: self._count]:
-                mask.stamp(
-                    int(row["tile"]),
-                    int(row["target"][0]),
-                    int(row["target"][1]),
-                    Orientation(int(row["flags"])),
-                )
-            self._collision = mask
-        return self._collision
+        mask = self._collision
+        mask.clear()
+        for row in self._placements[: self._count]:
+            mask.stamp(
+                int(row["tile"]),
+                int(row["target"][0]),
+                int(row["target"][1]),
+                Orientation(int(row["flags"])),
+            )
+        self._collision_dirty = False
 
     def collision_plane(self, name: Optional[Hashable] = None) -> np.ndarray:
         """The stored plane, apron and all. A tilemap authors no named planes,
-        so `collider()` has already refused any `name` but `None`."""
-        return self._collision_mask().mask
+        so `collider()` has already refused any `name` but `None`.
+
+        **A read builds nothing.** It hands back what the last compose left,
+        which is the frame that was painted. `collider()` has already refused
+        an uncollidable layer, so the buffer this reaches is one `_stream` has
+        been filling.
+        """
+        return self._collision.mask
 
     @property
     def collision_offset(self) -> Tuple[int, int]:
@@ -409,7 +435,7 @@ class TileMap(Layer):
         existed. `_stream` moves both halves at once, at the top of the
         compose, and nothing between two frames moves either.
         """
-        ox, oy = self._collision_mask().offset
+        ox, oy = self._collision.offset
         fx, fy = self._fine
         return (ox + fx, oy + fy)
 
@@ -537,7 +563,7 @@ class TileMap(Layer):
         # Only collision needs the clear. A quad is opaque geometry already
         # sitting there, so re-pointing it replaces what it drew; a mask
         # accumulates with OR, so the old bits have nowhere else to go.
-        if self._collision is not None:
+        if self._collidable:
             self._collision.clear_rect(px, py, width, height)
         self._stamp_cells(x0, y0, x1, y1)
 
@@ -608,15 +634,14 @@ class TileMap(Layer):
         self._count = slot + 1
 
         # Last, so a stamp that could not reach the GPU leaves no bits behind
-        # either. The mask exists only while this map is collidable, so an
-        # uncollidable map pays nothing here -- not even the branch's other
-        # half. `_stamp` has already refused anything outside the bounded
+        # either. The switch itself is the question, so an uncollidable map
+        # pays nothing here -- not even the branch's other half. `_stamp` has already refused anything outside the bounded
         # plane, which is the plane the apron was sized to hold.
         #
         # OR, and that is right for an APPEND: two placements overlapping are
         # both solid. Only a REPLACEMENT has to take bits away, which is
         # `_place`'s job and not this one's.
-        if self._collision is not None:
+        if self._collidable:
             self._collision.stamp(index, x, y, orientation)
 
     def _write_placement(
@@ -719,7 +744,7 @@ class TileMap(Layer):
 
         # Last, as `_stamp` has it, so a block that could not reach the GPU
         # leaves no bits behind either.
-        if self._collision is not None:
+        if self._collidable:
             stamp = self._collision.stamp
             for index in range(count):
                 stamp(
@@ -743,7 +768,7 @@ class TileMap(Layer):
         self._count = 0
         self._dirty = True
         self._window = _NOTHING_PAINTED
-        if self._collision is not None:
+        if self._collidable:
             self._collision.clear()
 
     # -- the camera ------------------------------------------------------
@@ -812,6 +837,22 @@ class TileMap(Layer):
 
     # -- streaming -------------------------------------------------------
 
+    def _settle_collision(self) -> None:
+        """The camera, and everything it drags with it. The `Layer` hook.
+
+        The whole of `_stream`, not a collision half of it, because this
+        pillar has no such half: `_refill` writes a tile's bits as it writes
+        its quad, which is the property that makes the mask and the picture
+        provably the same shape. So a hidden collidable map streams -- it
+        writes quads nobody draws, and that is the price of the two never
+        being able to disagree.
+
+        A map that is neither drawn nor collidable streams nothing; `composite`
+        does not call this, and the camera catches up in one frame whenever it
+        is next wanted.
+        """
+        self._stream()
+
     def _stream(self) -> None:
         """Bring the stamped window in line with where the camera is looking.
 
@@ -854,8 +895,8 @@ class TileMap(Layer):
         # reason `layers.prepare` runs before the game's tick. Last,
         # because by here the placements are this frame's and a fresh plane
         # built from them needs no translate.
-        if self._collidable and self._collision is None:
-            self._collision_mask()
+        if self._collidable and self._collision_dirty:
+            self._rebuild_collision()
 
     def _cull(self, dx: int, dy: int) -> None:
         """Bake one coarse camera step into the placements and drop the ones
@@ -867,11 +908,12 @@ class TileMap(Layer):
         `take` over the texture rectangles, which is what keeps a placement
         and its quad at the same index.
 
-        The mask moves first and unconditionally. Its content is not the
-        placements -- bits that left the plane are still in the apron and slide
-        out on their own -- so an empty SoA is no reason to leave it behind.
+        The mask moves first, and for a collidable map unconditionally. Its
+        content is not the placements -- bits that left the plane are still in
+        the apron and slide out on their own -- so an empty SoA is no reason to
+        leave it behind.
         """
-        if self._collision is not None:
+        if self._collidable:
             self._collision.translate(dx, dy)
         count = self._count
         if count == 0:
@@ -1071,11 +1113,12 @@ class TileMap(Layer):
         pillars, so it was never a frame phase, just a named section wearing
         public clothes. It is private and named for what it does.
         """
-        # The camera first, because it decides WHAT the placements are before
-        # this decides where their corners go. It is also the only reason
-        # this pillar needs a frame at all: setting `scroll` is a float
-        # assignment, and everything it implies is settled here.
-        self._stream()
+        # The camera has already run, in `_settle_collision` -- it decides
+        # WHAT the placements are before this decides where their corners go,
+        # and it is not behind the `enabled` gate because a hidden collider
+        # still has to follow it. It is the only reason this pillar needs a
+        # frame at all: setting `scroll` is a float assignment, and everything
+        # it implies is settled there.
 
         # Touching the texture re-uploads it iff the pixels were edited. The id
         # is stable, so nothing downstream rebuilds: this is what makes a

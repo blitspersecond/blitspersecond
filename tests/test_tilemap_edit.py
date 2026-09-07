@@ -238,7 +238,7 @@ def _drawn(window, layer) -> np.ndarray:
     glClear(GL_COLOR_BUFFER_BIT)
     glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-    layer._composite()
+    layer.composite()
     glDisable(GL_BLEND)
     raw = (pyglet.gl.GLubyte * (SCREEN.width * SCREEN.height * 4))()
     glReadPixels(

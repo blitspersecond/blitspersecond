@@ -126,7 +126,7 @@ def _drawn(window, layer) -> np.ndarray:
     glClear(GL_COLOR_BUFFER_BIT)
     glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-    layer._composite()
+    layer.composite()
     glDisable(GL_BLEND)
     raw = (pyglet.gl.GLubyte * (SCREEN.width * SCREEN.height * 4))()
     glReadPixels(
@@ -214,13 +214,18 @@ def test_a_fractional_camera_is_floored_the_same_way_by_both(window) -> None:
 # -- the switch -----------------------------------------------------------
 
 
-def test_an_uncollidable_map_builds_no_mask(window) -> None:
+def test_an_uncollidable_map_stamps_nothing(window) -> None:
     """Off is free, not merely refused. The render skips the plane entirely --
-    nothing stamped, nothing allocated -- which is what makes `collidable`
-    worth being a switch and not just a capability."""
+    nothing stamped, no translate on a scroll -- which is what makes
+    `collidable` worth being a switch and not just a capability.
+
+    The BUFFERS are allocated regardless, and that is not a leak of the
+    switch: 41KB twice is not worth an `is None` on every stamp path, so what
+    `collidable` buys is the work. Emptiness is the observable."""
     tilemap = _map(collidable=False)
     _drawn(window, tilemap)
-    assert tilemap._collision is None
+    assert tilemap._collision is not None, "allocated, not conditional"
+    assert not tilemap._collision.mask.any(), "and never filled"
     with pytest.raises(ValueError, match="collidable=False"):
         tilemap.collider()
 
@@ -235,6 +240,11 @@ def test_switching_collision_on_picks_up_what_is_already_stamped(
     tilemap.scroll = (8 * 9 + 3, 8 * 4 + 5)
     drawn = _drawn(window, tilemap)
     tilemap.collidable = True
+    # Not yet. The plane describes the frame that was painted, and this map
+    # was not being masked when that frame was painted -- so the switch costs
+    # a frame, and says so by answering empty rather than by guessing.
+    assert not tilemap.collider().unpacked.any()
+    _drawn(window, tilemap)
     assert np.count_nonzero(drawn ^ tilemap.collider().unpacked) == 0
 
 
@@ -248,20 +258,57 @@ def test_the_render_builds_the_mask_and_not_the_question(window) -> None:
     `layers.prepare` runs before the game's tick to avoid.
     """
     tilemap = _map()
-    assert tilemap._collision is None, "constructing a map renders nothing"
+    assert not tilemap._collision.mask.any(), "constructing renders nothing"
+    # And ASKING renders nothing either -- the half that used to be a lazy
+    # build sitting beside the compose, billing the game 3.6ms for a plane
+    # about a frame nobody had seen.
+    assert not tilemap.collider().unpacked.any()
+    assert not tilemap._collision.mask.any(), "the question built one"
     _drawn(window, tilemap)
-    assert tilemap._collision is not None
     assert tilemap.collider().unpacked.any()
 
 
-def test_switching_collision_off_drops_the_mask(window) -> None:
+def test_a_hidden_map_still_follows_the_camera(window) -> None:
+    """The yellow-paint case, and the reason settling is not behind `enabled`.
+
+    A ladder layer is drawn by the map author for the ENGINE, not the player:
+    collidable, and never shown. It scrolls with everything else, so its plane
+    has to keep moving while nothing draws it -- and a plane that froze where
+    the layer was hidden would answer True about a ladder the camera left
+    behind.
+
+    `enabled` buys exactly one thing: the pixels do not reach the framebuffer.
+    """
+    ladders = _map()
+    ladders.enabled = False
+    _drawn(window, ladders)
+    before = ladders.collider().unpacked.copy()
+    assert before.any(), "a hidden map is still stamped"
+
+    ladders.scroll = (8 * 6, 8 * 3)
+    _drawn(window, ladders)
+    assert not np.array_equal(ladders.collider().unpacked, before), "froze"
+
+    # And it agrees with what a VISIBLE map at the same camera would answer,
+    # which is the whole claim -- one behaviour, not two.
+    shown = _map()
+    shown.scroll = (8 * 6, 8 * 3)
+    _drawn(window, shown)
+    assert np.array_equal(
+        ladders.collider().unpacked, shown.collider().unpacked
+    )
+
+
+def test_switching_collision_off_empties_the_mask(window) -> None:
+    """Zeroed rather than dropped, so a read between the switch and the next
+    compose finds nothing rather than history."""
     tilemap = _map()
     _drawn(window, tilemap)
-    assert tilemap._collision is not None
+    assert tilemap._collision.mask.any()
     tilemap.collidable = False
-    assert tilemap._collision is None
+    assert not tilemap._collision.mask.any()
     _drawn(window, tilemap)
-    assert tilemap._collision is None, "and the render keeps skipping it"
+    assert not tilemap._collision.mask.any(), "and the render keeps skipping it"
 
 
 def test_switching_off_and_on_across_a_scroll_still_agrees(window) -> None:
@@ -287,7 +334,11 @@ def test_the_switch_still_refuses_an_unpalettised_sheet(window) -> None:
     tilemap = TileMap(rgba, COLS, ROWS)
     with pytest.raises(ValueError, match="indexed sheet"):
         tilemap.collidable = True
-    assert tilemap._collision is None
+    # The buffers are allocated for it anyway -- unconditionally, so that the
+    # stamp path asks one question and it is `collidable`. This map can never
+    # answer that with True, so they stay zero for its whole life.
+    assert tilemap.collidable is False
+    assert not tilemap._collision.mask.any()
 
 
 def test_collidable_is_still_a_boolean(window) -> None:

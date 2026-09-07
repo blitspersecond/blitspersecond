@@ -405,4 +405,4 @@ def test_moving_the_pose_dirties_both(chun: Sprite, write) -> None:
 def test_compositing_is_a_no_op(chun: Sprite) -> None:
     """Inherited from `Layer`. Adding one to a draw order is legal and shows
     nothing, which is where `TileMap` sat between its shell and its draw."""
-    assert chun._composite() is None
+    assert chun.composite() is None

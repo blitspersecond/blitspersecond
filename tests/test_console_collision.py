@@ -1,10 +1,11 @@
-"""The console's collision planes: derived on demand, never on the frame path.
+"""The console's collision planes: packed at the commit, read for nothing.
 
-This pillar is the one that PULLS. The tile and sprite masks are written when
-content changes, because something has to be stamped; a console already holds
-everything a plane needs -- the glyph gather and the composed image -- so it
-derives instead, and the tests that matter are therefore about *when* nothing
-happens as much as about the bits.
+This pillar used to PULL -- derive on read, retain nothing -- and stopped on
+2026-09-07, because what it pulled was the live image rather than the painted
+one. See the board card *Collision answers about two different frames*. The
+planes are now preallocated and repacked at the commit, over the band of cell
+rows `_touch` marked, so the tests that matter are about *when* a change
+reaches the bits as much as about the bits themselves.
 
 Three claims are worth the words:
 
@@ -15,9 +16,10 @@ Three claims are worth the words:
   * **A named plane is allowed to disagree with it.** Plane 2 on the stock
     charset draws nothing -- `SYSTEM_SLOTS` leaves slot 2 transparent -- and
     collides all the same. That is the feature, not an edge case.
-  * **Nothing is retained until asked, and nothing survives a write.** A
-    console that never collides must cost nothing, and one that does must
-    never answer about a frame that has gone.
+  * **A read packs nothing, and a write is not visible until it is drawn.**
+    An answer is about the frame that was PAINTED, so a question asked
+    mid-tick must not see the edit the tick just made -- and must not pay for
+    a gather to find that out.
 """
 
 from __future__ import annotations
@@ -61,6 +63,24 @@ def _console(collidable: bool = True) -> Console:
     return console
 
 
+def _committed(console: Console) -> Console:
+    """The commit's collision half, without the GL the rest of it needs.
+
+    The planes describe the frame that was PAINTED, so nothing is packed until
+    the layer commits and every test that asks a question goes through here
+    first. `_composite` does both halves; the tests below that hold a `window`
+    reach this through the real one.
+    """
+    console._sync()
+    console._refresh_collision()
+    return console
+
+
+def _is_clean(console: Console) -> bool:
+    """Whether the dirty band is empty -- nothing waiting to be repacked."""
+    return console._collision_top >= console._collision_bottom
+
+
 # -- the gate --------------------------------------------------------------
 
 
@@ -75,9 +95,9 @@ def test_a_console_is_never_refused() -> None:
 def test_collidable_starts_off() -> None:
     """Eligible is not the same as on.
 
-    The derivation is lazy, so leaving it off costs a console that never
-    collides exactly nothing -- and leaving it *on* by default would make
-    every console in every demo look like a collision participant."""
+    Leaving it off costs a console that never collides the whole gather, and
+    leaving it *on* by default would make every console in every demo look
+    like a collision participant."""
     assert Console().collidable is False
 
 
@@ -87,12 +107,27 @@ def test_asking_a_switched_off_console_raises() -> None:
         console.collider()
 
 
-def test_switching_on_and_off_is_just_the_switch() -> None:
+def test_switching_off_empties_and_switching_on_costs_a_frame() -> None:
+    """Off ZEROES rather than frees -- the buffers are permanent, so the only
+    thing the switch has to do is stop a read finding history.
+
+    On cannot restore what was never packed, so the planes stay empty until
+    the next commit. That is the same one-frame rule every pillar keeps: the
+    plane describes the frame that was painted, and this layer was not being
+    masked when that frame was painted."""
     console = _console()
     console.write("x")
+    _committed(console)
     assert console.collider().unpacked.any()
+
     console.collidable = False
+    # Not through `collider()`, which refuses a layer that is switched off --
+    # the gate is the point of it. The buffers are what to look at.
+    assert not console._collision.any(), "zeroed, not left stale"
+
     console.collidable = True
+    assert not console.collider().unpacked.any(), "and empty for one frame"
+    _committed(console)
     assert console.collider().unpacked.any()
 
 
@@ -146,27 +181,56 @@ def test_a_plane_is_screen_shaped_store_width_words() -> None:
     assert plane.nbytes == 28800
 
 
-def test_a_console_nobody_asks_retains_nothing() -> None:
-    """The whole reason this pillar pulls."""
-    console = _console()
+def test_a_console_that_does_not_collide_packs_nothing() -> None:
+    """What `collidable` buys, now that the buffers are permanent.
+
+    The pillar used to retain nothing until asked. It now holds 141KB from
+    construction, because five 29KB planes are not worth an `is None` on
+    every read -- so the switch buys the half that has a cost, which is the
+    gather, not the bytes."""
+    console = _console(collidable=False)
     console.write("hello")
     console.scroll(0, 1)
-    console.clear()
-    assert console._collision == {}
+    _committed(console)
+    assert not console._collision.any()
 
 
-def test_a_plane_is_derived_once_and_cached() -> None:
+def test_a_read_packs_nothing() -> None:
+    """The 2026-09-07 change in one assertion.
+
+    The old pillar derived here, which answered about the live image rather
+    than the painted one and billed the game the gather for it. A read now
+    hands back what the last commit left, and an edit is invisible to it
+    until the next one."""
     console = _console()
     console.write("x")
-    first = console.collision_plane()
-    assert console.collision_plane() is first
+    _committed(console)
+    before = console.collision_plane().copy()
+
+    console.write(" and a good deal more text besides")
+    assert np.array_equal(console.collision_plane(), before), "packed on read"
+    _committed(console)
+    assert not np.array_equal(console.collision_plane(), before)
 
 
-def test_only_the_planes_asked_for_are_held() -> None:
+def test_one_commit_packs_all_five_planes() -> None:
+    """They share the gather, which is the reason to pack them together.
+
+    A named plane costs 0.217ms and `_plane_indices` is most of it. Derived on
+    demand the four could not share that without holding the ~900KB index
+    array across the tick; derived at one moment they get it for free. The
+    partition is the proof all four were written -- an unpacked plane would
+    leave holes in it."""
     console = _console()
-    console.write("x")
-    console.collision_plane(PLANE_2)
-    assert set(console._collision) == {PLANE_2}
+    console.write("W")
+    _committed(console)
+    assert console.collision_plane().any(), "the silhouette"
+    stacked = np.stack(
+        [console.collider(k).unpacked for k in (PLANE_0, PLANE_1, PLANE_2, PLANE_3)]
+    )
+    assert np.array_equal(
+        stacked.sum(axis=0), np.ones((SCREEN.height, SCREEN.width))
+    )
 
 
 # -- invalidation ----------------------------------------------------------
@@ -187,31 +251,38 @@ def test_only_the_planes_asked_for_are_held() -> None:
         ),
     ],
 )
-def test_every_write_path_drops_the_planes(write) -> None:
+def test_every_write_path_marks_the_band(write) -> None:
     """`_touch` is the one funnel every write reaches, so this is one line in
     the engine and six here -- which is the right way round.
 
-    A path added later that skips `_touch` would answer with a plane
-    describing the frame before it, and a hitbox that is one edit stale is
-    exactly the bug that looks like working code."""
+    It matters more than it looks: there are THREE painters of the image, and
+    a path added later that skipped `_touch` would leave its rows packed from
+    the frame before. A hitbox that is one edit stale is exactly the bug that
+    looks like working code.
+
+    And the bits do not move until the commit -- marking is all a write
+    does."""
     console = _console()
     console.write("seed")
-    console.collision_plane()
-    console.collision_plane(PLANE_2)
-    assert console._collision
+    _committed(console)
+    before = console._collision.copy()
+    assert _is_clean(console)
+
     write(console)
-    assert console._collision == {}
+    assert not _is_clean(console), "the write never reached `_touch`"
+    assert np.array_equal(console._collision, before), "packed before the commit"
 
 
-def test_repainting_a_visible_glyph_drops_the_planes() -> None:
+def test_repainting_a_visible_glyph_marks_the_band() -> None:
     """A glyph pattern is the geometry itself, so this moves bits rather than
     colours -- `GlyphAccess` recomposes and the recompose goes through
     `_touch`."""
     console = _console()
     console.write("A")
-    console.collision_plane()
+    _committed(console)
     console.glyph[ord("A")] = np.ones((12, 8), dtype=np.uint8)
-    assert console._collision == {}
+    assert not _is_clean(console)
+    _committed(console)
     assert console.collider().unpacked.sum() == 12 * 8
 
 
@@ -225,31 +296,53 @@ def test_repainting_an_offscreen_glyph_keeps_them() -> None:
     what counts as a change."""
     console = _console()
     console.write("A")
-    held = console.collision_plane()
+    _committed(console)
+    held = console.collision_plane().copy()
     console.glyph[ord("Z")] = np.ones((12, 8), dtype=np.uint8)
-    assert console.collision_plane() is held
+    assert _is_clean(console), "a glyph nothing displays changed no pixel"
+    _committed(console)
+    assert np.array_equal(console.collision_plane(), held)
 
 
-def test_an_edit_changes_the_bits_not_just_the_cache() -> None:
+def test_a_hidden_console_still_repacks() -> None:
+    """`enabled` gates the draw and nothing else, so a console nobody sees
+    keeps answering about what it would have drawn.
+
+    Through `composite()`, the real commit slot -- and it needs no GL, because
+    the half that draws is the half being skipped."""
+    console = _console()
+    console.enabled = False
+    console.write("invisible but solid")
+    console.composite()
+    assert console.collider().unpacked.any()
+
+
+def test_an_edit_changes_the_bits() -> None:
     console = _console()
     console.write("i")
+    _committed(console)
     before = int(console.collider().unpacked.sum())
     console.write("mmmm")
+    _committed(console)
     after = int(console.collider().unpacked.sum())
     assert after > before
 
 
-def test_a_deferred_write_is_answered_about() -> None:
-    """Inside a `defer()` block the cells are current and the image is not.
+def test_a_deferred_write_is_not_answered_about_until_it_is_drawn() -> None:
+    """Inside a `defer()` block the cells are current and the image is not --
+    and neither has been painted.
 
-    The named planes read cells and the silhouette reads pixels, so answering
-    without composing first would let the two describe different frames.
-    `collision_plane` syncs, which costs a recompose the block was going to
-    pay for anyway."""
+    The old pillar called `_sync` from the read so it could derive an answer
+    about the block's contents. It no longer needs to, and must not: a plane
+    is about the frame that was PAINTED, and a block still open has painted
+    nothing. The recompose the read used to force now happens where it always
+    belonged, at the dedent."""
     console = _console()
     with console.defer():
         console.write("deferred")
-        assert console.collider().unpacked.any()
+        assert not console.collider().unpacked.any()
+    _committed(console)
+    assert console.collider().unpacked.any()
 
 
 # -- what is drawn, and what is not ----------------------------------------
@@ -265,6 +358,7 @@ def test_the_silhouette_is_the_composed_pixels_not_the_glyph_planes() -> None:
     console = _console()
     console.pen = Pen(0, INK, 0, 0)
     console.write("A")
+    _committed(console)
     silhouette = console.collider().unpacked
     assert np.array_equal(silhouette, console._image.pixels != 0)
     # The stock charset puts the font's outline on plane 2, which this pen
@@ -283,6 +377,7 @@ def test_a_transparent_plane_draws_nothing_and_collides() -> None:
     one layer."""
     console = _console()
     console.write("W")
+    _committed(console)
     assert console.collider(PLANE_2).unpacked.any()
     assert not (console._image.pixels == 2).any()
 
@@ -294,12 +389,14 @@ def test_painting_a_slot_makes_it_visible_without_moving_the_plane() -> None:
     exactly where it was."""
     console = _console()
     console.write("W")
+    _committed(console)
     outline = console.collider(PLANE_2).unpacked.copy()
     hidden = console.collider().unpacked.copy()
 
     console.pen = Pen(0, INK, LOUD, 0)
     console.clear(console.pen)
     console.write("W")
+    _committed(console)
     assert np.array_equal(console.collider(PLANE_2).unpacked, outline)
     assert (console.collider().unpacked & outline).any()
     assert not np.array_equal(console.collider().unpacked, hidden)
@@ -311,6 +408,7 @@ def test_the_planes_partition_the_screen() -> None:
     one plane index and cannot have two."""
     console = _console()
     console.write("partition me")
+    _committed(console)
     planes = [console.collider(k).unpacked for k in (0, 1, 2, 3)]
     stacked = np.stack(planes)
     assert np.array_equal(stacked.sum(axis=0), np.ones((SCREEN.height, SCREEN.width)))
@@ -319,7 +417,7 @@ def test_the_planes_partition_the_screen() -> None:
 def test_an_empty_console_has_an_empty_silhouette() -> None:
     """A cleared console draws nothing, so it is solid nowhere -- while plane
     0, its ground, is the whole screen."""
-    console = _console()
+    console = _committed(_console())
     assert not console.collider().unpacked.any()
     assert console.collider(PLANE_0).unpacked.all()
 
@@ -332,6 +430,8 @@ def test_a_console_answers_a_collision_question() -> None:
     console.write("AB")
     other = _console()
     other.write("AB")
+    _committed(console)
+    _committed(other)
     assert console.collides_with(other).at(0, 0, SCREEN.width, SCREEN.height)
 
 
@@ -341,6 +441,10 @@ def test_two_consoles_miss_when_their_text_does_not_overlap() -> None:
     other = _console()
     other.cursor = (40, 20)
     other.write("A")
+    # Both committed, or this misses because both planes are empty and the
+    # test says nothing at all.
+    _committed(console)
+    _committed(other)
     assert not console.collides_with(other).at(
         0, 0, SCREEN.width, SCREEN.height
     )
@@ -353,6 +457,8 @@ def test_a_named_plane_hits_where_the_silhouette_does_not() -> None:
     console.write("W")
     probe = _console()
     probe.write("W")
+    _committed(console)
+    _committed(probe)
     outline = console.collider(PLANE_2)
     assert outline.collides_with(probe.collider(PLANE_2)).at(
         0, 0, SCREEN.width, SCREEN.height
@@ -406,7 +512,7 @@ def _drawn(window, layer) -> np.ndarray:
     glClear(GL_COLOR_BUFFER_BIT)
     glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-    layer._composite()
+    layer.composite()
     glDisable(GL_BLEND)
     raw = (pyglet.gl.GLubyte * (SCREEN.width * SCREEN.height * 4))()
     glReadPixels(
@@ -443,8 +549,8 @@ def test_a_console_collides_where_it_draws(window) -> None:
 
 
 def test_the_mask_follows_a_scroll(window) -> None:
-    """Nothing is retained across the scroll, so this is really asking that
-    the re-derivation lands where the redraw did."""
+    """A scroll marks every row, so this is really asking that the repack
+    lands where the redraw did."""
     console = _console()
     _sky(console)
     console.write("scrolling")
@@ -461,8 +567,10 @@ def test_the_mask_follows_a_scroll(window) -> None:
 
 
 def test_the_mask_follows_a_partial_recompose(window) -> None:
-    """`_refresh_rows` writes a band and `collision_plane` re-derives the
-    whole screen. They share `_plane_indices`, and this is what says so."""
+    """`_refresh_rows` writes a band and the commit repacks that same band.
+    They share `_plane_indices`, and this is what says so -- a band packed
+    from a different gather than the one that painted it would disagree with
+    the framebuffer here and nowhere else."""
     console = _console()
     _sky(console)
     console.cursor = (0, 5)
