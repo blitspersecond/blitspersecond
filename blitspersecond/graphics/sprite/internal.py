@@ -33,9 +33,16 @@ class PaletteRegisters:
     layers, two registers, one set of shared tables and one texture upload.
 
     The register is a number at the GPU too, and not only here: the tileset's
-    bank is ONE 256xN texture (`PaletteBank`, and `PaletteTexture` for the
-    projection), so writing this picks a row the shader reads rather than
-    binding a second table.
+    bank is ONE 256x256 texture that `PaletteBank` owns and uploads, so
+    writing this picks a row the shader reads rather than binding a second
+    table.
+
+    **Selection only.** There was an `add` here that grew the tileset's bank
+    and handed back the new rows, copying the sheet's bank onto this sprite so
+    the interned original was not disturbed. Banks are a fixed 256 rows now,
+    so a derived shade is a write into a spare row the author names -- and
+    then this register points at it. Definition and selection stopped being
+    one accessor's two jobs by the definition half ceasing to exist.
 
     **Not a `dict` subclass, deliberately.** Reference subclassed `dict` and
     validated in `__setitem__`, which left `update()`, `setdefault()` and
@@ -95,8 +102,9 @@ class PaletteRegisters:
 
     def __setitem__(self, tileset: str, index: int) -> None:
         self._check(tileset)
-        # THIS sprite's bank, not the sheet's -- a sprite that grew rows of
-        # its own must be able to select one, and only it can see them.
+        # Any row of the bank. A bank is 256 rows whatever the package
+        # authored, and the spare ones are where derived shades go -- so the
+        # bound is the bank's size, not the authored count.
         available = len(self._sprite._bank(tileset))
         index = int(index)
         if not 0 <= index < available:
@@ -110,35 +118,6 @@ class PaletteRegisters:
         else:
             self._sprite._slots.palette[self._index] = index
         self._sprite._touch()
-
-    def add(self, tileset: str, palettes) -> Tuple[int, ...]:
-        """Grow `tileset`'s table for THIS SPRITE, and hand back the new rows.
-
-            shades = chun.palettes.add(
-                "character",
-                (costume.shadowed(HAIR, mix=k / 6) for k in range(1, 7)),
-            )
-            for ghost, row in zip(chun.before.extend(6), shades):
-                ghost.palettes["character"] = row
-
-        **Copy on write, and the copy is the point.** A `SpriteSheet` is
-        immutable and interned by path, so growing its bank in place reached
-        every other holder of that sheet -- and grew again on every load, for
-        as long as anything kept it alive. This gives the sprite a bank of its
-        own instead, leaving the sheet's untouched: *"you just change a new
-        copy and dont disturb others"* (Kris, 2026-09-05).
-
-        The copy is a tuple of `Palette` REFERENCES -- no table is duplicated,
-        and the sheet's rows are shared with the new bank. What is really made
-        is one more GPU palette texture, which is the small thing.
-
-        Rows are appended, so a register handed out before still means what it
-        meant, and the numbers returned are the new rows in order.
-        """
-        current = self._sprite._bank(tileset)
-        grown = current.extended(palettes)
-        self._sprite._banks[tileset] = grown
-        return tuple(range(len(current), len(grown)))
 
     def __contains__(self, tileset: object) -> bool:
         return tileset in self._names

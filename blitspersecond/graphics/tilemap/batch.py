@@ -1,21 +1,11 @@
 """TileBatch: N axis-aligned quads, one texture, one draw call.
 
-The tilemap's GPU backend, and the reason the pillar's contract is one sheet
-per map. `draw()` is one `glBindTexture` and one `glDrawElements` for the
-whole layer at any quad count -- a second sheet would be two of each, and the
-SoA/VBO design would stop paying for itself.
+The tilemap's GPU backend. `draw()` is one `glBindTexture` and one
+`glDrawElements` for the whole layer at any quad count -- which is what the
+pillar's one-sheet contract buys, and `bps/reference/tiles.md` argues under
+"One bind, one draw call".
 
-## Why not pyglet's Sprite + Batch
-
-They are general and perform well for what they promise, and that generality
-is exactly what a tile layer pays for: a Python `EventDispatcher` per quad, a
-`SpriteGroup` per sprite (hashed for coalescing), a per-sprite vertex-list
-allocation, six attribute streams per quad of which most never change, and
-property -> `set_region` -> element-wise ctypes writes on every move.
-
-A tilemap needs none of it. Quads are axis-aligned and never rotated or
-scaled, tint is one whole-batch register, the pool is fixed, and positions
-already live in a NumPy SoA. So the render state collapses to:
+The render state, and the reasons a line of it cannot move:
 
 - **position VBO** -- `(cap, 4, 3)` float32, rewritten in ONE
   `glBufferSubData` when the bounded local map changes. Fine scrolling is a
@@ -29,31 +19,19 @@ already live in a NumPy SoA. So the render state collapses to:
   buffers). A disabled attribute array reads the current generic value, so
   the shared `default.vert` is used untouched.
 
-Corner order matches pyglet's Sprite -- (x1,y1)(x2,y1)(x2,y2)(x1,y2) -- so a
-`TextureRegion`'s twelve tex_coords floats pair up verbatim. The `WindowBlock`
-projection UBO comes with the ShaderProgram itself, filled by the compositor
-before it walks the layers, so drawing outside a pyglet Batch needs no extra
-wiring: this sets no projection and no viewport.
+**Corner order is (x1,y1)(x2,y1)(x2,y2)(x1,y2)** -- TL, TR, BR, BL, matching
+pyglet's Sprite, so a `TextureRegion`'s twelve tex_coords floats pair up
+verbatim. The UV permutation table is built against this order; changing one
+without the other is silently wrong on every asymmetric tile.
 
-## Orientation costs nothing per frame
+**Orientation is applied ONCE, in `set_quad`, as a permutation of four UV
+rows.** The per-frame path never sees a flag, which is what
+`orientation.py`'s law rests on: an orientation belongs to the placement,
+never to the source.
 
-Flipping and turning is an indexed reshape of four UV rows, applied ONCE in
-`set_quad` at placement time. The per-frame path never sees a flag. That is
-the mechanical reason `orientation.py` states its law the way it does -- an
-orientation belongs to the placement, never to the source.
-
-## What did not come across from the reference tree
-
-- **`delete()`.** Its only caller was the rebinding teardown, and the sheet is
-  immutable now, so nothing rebinds. It was never really a teardown either --
-  it freed the three buffers and left the VAO, which is the shape of a
-  rebinding helper rather than a release. `BufferObject.__del__` already
-  queues the GL delete through the context, so dropping a batch frees its
-  buffers anyway. Losing it takes the `Optional` buffers and their `assert ...
-  is not None` guards with it.
-- **The `TileFlags` alias.** `Orientation` is the engine's one vocabulary for
-  this, shared with sprites and the console's pen, and it is an `IntFlag`, so
-  chaining is unchanged: `Orientation.FLIP_H | Orientation.FLIP_V`.
+The `WindowBlock` projection UBO comes with the ShaderProgram itself, filled
+by the compositor before it walks the layers, so this sets no projection and
+no viewport.
 """
 
 from typing import Callable, List, Tuple
@@ -121,14 +99,13 @@ _UV_PERM_ROWS = np.array(_UV_PERMS, dtype=np.intp)
 #: `translate` is generic too but is not constant -- it is the scroll register,
 #: written per draw. See `draw()`.
 #:
-#: `palette_row` is constant here in a way it is not for sprites: one map
-#: draws through one sheet's one table, so the unit-1 texture is a single row
-#: and the register that picks it is always 0. Skipped in the RGBA program,
-#: which declares no `palette_row` because it has no palette at all.
+#: `palette_row` is NOT here any more. It used to be, because a map drew
+#: through one sheet's one table and the register that picked it was always 0.
+#: A map now holds a bank of 256, so the row is a per-draw register like
+#: `colors` -- see `draw()`.
 _CONST_ATTRS = (
     ("scale", glVertexAttrib2f, (1.0, 1.0)),
     ("rotation", glVertexAttrib1f, (0.0,)),
-    ("palette_row", glVertexAttrib1f, (0.0,)),
 )
 
 
@@ -165,6 +142,9 @@ class TileBatch:
         #: attribute per draw. -1 means the program has no `colors` attribute
         #: and tinting is silently absent.
         self._loc_colors: int = attrs.get("colors", {}).get("location", -1)
+        #: Which row of the bank to sample. -1 in the RGBA program, which
+        #: declares no `palette_row` because it has no palette at all.
+        self._loc_palette_row: int = attrs.get("palette_row", {}).get("location", -1)
 
         self._capacity = 0
         self._vao = VertexArray()
@@ -322,6 +302,7 @@ class TileBatch:
         count: int,
         translate: Tuple[float, float] = (0.0, 0.0),
         colors: Tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0),
+        palette_row: int = 0,
     ) -> None:
         """Draw quads [0, count): program, texture, the constant attributes,
         one `glDrawElements`.
@@ -338,6 +319,10 @@ class TileBatch:
         writes no buffers. Pass the NEGATED scroll -- the view moving right
         moves content left.
 
+        `palette_row` is the palette register: which of the bank's 256 tables
+        every quad reads. One constant attribute, so a colour scheme costs a
+        `glVertexAttrib1f` and no buffer write.
+
         `colors` is the whole-batch colour register, rgba multipliers over
         every quad (both fragment stages multiply by `vertex_colors`). Like
         `translate` it is one constant attribute, so tinting or fading a whole
@@ -352,6 +337,8 @@ class TileBatch:
             fn(loc, *vals)
         if self._loc_colors >= 0:
             glVertexAttrib4f(self._loc_colors, *colors)
+        if self._loc_palette_row >= 0:
+            glVertexAttrib1f(self._loc_palette_row, float(palette_row))
         glVertexAttrib3f(self._loc_translate, translate[0], translate[1], 0.0)
         self._vao.bind()
         if self._uv_dirty:

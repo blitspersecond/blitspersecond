@@ -3,19 +3,16 @@
     island = TiledFile("island.tmx").tilemap("blue_island")
     bps.layers.add(island)
 
-Tiled is the editor and TMX the file it writes. BPS is not a second Tiled: it
-accepts the subset that maps exactly onto `TileMap` and refuses the rest by
-name, at load, where the file is still the thing you can fix.
+`bps/reference/tmx.md` is the authority: the accepted profile, every refusal
+and why, the global-id resolution, and the costs.
 
-**This is a convenience and not the road in.** A world comes from a file OR
-from a game writing through `cell`, and both are first-class. Nothing here is
-a capability the hand-built road lacks; it is one way of filling in the same
-cells, and it is the only caller of `TileMap._from_plane` -- a `.tmx` layer
-arrives as a world already made, so building an empty map in order to
-overwrite every cell of it would be work for its own sake.
+**BPS is not a second Tiled.** It accepts the subset that maps exactly onto
+`TileMap` and refuses the rest by name, at load, where the file is still the
+thing you can fix. This is a convenience and not the road in -- a world comes
+from a file OR from a game writing through `cell`, and both are first-class.
 
-Nothing in this module touches GL. It reads XML, decodes indices and cuts an
-`Atlas`, all of which a `PixelBuffer` does without a window.
+Nothing here touches GL. It reads XML, decodes indices and cuts an `Atlas`,
+all of which a `PixelBuffer` does without a window.
 """
 
 from __future__ import annotations
@@ -54,14 +51,10 @@ _TMX_FLAGS = _TMX_FLIP_H | _TMX_FLIP_V | _TMX_TRANSPOSE | _TMX_HEX_ROTATE
 class _Tileset:
     """One `<tileset>` a map refers to -- LOAD-TIME ONLY.
 
-    Private because everything on it except the atlas is bookkeeping this
-    module consumes and finishes with: `firstgid` resolves a global id to its
-    owning sheet, `name` says which sheet an error is about. Publishing them
-    would hand a caller the file format's plumbing after the parser had
-    already discharged it.
-
-    What survives the load is the atlas, carried on `TiledLayer`, which the
-    parser has already PROVED each layer uses exactly one of.
+    Private: everything on it except the atlas is bookkeeping this module
+    consumes and finishes with. What survives the load is the atlas, carried
+    on `TiledLayer`, which the parser has PROVED each layer uses exactly one
+    of.
     """
 
     name: str
@@ -79,14 +72,10 @@ class TiledLayer:
     """One tile layer: a world, and the sheet its indices mean.
 
     The pairing is not a convenience -- the parser PROVES it, refusing any
-    layer whose tiles span more than one tileset, because one sheet per map is
-    what `TileBatch` is built around. Carrying the sheet here is what stops
-    every consumer re-deriving a fact settled at parse time.
+    layer whose tiles span more than one tileset. Carrying the sheet here is
+    what stops every consumer re-deriving a fact settled at parse time.
 
-    This is the DATA road: take one of these when the world you want is not
-    literally what the file said -- a repeating strip tiled across the screen,
-    a plane stitched from two files. `TiledFile.tilemap()` is the road that
-    hands back something drawable.
+    The DATA road; `TiledFile.tilemap()` hands back something drawable.
     """
 
     name: str
@@ -145,14 +134,12 @@ class TiledFile(CacheableResource):
     dirt in a Boulder Dash without destroying the file's world -- and a caller
     who wants one map in two places already has `a = b`.
 
-    An earlier arrangement memoised mints per layer name. Three things broke
-    it here. Interning the file made it non-deterministic: drop the `TiledFile`
-    while keeping the map, ask again, and the weak table has let go, so the
-    same call answers differently. `TileMap.map` is now taken and writable, so
-    a shared mint is a shared mutable world rather than merely a shared
-    camera. And a `TileMap` IS a `Layer`, so handing the same one back twice
-    makes adding it to the draw order twice easy to write. Identity belongs to
-    the FILE, which is cached; the world you mint from it is yours.
+    **Do not memoise mints per layer name.** Interning the file would make
+    that non-deterministic, the minted world is writable so a shared mint is a
+    shared mutable world, and a `TileMap` IS a `Layer`, so handing the same one
+    back twice makes adding it to the draw order twice easy to write. Identity
+    belongs to the FILE, which is cached; the world you mint from it is yours.
+    See `bps/reference/tmx.md`, "Minting is not interned".
     """
 
     _size: Size

@@ -14,38 +14,29 @@ class CollisionQuery:
         query.at(x, y, w, h)                    # -> bool, screen-space box
         query.at()                              # -> bool, whole screen
 
-    **The answer is a bool and stays a bool.** Detail is expressed by asking
-    a narrower question -- a smaller window, a named plane on either side --
-    not by a richer answer. What a game does about an overlap is a game's
-    decision, and an engine returning a contact point or a penetration depth
-    would be an engine with an opinion about physics it does not have. At
-    ~7us a box, a fighting-game roster of boxes costs ~100us a frame, so the
-    way to learn more is to ask again.
+    Coordinates are screen pixels, (0, 0) top-left: "collides" means visually
+    coincident on screen, which is a semantic and not an implementation
+    detail. The answer is a bool; detail comes from asking a narrower
+    question, never from a richer return. Why, and what a box costs:
+    `bps/reference/collision.md`, "Asking".
 
-    **Screen space, and that is a semantic and not an implementation
-    detail.** "Collides" means *visually coincident on screen*: two layers
-    scrolling at different parallax rates collide where they APPEAR to
-    overlap, which is what a player sees and therefore what a player will
-    expect. Coordinates given to `.at()` are screen pixels, (0, 0) top-left.
+    Three things here are load-bearing rather than incidental:
 
     **It holds the two colliders, never their mask arrays.** Both sides
     resolve at each `.at()`, because the arrays underneath do not survive a
-    frame: a tile layer swaps mask buffers when it scrolls, and a sprite
-    layer recomposes its planes from nothing every frame. A query is
-    therefore worth keeping -- prepare it once at setup and ask it every
-    tick.
+    frame -- a tile layer swaps mask buffers when it scrolls, and a sprite
+    layer recomposes its planes. Caching one here would answer about a frame
+    that has gone. Resolving costs 0.159us of a 1.3us question, so a query is
+    worth preparing once at setup and asking every tick.
 
-    **A question about a layer that is out of collision raises rather
-    than answering False.** A False there would be indistinguishable from
-    "these two do not touch", so a layer switched off -- or one that could
-    never collide -- would read as working code forever. The gate is
-    `Layer._require_collidable`, and it fires here as well as where the
-    handle was minted, because the switch can move in between.
+    **A question about a layer that is out of collision RAISES.** Never
+    False: that would be indistinguishable from "these two do not touch", so
+    a layer switched off would read as working code forever. The gate is
+    `Layer._require_collidable`, and it fires here as well as where the handle
+    was minted, because the switch can move in between.
 
-    **Draw state is not consulted, on purpose.** A disabled layer keeps
-    answering, and an invisible presentation keeps stamping unless its own
-    `collide` bit says otherwise. Turning a layer off is a view decision;
-    taking its contents out of play is a world decision, and conflating them
+    **Draw state is not consulted.** A disabled layer keeps answering. What is
+    drawn is a view decision and what is solid is a world one; conflating them
     would make every fade, blink and cutscene a gameplay event.
     """
 

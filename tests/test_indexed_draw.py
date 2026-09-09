@@ -3,7 +3,7 @@
 `indexed.frag` is shared by the sprite, tilemap and console pillars, and each
 pairs it with a vertex stage of its own. The sprite pillar has had pixel
 tests since it landed; the other two had none, so a change to the shared
-stage -- the palette row varying that made a tileset's bank ONE 256xN table
+stage -- the palette row varying that made a tileset's bank ONE 256x256 table
 -- could break either of them with the whole suite still green.
 
 These are deliberately thin. They prove the program links, the units are
@@ -78,20 +78,18 @@ def _colours(pixels: np.ndarray) -> set:
 
 
 def test_a_tilemap_draws_through_its_palette(window) -> None:
-    """A tile layer's sheet is indices and its colour comes from unit 1. One
-    sheet means one table and row 0, which is the case the shared stage must
-    keep answering now that the row is a varying."""
+    """A tile layer's sheet is indices and its colour comes from unit 1. The
+    colours are the LAYER's, not the sheet's, and the row the shader reads is
+    `palette.active` -- 0 here, which is the case the shared stage must keep
+    answering now that the row is a varying."""
     from blitspersecond.graphics import Atlas, PixelBuffer, TileMap
 
     sheet = PixelBuffer((16, 16), "P")
     sheet.pixels[:8, :8] = 1  # tile 0
     sheet.pixels[8:, 8:] = 2  # tile 3
-    palette = sheet.palette
-    assert palette is not None
-    palette[1] = (255, 0, 0)
-    palette[2] = (0, 255, 0)
-
     tilemap = TileMap(Atlas(sheet, 8, 8), 4, 4)
+    tilemap.palette[0][1] = (255, 0, 0)
+    tilemap.palette[0][2] = (0, 255, 0)
     tilemap.cell[:, :] = tilemap.tile[0]
     tilemap.cell[0, 0] = tilemap.tile[3]
 
@@ -116,20 +114,17 @@ def test_a_console_draws_through_its_palette(window) -> None:
 
 
 def test_a_recoloured_palette_reaches_the_screen(window) -> None:
-    """The upload is version-gated, and a table that is a ROW of a bank is
-    still gated on its own counter. Writing an entry between two composes
-    must repaint what is already on screen."""
+    """The upload is dirty-gated on the bank. Writing one entry between two
+    composes must repaint what is already on screen -- the pixels never move,
+    only the table the shader resolves them through."""
     from blitspersecond.graphics import Atlas, PixelBuffer, TileMap
 
     sheet = PixelBuffer((8, 8), "P")
     sheet.pixels[:, :] = 1
-    palette = sheet.palette
-    assert palette is not None
-    palette[1] = (255, 0, 0)
-
     tilemap = TileMap(Atlas(sheet, 8, 8), 2, 2)
+    tilemap.palette[0][1] = (255, 0, 0)
     tilemap.cell[:, :] = tilemap.tile[0]
     assert _colours(_compose(window, tilemap)) == {(255, 0, 0)}
 
-    palette[1] = (0, 0, 255)
+    tilemap.palette[0][1] = (0, 0, 255)
     assert _colours(_compose(window, tilemap)) == {(0, 0, 255)}

@@ -22,7 +22,6 @@ from blitspersecond.common import Rect, Size
 
 from .collision import pack
 from .orientation import Orientation
-from .palette import Palette
 from .pixel_buffer import PixelBuffer
 
 #: One row per rect: x, y, width, height. int32 rather than a list of `Rect`
@@ -105,7 +104,7 @@ class Atlas:
 
     **It carries the image's metadata too** -- `size`, `mode`, `indexed`,
     `palette` -- so an engine handed a sheet can ask the sheet rather than
-    reaching through to `buffer`. A console guards `sheet.indexed`, which is a
+    reaching through to `buffer`. A console guards `sheet.buffer.mode`, which is a
     question about the sheet it was given and should read like one.
 
     Margins and inter-cell spacing (Tiled supports both) are NOT handled by
@@ -219,40 +218,17 @@ class Atlas:
         """The image being cut up. Live -- an atlas is a way of reading it,
         not a copy of it.
 
-        Reach for this to DO something to the image: `edit()`, `copy()`, the
-        `texture`. What the image IS -- `size`, `mode`, `indexed`, `palette`
-        -- is repeated below, so a caller asking a question about the sheet
-        asks the sheet."""
+        **Every question about the IMAGE is asked here**, not repeated on the
+        atlas: `size`, `mode`, `indexed`, `palette`, `edit()`, `copy()`, the
+        texture. An atlas answers about the CUTTING -- the rects, the keys,
+        and what is derived from a rect -- and proxying the image's own
+        properties would be a second surface saying the same thing, when this
+        one is public and one word away.
+
+        `indexed` is the question a consumer asks before deciding it can use a
+        sheet at all, and it asks the buffer.
+        """
         return self._buffer
-
-    @property
-    def size(self) -> Size:
-        """The whole image's `(width, height)` in pixels."""
-        return self._buffer.size
-
-    @property
-    def mode(self) -> str:
-        """The image's mode -- `"P"`, `"RGB"`, `"RGBA"`."""
-        return self._buffer.mode
-
-    @property
-    def indexed(self) -> bool:
-        """Whether the pixels hold palette indices rather than colours.
-
-        The question an engine asks before deciding it can use a sheet at
-        all: a console's glyphs must be indexed (a glyph is a stencil of
-        plane indices), and a tileset generally is not."""
-        return self._buffer.indexed
-
-    @property
-    def palette(self) -> Optional[Palette]:
-        """The table the pixels index into, or None if they hold colours.
-
-        Here rather than only on the buffer because a sheet of indices
-        without its palette is unreadable -- they are one fact about the
-        image, and separating them invites resolving pixels against the wrong
-        table."""
-        return self._buffer.palette
 
     # -- the autogrid's parameters -----------------------------------------
 
@@ -362,47 +338,18 @@ class Atlas:
         return row
 
     def _prime(self, source: np.ndarray) -> None:
-        """Pack every tile's UPRIGHT pattern, now, in one pass.
+        """Pack every rect's UPRIGHT pattern, now, in one pass.
 
-        The turned variants stay lazy; this is only the one orientation every
-        tile is certain to want. It runs on the first `solidity` call rather
-        than at construction, so an atlas nobody collides against never packs
+        The turned variants stay lazy; this is the one orientation every rect
+        is certain to want. It runs on the first `solidity` call rather than
+        at construction, so an atlas nobody collides against never packs
         anything -- and never forces the bool mask, which is the same bytes
         again as the image.
 
-        ## Why eagerly at all, when a single tile costs 8us
-
-        Not to avoid one tile's cost, which is nothing against a frame. To
-        avoid the CLUSTER: a scene bringing two hundred new poses into view in
-        one frame packs them all in that frame, and 200 x 8us is 1.7ms of
-        spike in an engine whose whole presentation pillar exists to keep
-        frames on time. Paying it once at setup, where a hitch is invisible,
-        is the trade -- measured on Chun-Li's 1741 tiles at 14.7ms and 3.3MB,
-        against a sheet already holding 11.8MB of pixels and as much again in
-        its bool mask.
-
-        ## Packing the whole sheet once was measured and rejected
-
-        The tempting shape is one `packbits` over the entire image, with each
-        tile's upright pattern a VIEW into it. It does not work, twice over.
-
-        A tile's pixel 0 sits at bit `x & 31` of that array and its boundary
-        words carry the neighbouring tiles' pixels, so only a tile both
-        word-aligned and a whole number of words wide can be a view -- 3 of
-        Chun-Li's 1741. Normalising the rest back to bit 0 costs 18.6ms
-        against the 9.9ms of packing them individually, because `packbits` is
-        a tuned primitive and a hand-rolled shift-merge is three numpy calls
-        per tile. Both arms in one session; B reproduced A exactly.
-
-        The memory angle is closed too, not merely unexplored. That
-        whole-sheet form is 1.47MB where the bool mask is 11.76MB, and the
-        saving is not worth having: the mask is read at prime time and when a
-        turned variant is first built, never in a frame, so its size is a
-        residency question and not a streaming one. 11MB of cold data sits in
-        L3 on any target CPU, and Chun-Li is about as large as a sheet is ever
-        going to get. `COLLISION.md`'s floor-hardware budget is a rule about
-        the 29KB screen masks, which ARE streamed every frame; it does not
-        reach this.
+        Eagerly, to avoid a CLUSTER rather than to save one rect's 8us: a
+        scene bringing two hundred new poses into view in one frame would pack
+        them all in that frame. `bps/reference/atlas.md` has the figures, and
+        the whole-sheet `packbits` form that was measured and rejected.
         """
         for key in self.keys():
             rect = self.rect(key)
@@ -418,63 +365,36 @@ class Atlas:
     def solidity(
         self, key: Union[int, str], orientation: Orientation = Orientation.NONE
     ) -> np.ndarray:
-        """One tile's solid pixels, turned, as packed row bit patterns.
+        """One rect's solid pixels, turned, as packed row bit patterns.
 
             atlas.solidity(42, Orientation.FLIP_H)
 
         `(height, words)` uint64, one bit per pixel along x -- the layout in
         `graphics.collision.packed`, ready to be shifted into place and OR'd
         into a screen-space mask. Height and width swap under the four
-        transposing orientations, so a turned rectangular tile packs the
-        pixels it will actually occupy rather than the ones it came from.
+        transposing orientations.
 
-        ## Why the cache is per tile, and why it is here
+        **Per rect, and it has to be**: an orientation belongs to the
+        placement, so the pixels alone cannot answer this -- it takes a rect
+        and a turn together, and the atlas is the only thing holding both.
+        Each rect's eight variants fill lazily.
 
-        **It has to be per tile, because a buffer does not hold rotations and
-        flips.** An orientation belongs to the placement rather than to the
-        source -- `orientation.py` states that as law -- so the pixels alone
-        cannot answer this question; it takes a rect and a turn together, and
-        the atlas is the only thing that holds both. A tile deliberately
-        carries neither.
+        **There is no staleness to detect and this is the wrong place to
+        police it.** A sheet is immutable, so these are computed once and stay
+        correct for as long as the atlas lives. An atlas holds a REFERENCE to
+        a buffer it neither made nor owns; watching for a repainted one would
+        leave new stamps correct and already-stamped screen bits stale, which
+        is worse than either end of it. Do not add a watch back.
 
-        Each tile's eight variants fill lazily, because a world uses one or
-        two of them and a sheet of 1500 tiles has no business packing 12,000
-        patterns for the handful a level shows. Ten thousand placements of one
-        turned tile therefore do the transform once.
+        Transpose first, then the mirrors -- the order the flag bits document.
+        Getting it backwards is invisible on a square symmetric rect and wrong
+        on everything else.
 
-        Being on the atlas rather than in a collision object is what lets
-        layers share it at all: parallax and a mirror match are several maps
-        over ONE atlas, and they get one pattern set with no registry to keep
-        and nothing to reclaim when a layer dies. Reference held a weak
-        dictionary keyed on the atlas to reach the same place; an attribute
-        does it without the registry, and dies when the atlas does. Two
-        atlases cut separately from one interned buffer keep separate caches
-        -- the same as reference, and the ordinary way to build parallax is
-        to hand both maps the same sheet.
+        Indexed surfaces only: solidity is palette index 0 meaning
+        transparent, and `PixelBuffer.mask` says so if asked of a direct one.
 
-        ## There is no staleness to detect, and the atlas could not police it
-
-        **A sheet is immutable.** `tilemap/__init__.py` states it as the
-        pillar's contract and `SpriteSheet` calls itself an immutable bundle,
-        so these patterns are computed once and stay correct for as long as
-        the atlas lives.
-
-        An earlier version watched `buffer.mask` for a newly minted array and
-        rebuilt on one. That was the atlas claiming an authority it does not
-        have: it holds a REFERENCE to a buffer it neither made nor owns,
-        interned by path and shared with every other atlas and layer over the
-        same art. It cannot promise the pixels will hold still, and it is not
-        the place to answer for them when they do not.
-
-        Worse, the watch made a broken case broken differently. On a tilemap
-        the patterns would re-derive while the already-stamped screen mask
-        kept its old bits, so new stamps came out right and old ones stayed
-        stale. Half updated is worse than either end of it. A game that
-        repaints a sheet has broken the contract and gets what that means,
-        rather than a partial rescue that looks like it worked.
-
-        Indexed surfaces only -- solidity is palette index 0 meaning
-        transparent, and `PixelBuffer.mask` says so if asked of an RGBA sheet.
+        Why it lives here rather than in collision, and what sharing it buys:
+        `bps/reference/atlas.md`, "Solidity: one rect, turned, packed".
         """
         source = self._buffer.mask
         if not self._primed:
@@ -519,20 +439,8 @@ class Atlas:
             named.rect("blue")  the same question, keyed by name
 
         Two questions about one rect, and which you want depends on whether
-        you compose on the CPU or on the GPU. A console gathers pixels into a
-        screen it paints itself, so it wants the first. A tilemap or a sprite
-        never touches pixel data on the render path -- it hands a rectangle to
-        the hardware and lets the sampler do the reading -- so it wants the
-        second.
-
-        It exists as a method rather than as a type on purpose. An earlier
-        engine handed out a `Tile` object carrying its source rect and its
-        size, pooled globally to afford the allocation; that whole apparatus
-        was serving four integers. `TILEMAP_PORT.md` F1 left this parked until
-        a second caller appeared -- *"a method returning four numbers, not a
-        type ... do not pre-build it"* -- and the sprite pillar was that
-        caller. One table answers for both, which is what lets one draw path
-        serve an autogrid and an authored package alike.
+        you compose on the CPU or on the GPU -- see `bps/reference/atlas.md`,
+        "What comes out of a rect".
         """
         x, y, w, h = self._rects[self._row(key)]
         return Rect(int(x), int(y), int(w), int(h))
@@ -548,18 +456,13 @@ class Atlas:
         TR, BR, BL -- matching `TileBatch.set_quad` and `_UV_PERMS`, which
         permutes these four rows to turn a placement.
 
-        **Built once for the whole sheet, because it cannot change.** A rect
-        table is fixed at construction and a sheet is one immutable texture, so
-        rect `n`'s twelve floats are constant for the atlas's life. What this
-        replaces was `texture.get_region(...).tex_coords` per placement, which
-        ran a full `Texture.__init__` to produce them and threw the object
-        away: 1.66us a tile against 0.03 from a table, and a per-quad Python
-        object in a pillar whose whole GPU design exists to avoid them.
+        **Built once for the whole sheet, because it cannot change**: a rect
+        table is fixed at construction and a sheet is one immutable texture.
 
-        Derived from the texture's OWN `tex_coords` rather than from `0..1`,
-        so a driver that pads to a power of two is followed rather than
-        assumed. `tests/test_atlas.py` checks every rect against
-        `get_region`, which is the authority this arithmetic replaces.
+        **Derived from the texture's OWN `tex_coords`, not from `0..1`**, so a
+        driver that pads to a power of two is followed rather than assumed.
+        `tests/test_atlas.py` checks every rect against `get_region`, which is
+        the authority this arithmetic replaces.
 
         Lazy, because it needs a live GL context to ask the texture its size
         and an `Atlas` can be built without one.

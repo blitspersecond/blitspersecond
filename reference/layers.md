@@ -42,18 +42,19 @@ here is only the part of collision that belongs to *being a layer*.
 | | |
 |---|---|
 | an empty draw order | one clear, and an early return — the cost of a bare clear-and-swap, which is what the published pacing figures assume |
-| a disabled layer | one `enabled` test, inside the layer |
+| a disabled layer | one `enabled` test, inside the layer — and its settle still runs |
+| a hidden collidable layer | a full settle every frame: a map streams its camera, a console packs its planes |
 | blend state | one GL call per *transition*, not per layer — the walk tracks what is currently set |
 | `glBlendFunc` | set once per frame unconditionally; inert while blend is off, and cheaper than tracking whether it still holds |
 | a layer with nothing to prepare | one `is None` test |
-| reading a plane through `collision_offset` | 0.52µs against 0.53µs for a zero offset — offsets are free, which is why masks never move for fine scrolling |
+| reading a plane through `collision_offset` | 0.469µs against 0.481µs at zero — offsets are free, which is why masks never move for fine scrolling |
 
 `prepare` is billed in **neither** published metric: `gameloop_ms` starts
 after it and `commit_duration` after that. It is not invisible — the pacer's
 `observe_work` spans the whole tick body — but it is the engine's work and
 billing it to the game would make a scene that animates read as one that
-computes. `compose_ms` reports `commit_duration`, which is the clear and the
-draw walk.
+computes. `compose_ms` reports `commit_duration`, which is the clear, the
+draw walk, and the settle half of every layer's `composite`.
 
 ### What refuses
 
@@ -166,6 +167,21 @@ frame counts as done are the display's.
             toggle blend if this layer differs from the last
             layer.composite()
 
+**A commit has two halves and only one of them is gated.** `Layer.composite`
+settles first and draws second:
+
+    def composite(self):
+        self._settle_collision()      # the world half, every attached layer
+        if self._enabled:
+            self._composite()         # the view half, only what is drawn
+
+The settle brings a layer's collision geometry in line with the frame being
+painted — a tilemap streams its camera, a sprite recomposes a moved plane, a
+console packs its dirty rows. It is what makes the answer a query gets next
+tick a fact about a frame that was really composed, rather than one assembled
+mid-tick out of whatever had been touched by then. See
+[The settle half](#the-settle-half).
+
 **The render space is the buffer's, not the compositor's.** `as_target()`
 binds the buffer and declares a 1:1 ortho over its own size with a matching
 viewport — re-established each time, because the present pass sets a
@@ -250,6 +266,34 @@ contents out of play, clear their collide bits rather than hiding the layer.
 The two flags are separate axes, and neither is a shortcut for the other. See
 [Which flag is read where](#which-flag-is-read-where).
 
+### The settle half
+
+That split is mechanical rather than a convention each pillar keeps.
+`Layer.composite` calls `_settle_collision` on every attached layer and gates
+only `_composite` on `enabled`, so a layer cannot be hidden into staleness by
+a pillar that forgot the rule.
+
+**The case that forces it is a collider layer nobody sees** — the ladders and
+ledges a map author paints for the engine rather than the player. It scrolls
+with everything else, so its plane has to keep moving while nothing draws it.
+A settle behind `enabled` would leave that layer answering about wherever the
+camera was when it was last drawn, which for a never-drawn layer is never.
+
+**It is not gated on `collidable` either**, though that would save a little on
+a layer that is neither drawn nor solid. A layer must behave the same whether
+or not it is visible, and the only difference allowed is that its pixels do
+not reach the framebuffer. Gating here would make hidden-and-uncollidable a
+third case, with a camera that froze while the layer was away and caught up
+when it came back — two behaviours where the whole point is that there is one.
+So a hidden, non-collidable tilemap still streams: one camera compare, and
+whatever a coarse step drags with it.
+
+**The settle is the only road to that work.** Each pillar split it out of the
+sync at the top of its own `_composite`, so the draw path does not reach it
+and every layer settles exactly once, drawn or not. Had the two paths both
+kept a copy, a hidden layer and a visible one would be running different code
+to reach the same state, which is the arrangement that drifts.
+
 **Plane keys are opaque, including their type.** A sprite sheet authors
 strings — `attack`, `body_hurt`; a console authors the four glyph plane
 numbers, because a font has no names to give. A key is anything hashable and
@@ -260,8 +304,8 @@ border and a sub-word camera remainder — because they are the same kind of
 thing, a constant displacement between where a bit is stored and where it
 appears. Splitting them would mean two things to keep in step. It exists so a
 mask never has to move for fine scrolling: reading through an offset is free
-(0.52µs against 0.53µs), where shifting the plane would cost tens of
-microseconds per layer per frame.
+(0.469µs against 0.481µs at zero, inside noise), where shifting the plane
+would cost tens of microseconds per layer per frame.
 
 ## Which flag is read where
 
@@ -271,7 +315,7 @@ difference between "turned off" and "has no answer".
 
 | flag | read by | when | effect |
 |---|---|---|---|
-| `enabled` | `Layer.composite` | every tick, by the layer itself | the layer draws nothing |
+| `enabled` | `Layer.composite` | every tick, by the layer itself | the layer draws nothing — its settle still runs |
 | `blend` | `Layers.commit` | every tick, per layer | GL blend is toggled, on transitions only |
 | `collidable` | `Layer._require_collidable` | when a collider is minted, and again when a question is asked | raises if off — it never answers `False` |
 | `tag` | `Layers.find` | only when asked | — |
@@ -294,6 +338,11 @@ The compositor sequences; it does not interpret. `enabled` is consulted inside
 `Layer.composite`, by the layer it belongs to — a walk that skipped disabled
 layers would be a second place that knows what the flag implies, and the two
 would drift.
+
+That is also why the walk can be unaware that a commit has two halves.
+`composite` settles every attached layer and draws the enabled ones, and the
+compositor calling it once is what keeps the ungated half from needing a
+third walk of its own — see [The settle half](#the-settle-half).
 
 **Attachment is the statement of participation.** A layer you do not want
 processed is one you do not add — so `enabled` means exactly one thing,
@@ -398,11 +447,15 @@ out the order it sits in.
   return being safe precisely because `add` refuses anything that is not a
   `Layer`. Both
   positions are written down and they are not the same rule.
-- **RESET is modelled but not built.** The frame is a transaction — prepare,
-  the game, commit — and the fourth phase, returning each layer to a known
-  state for next time, currently happens wherever was convenient: a sprite
-  restamping its planes, `_touch` dropping derived masks, a dirty band
-  cleared once recomposed. Commit and reset are sequential, so they can be
-  one call or two named slots. Nothing is wrong; it is unnamed.
+- **RESET has a name for half of what it covers.** The frame is a
+  transaction — prepare, the game, commit — and the fourth phase, leaving
+  each layer in a known state for next time, was until recently happening
+  wherever was convenient. `_settle_collision` is now that phase for the
+  world half, and it is a real declared slot: it runs at the commit and
+  settles what the NEXT tick will ask about. What is still unnamed is the
+  view half — a dirty band cleared once recomposed, a plan rebuilt — which
+  each pillar tidies inside its own `_composite`. Commit and reset are
+  sequential, so whether the rest earns a second slot or stays folded in is
+  open. Nothing is wrong; part of it is unnamed.
 - **Opacity and offset** are named in the base class as compositing concerns
   and are not built.

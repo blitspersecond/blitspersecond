@@ -23,9 +23,8 @@ questions about. **A sprite sheet is indexed by construction.** A package's
 tilesets are validated indexed at load, and the grid road refuses a
 non-indexed image outright and points it at the tile pillar. So there is no
 branch here and nothing to choose: unit 0 carries palette indices, unit 1 the
-tileset's whole bank as a 256xN table from
-`graphics.internal.PaletteTexture`, and `palette_row` says which row of it to
-read.
+tileset's whole bank as a 256x256 table the `PaletteBank` owns and uploads,
+and `palette_row` says which row of it to read.
 
 That is not a limitation being accepted quietly. Palette indices are what make
 the pillar's colour model work at all -- per-presentation palette registers, a

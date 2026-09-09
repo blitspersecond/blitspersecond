@@ -201,7 +201,7 @@ class Tables:
         part = assembly.parts[0]
         tileset = self._sheet.tilesets[part.tileset]
         source = tileset.atlas.rect(part.tile)
-        image_w, image_h = tileset.atlas.size
+        image_w, image_h = tileset.atlas.buffer.size
         for orientation in range(ORIENTATIONS):
             self._rect[index, orientation] = local_rect(
                 orientation, part.offset, source, self._origin
@@ -432,7 +432,7 @@ class FramePlan:
                 x, y, width, height = local_rect(
                     turn, part.offset, source, origin
                 )
-                box = uv_box(source, *tileset.atlas.size)
+                box = uv_box(source, *tileset.atlas.buffer.size)
             index = self.quads
             record = self.data[index]
             record[0], record[1] = px + x, py + y

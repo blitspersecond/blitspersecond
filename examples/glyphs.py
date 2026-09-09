@@ -32,7 +32,6 @@ from blitspersecond.graphics import (
     GRAY,
     WHITE,
     YELLOW,
-    system_palette,
     Orientation,
 )
 from blitspersecond.graphics.console import CharSet, Console, Pen
@@ -149,7 +148,6 @@ def main() -> None:
     # nothing, so the thing you keep is the thing you built.
     layer = Console((8, 8))
     layer.tag = "panel"
-    layer.palette = system_palette()
     bps.layers.add(layer)
     # layer.after(other_layer)
     define_glyphs(layer)

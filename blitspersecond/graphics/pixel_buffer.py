@@ -27,7 +27,6 @@ from blitspersecond.common import (
     Size,
 )
 
-from .palette import Palette, system_palette
 
 _VALID_MODES = ("P", "RGB", "RGBA")
 
@@ -86,7 +85,6 @@ class PixelBuffer(CacheableResource):
         source: Union[str, Sequence[int]],
         mode: Optional[str] = None,
         data: Optional[np.ndarray] = None,
-        palette: Optional[Palette] = None,
     ) -> Optional[str]:
         # A file has identity; a canvas does not. Two callers naming one path
         # mean the same art and should share its texture. Two callers asking
@@ -98,15 +96,14 @@ class PixelBuffer(CacheableResource):
         source: Union[str, Sequence[int]],
         mode: Optional[str] = None,
         data: Optional[np.ndarray] = None,
-        palette: Optional[Palette] = None,
     ) -> None:
         if isinstance(source, str):
-            if mode is not None or data is not None or palette is not None:
+            if mode is not None or data is not None:
                 raise TypeError(
-                    "PixelBuffer(path) reads mode, pixels and palette from "
-                    "the file -- pass a size instead to build one by hand"
+                    "PixelBuffer(path) reads mode and pixels from the file "
+                    "-- pass a size instead to build one by hand"
                 )
-            size, mode, data, palette = _read(source)
+            size, mode, data, embedded = _read(source)
         else:
             size = source
             if mode is None:
@@ -125,18 +122,12 @@ class PixelBuffer(CacheableResource):
         self._size = Size(width, height)
         self._mode = mode
         self._fmt = "R" if mode == "P" else mode
-        # An indexed buffer ALWAYS has a table. A blank canvas gets the system
-        # palette rather than None, so a surface you just made can be written
-        # in real, named colours (`px[...] = RED`) without first building a
-        # palette to make the indices mean anything. A file brings its own.
-        #
-        # A fresh instance per buffer, not a shared one: a palette is mutable
-        # per-buffer state, and `PaletteTexture` keys its GPU row on palette
-        # IDENTITY -- so sharing one object would silently share one row, and
-        # recolouring one surface would recolour every other blank one.
-        self._palette = palette
-        if mode == "P" and self._palette is None:
-            self._palette = system_palette()
+        # What the FILE carried, as authored data -- not a live table this
+        # buffer owns. A palette belongs to the layer drawing the art, not to
+        # the art: two tilemaps over one tileset image are two layers with two
+        # tables, and a buffer that held one would make them share it with no
+        # road to part them. `None` for a canvas and for a direct-colour file.
+        self._embedded_palette = embedded if isinstance(source, str) else None
 
         channels = 1 if mode == "P" else len(mode)
         shape = (height, width) if channels == 1 else (height, width, channels)
@@ -368,11 +359,11 @@ class PixelBuffer(CacheableResource):
         been. Copy a buffer to own a picture you intend to cut; a tileset you
         merely intend to draw with wants sharing, which it gets for free.
         """
-        # The palette is rebuilt rather than passed: this constructor stores
-        # what it is handed, so sharing ours would leave the twin recolouring
-        # us. Same law a sprite sheet applies per sheet.
-        palette = Palette(self._palette.raw()) if self._palette else None
-        return PixelBuffer(self._size, self._mode, self._pixels, palette)
+        twin = PixelBuffer(self._size, self._mode, self._pixels)
+        # Carried, not shared: it is the file's authored data either way, and
+        # the twin is a picture of the same art.
+        twin._embedded_palette = self._embedded_palette
+        return twin
 
     # -- identity / metadata ---------------------------------------------
 
@@ -417,27 +408,19 @@ class PixelBuffer(CacheableResource):
         return 1 if self._mode == "P" else len(self._mode)
 
     @property
-    def indexed(self) -> bool:
-        return self._mode == "P"
+    def embedded_palette(self) -> Optional[np.ndarray]:
+        """The colours the FILE carried, as an `(n, 3)` uint8 array, or None.
 
-    @property
-    def palette(self) -> Optional[Palette]:
-        # The stored instance (None exactly when this buffer isn't indexed --
-        # an indexed one always has a table, defaulting to `system_palette()`),
-        # never a fresh copy. The compositor reads this every frame per layer -- but
-        # only when `indexed` -- so a rebuilt throwaway would defeat
-        # PaletteTexture's identity memo, and once cost ~2.4ms/call
-        # rebuilding the table. Same instance -> same GPU palette row.
-        return self._palette
+        Authored data, not state: this buffer does not own a palette and
+        nothing here resolves an index to a colour. A layer builds its own
+        table, and this is where it reads the art's own colours from when it
+        wants them -- which for a sprite package it does not, because the
+        package's tables are authoritative and the image's embedded one is an
+        authoring preview.
 
-    @palette.setter
-    def palette(self, value: Palette) -> None:
-        """Replace an indexed buffer's live palette without touching pixels."""
-        if not self.indexed:
-            raise ValueError("only an indexed PixelBuffer has a palette")
-        if not isinstance(value, Palette):
-            raise TypeError(f"expected Palette, got {type(value)}")
-        self._palette = value
+        A copy, so reading it cannot reach back into what the file said.
+        """
+        return None if self._embedded_palette is None else self._embedded_palette.copy()
 
     @property
     def mask(self) -> np.ndarray:
@@ -451,7 +434,7 @@ class PixelBuffer(CacheableResource):
         palette lookups. Lazily built and cached like `.texture`, rebuilt only
         when pixels changed since the last read.
         """
-        if not self.indexed:
+        if self._mode != "P":
             raise ValueError(
                 f"mask requires an indexed (palette) surface, got mode {self._mode!r}"
             )
@@ -482,7 +465,10 @@ def _read(filename: str):
         if img.mode == "P":
             palette_list = img.getpalette()
             if palette_list is not None:
-                palette = Palette(np.array(palette_list, dtype=np.uint8).tolist())
+                # Straight to an (n, 3) array. The old road went list -> array
+                # -> list -> a 256-step Python loop, because the constructor
+                # was shaped around what `getpalette()` returns.
+                palette = np.array(palette_list, dtype=np.uint8).reshape(-1, 3)
 
         # Index 0 is the engine-wide hole: Palette pins it to alpha 0, and
         # masks and collision solidity key off the index rather than the

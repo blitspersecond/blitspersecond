@@ -2,14 +2,13 @@
 
 One persistent bit-packed plane per collidable map, stamped as quads are
 placed and translated destructively as the camera moves. The layout and the
-question are `graphics.collision`'s; what is here is the tile pillar's own
-way of filling one.
+question are `graphics.collision`'s; what is here is the tile pillar's own way
+of filling one, argued in `bps/reference/tiles.md`, "The mask fills as the
+quads do".
 
-**Push, not pull.** The mask is written when content changes and never
-rebuilt to answer a question. That is the right way round because the two
-directions have wildly different frequencies: content changes when the camera
-crosses a cell boundary, and questions are asked several times a frame. The
-expensive direction and the frequent direction are different directions.
+**Push, not pull.** The mask is written when content changes and never rebuilt
+to answer a question -- content changes when the camera crosses a cell
+boundary, and questions are asked several times a frame.
 """
 
 from __future__ import annotations
@@ -41,44 +40,26 @@ class CollisionMask:
     Exported as exactly the 640x360 interior; stored larger. The border is
     real map content waiting to arrive: a stamp just off-screen lands in the
     apron, and destructive scrolling walks it into the queryable area without
-    anything being restamped. That is what makes fine camera motion cost two
-    bit strokes rather than a refill.
+    anything being restamped.
 
     ## The apron, and what decides its size
 
-    Exactly `bounded_plane` -- the same statement of the retained plane the
-    map's own stamp guard reads, never the cell -- plus two things the plane
+    Exactly `bounded_plane` -- **the same statement of the retained plane the
+    map's own stamp guard reads, never the cell** -- plus two things the plane
     does not know about. `_drift`, up to 31 pixels of camera the store has not
     moved for, pushes a trailing stamp that much further out; and a pattern
     landing unaligned at the outermost position carries into one more word.
     So: the plane, the drift, and a word.
 
-    Sizing it from the cell instead was a real bug and a silent one -- the
-    plane is the viewport rounded OUTWARD to whole cells plus a border, so at
-    360 rows it overshoots the screen by more than a cell at most cell sizes,
-    and the stamps that landed past a cell-sized apron were simply declined.
-    The border arrived empty and every query about it answered False.
-
-    It is not expensive: 13.6KB over the screen's own 28.1KB on a 16px sheet,
-    which is what a whole cell of retained world costs when the world is
-    bits.
+    Sizing it from the cell instead is a real bug and a silent one -- stamps
+    that land past a cell-sized apron are simply declined, the border arrives
+    empty, and every query about it answers False.
 
     ## Nothing here is allocated per frame, and nothing here is collected
 
     `stamp` writes into the store; `translate` copies into a permanent scratch
     and swaps the two. That is the whole inventory -- two buffers, because a
-    move is whole words and whole rows and has no carry to stage. A
-    `np.roll`-shaped formulation of the shift measured 5.4x slower in the
-    reference engine, and the cost was allocation and cold pages rather than
-    the copy. Measured over 3200 scrolling frames with a query in each: 0.000
-    net blocks a frame and zero gen0 collections.
-
-    `stamp` DOES make temporaries -- the shift, the mask and the two casts are
-    numpy expressions and each builds an array. They are not a GC concern:
-    ndarrays are not cyclic-GC tracked, so they cost refcount churn and
-    nothing else. They are a TIME concern, and that is the whole of the 8.5us
-    a stamp costs. The answer is fewer calls, not a collector knob -- see
-    *Batch the collision stamp* on the board.
+    move is whole words and whole rows and has no carry to stage.
     """
 
     __slots__ = (

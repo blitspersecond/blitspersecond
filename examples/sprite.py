@@ -114,6 +114,13 @@ TEAM = (
 #: is to still be the shape of her.
 DEEPEST = 0.82
 
+#: Where this demo puts its derived shades. A bank is 256 tables and a package
+#: authors far fewer -- Chun-Li's is 28, fumiko's is 4 -- so the rest are
+#: spare, and WHICH spare rows a shade goes in is the author's choice rather
+#: than something the engine hands out. Naming it here is what that choice
+#: looks like.
+SHADE_ROW = 200
+
 
 @dataclass
 class Walker:
@@ -167,28 +174,31 @@ def main() -> None:
         # reading different tables out of the same tileset.
         sprite.palettes["character"] = palette
 
-        # Her six shades, derived once and added to THIS SPRITE's table. Step
+        # Her six shades, derived once into the spare rows named above. Step
         # 1 is the faintest change and step GHOSTS is the deepest, so the list
         # reads oldest-last and is indexed backwards below -- `before[0]` is
         # drawn first and is therefore the oldest.
         #
-        # `add` copies the sheet's bank for this sprite rather than growing
-        # the sheet's own: a `SpriteSheet` is immutable and interned by path,
-        # so appending to it would reach every other holder -- her sister two
-        # layers up, or the same level loaded again. The copy shares every
-        # existing row; what it really costs is one more palette texture.
-        costume = sheet.tilesets["character"].palettes[palette]
-        shades = sprite.palettes.add(
-            "character",
-            (
-                costume.shadowed(
-                    signature,
-                    mix=step / GHOSTS,
-                    dim=DEEPEST * step / GHOSTS,
-                )
-                for step in range(1, GHOSTS + 1)
-            ),
-        )
+        # Each shade starts as a copy of her costume and is then turned into a
+        # duotone of her signature colour and darkened. Two operators doing one
+        # job each: `duotone` keeps every entry's luminance and gives it the
+        # signature's hue, so her light and shade survive and only her variety
+        # collapses; `darken` is the only thing that dims. A lerp toward the
+        # colour instead would drag her DARK pixels up toward a bright
+        # signature, and her shadow would come out brighter than she is.
+        #
+        # This writes into the SHEET's bank, which is interned and shared --
+        # her sister two layers up sees these rows too. That is deliberate and
+        # it is the same law pixels follow: `bank.copy()` is how a holder that
+        # wants its own colours stops sharing.
+        bank = sheet.tilesets["character"].palettes
+        shades = []
+        for step in range(1, GHOSTS + 1):
+            row = SHADE_ROW + step - 1
+            bank[row] = bank[palette]
+            bank[row].duotone(signature, step / GHOSTS)
+            bank[row].darken(DEEPEST * step / GHOSTS)
+            shades.append(row)
 
         # The trail. Allocated once and never grown: what changes per tick is
         # the CONTENTS of these four, not how many there are or where they sit

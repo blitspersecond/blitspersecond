@@ -1,6 +1,6 @@
 """The graphics toolbox: everything a game draws with, in one import.
 
-    from blitspersecond.graphics import PixelBuffer, Palette, RED
+    from blitspersecond.graphics import PixelBuffer, PaletteBank, RED
 
 `PixelBuffer` is a picture: `PixelBuffer("art.png")` reads it, validates it,
 and hands back THE buffer for that file -- so two layers over one tileset
@@ -22,12 +22,12 @@ needs. `cell`, `cols` and `rows` are the autogrid's own parameters, kept
 because the consumer that supplied them usually needs them back. Each engine
 brings its own rule about how many rects it needs and what a key means.
 
-`Palette` is the 256-entry table an indexed image carries, and the names
+`PaletteBank` is 256 colour tables as one block, and the names
 (`RED`, `CYAN`, `TRANSPARENT`) are indices INTO one, not colours in
 themselves. See `palette.py` for why a colour being an index is what puts
 this package, rather than the framebuffer, in charge of it. `PaletteBank` is
-the set of tables one sprite tileset carries, which the GPU holds as a single
-256xN texture.
+256 palettes of 256 colours, which the GPU holds as a single 256x256
+texture the bank owns and uploads.
 
 Loading lives here rather than in a package of its own. An earlier tree had
 `resources` -- a loading dock holding images, sounds and tile maps together
@@ -78,11 +78,9 @@ from .orientation import (
     applies_to,
     swaps_axes,
 )
+from .color import ColorQuad
 from .palette import (
-    ConsolePalette,
-    Palette,
     PaletteBank,
-    system_palette,
     TRANSPARENT,
     WHITE,
     SILVER,
@@ -118,10 +116,8 @@ __all__ = [
     "from_flip_rotation",
     "FLIP_OF",
     "ROTATION_OF",
-    "Palette",
+    "ColorQuad",
     "PaletteBank",
-    "ConsolePalette",
-    "system_palette",
     "TRANSPARENT",
     "WHITE",
     "SILVER",

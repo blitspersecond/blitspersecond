@@ -19,13 +19,15 @@ from __future__ import annotations
 
 import json
 import re
+
+import numpy as np
 from os.path import abspath, dirname, join
 from typing import Dict, FrozenSet, Optional, Tuple
 
 from blitspersecond.common import Location, Rect
 
 from ..atlas import Atlas
-from ..palette import Palette, PaletteBank
+from ..palette import ROWS, PaletteBank
 from ..pixel_buffer import PixelBuffer
 from .sheet import Assembly, Clip, Frame, SpritePart, SpriteTileset
 
@@ -99,7 +101,10 @@ def _palette(raw, where: str) -> Palette:
                 f"all-or-nothing (00 at index {TRANSPARENT_INDEX}, ff elsewhere)"
             )
         flat.extend(int(colour[j : j + 2], 16) for j in (1, 3, 5))
-    return Palette(flat)
+    # An (n, 3) array, not a table: the caller assigns it into a row of the
+    # tileset's bank. A palette is not a thing you hold any more, it is a row
+    # of one.
+    return np.array(flat, dtype=np.uint8).reshape(-1, 3)
 
 
 def _tileset(name: str, raw: dict, base: str) -> SpriteTileset:
@@ -114,7 +119,7 @@ def _tileset(name: str, raw: dict, base: str) -> SpriteTileset:
     # art travel together. `PixelBuffer` interns by absolute path, so two
     # tilesets naming one image share the buffer and its texture.
     buffer = PixelBuffer(abspath(join(base, image)))
-    if not buffer.indexed:
+    if buffer.mode != "P":
         raise ValueError(
             f"{where}: image {image!r} is mode {buffer.mode!r} -- a sprite "
             f"tileset is an indexed (P) surface, because it is read through a "
@@ -139,12 +144,25 @@ def _tileset(name: str, raw: dict, base: str) -> SpriteTileset:
             f"one, and the package's tables are authoritative -- the image's "
             f"embedded palette is an authoring preview"
         )
+    if len(palettes) > ROWS:
+        raise ValueError(
+            f"{where}: {len(palettes)} palettes exceeds the {ROWS} a bank holds"
+        )
     default = int(raw.get("default_palette", 0))
     if not 0 <= default < len(palettes):
         raise ValueError(
             f"{where}: default_palette {default} out of range "
             f"(this tileset has {len(palettes)})"
         )
+    # One bank, authored rows written in. Rows past the authored ones keep the
+    # system palette they came up with -- spare, and the author's to use for
+    # derived shades or costume variants by naming a row and writing it.
+    bank = PaletteBank()
+    for row, colours in enumerate(palettes):
+        bank.texels[row, : len(colours), :3] = colours
+        bank.texels[row, 0, 3] = 0
+    bank.dirty = True
+    bank.active = default
 
     tiles = raw.get("tiles") or {}
     if not tiles:
@@ -161,7 +179,7 @@ def _tileset(name: str, raw: dict, base: str) -> SpriteTileset:
     except ValueError as error:
         raise ValueError(f"{where}: {error}") from None
     return SpriteTileset(
-        atlas=atlas, palettes=PaletteBank(palettes), default_palette=default
+        atlas=atlas, palettes=bank, default_palette=default
     )
 
 
@@ -364,14 +382,23 @@ def read_grid(filename: str, width: int, height: int, ox: int, oy: int) -> Built
     """
     path = abspath(filename)
     buffer = PixelBuffer(path)
-    if not buffer.indexed:
+    if buffer.mode != "P":
         raise ValueError(
             f"{path}: image is mode {buffer.mode!r} -- a sprite sheet is an "
             f"indexed (P) surface; use a TileMap for RGB(A) pictures"
         )
     # The autogrid does the dividing, and raises if the image does not.
     atlas = Atlas(buffer, width, height)
-    palette = buffer.palette if buffer.palette is not None else Palette()
+    # The image's own colours, into row 0 of a bank. The buffer does not
+    # carry a table -- it reports what the file held, and the bank is this
+    # sheet's. A file with no embedded palette leaves row 0 as the system
+    # palette, which draws in real colours rather than in nothing.
+    bank = PaletteBank()
+    embedded = buffer.embedded_palette
+    if embedded is not None:
+        bank.texels[0, : len(embedded), :3] = embedded
+        bank.texels[0, 0, 3] = 0
+        bank.dirty = True
 
     cols = atlas.cols
     assemblies = {
@@ -393,7 +420,7 @@ def read_grid(filename: str, width: int, height: int, ox: int, oy: int) -> Built
     named = Atlas(buffer, {str(i): atlas.rect(i) for i in range(len(atlas))})
     tilesets = {
         GRID_TILESET: SpriteTileset(
-            atlas=named, palettes=PaletteBank((palette,)), default_palette=0
+            atlas=named, palettes=bank, default_palette=0
         )
     }
     # A grid sheet has exactly one tileset, so there is nothing to choose.

@@ -15,7 +15,7 @@ from blitspersecond.common import Location, Size
 
 from ..atlas import Atlas
 from ..internal.layer import Layer
-from ..internal.palette_texture import PaletteTexture
+from ..palette import PaletteBank
 from . import shader
 from .batch import TileBatch
 from .collision import CollisionMask
@@ -42,12 +42,10 @@ _NOTHING_PAINTED = (0, 0, 0, 0)
 
 #: One live placement: where it sits, which cell of the sheet, how it is turned.
 #:
-#: Reference carried `source` and `size` here too. Both are derived and neither
-#: survives the contract: the map has ONE sheet that cannot change, so a source
-#: rectangle is arithmetic from the index; and a placement's displayed size is
-#: always the sheet's cell, because a rectangular source may not be turned
-#: diagonally and turning a square one leaves its shape alone. Storing either
-#: is storing something that can disagree with what it was derived from.
+#: No `source` and no `size`, and neither may be added: both are derived, and
+#: storing a derived value is storing something that can disagree with what it
+#: came from. One immutable sheet makes a source rectangle arithmetic from the
+#: index, and a placement's displayed size is always the sheet's cell.
 _PLACEMENT_DTYPE = np.dtype(
     [
         ("target", np.int32, 2),
@@ -72,78 +70,22 @@ class TileMap(Layer):
         island.tile[42]     one cell of the SHEET  -> a Tile
         island.cell[x, y]   one cell of the WORLD  -> (Tile, Orientation)
 
-    ## One sheet, and it cannot be changed
+    `bps/reference/tiles.md` is the authority: the contract, the costs, what
+    refuses, the camera split, and what this pillar is not.
 
-    The sheet is a constructor argument and there is no way to replace it.
-    That is not a restriction being tolerated -- it is the assumption
-    `TileBatch` is built around. One texture means one bind and one
-    `glDrawElements` for the whole layer at any quad count; a second sheet
-    would be two of each and the SoA design would stop paying for itself.
+    Three rules that constrain edits here:
 
-    Wanting two sheets on screen means wanting two TileMaps, which is also how
-    you get two collision identities and two places in the draw order. Sharing
-    the art between them is free: `PixelBuffer` interns by path, so two maps
-    over one tileset genuinely hold one texture. **Identity is not art**, and
-    it is identity a layer is the unit of.
+    - **One sheet, assigned once, with no setter.** There is no `bind()`, no
+      `unbind()`, and no "unbound" state for any method to know about.
+    - **`cell` is the only road into the world.** There is no public array,
+      and a proxy over one could not work: `map["tile"][x, y] = 7` is two
+      operations and only the first is the map's.
+    - **The map holds a window, not a world** -- the viewport plus one cell of
+      border, and no more. Nothing can be put in the plane that the world does
+      not contain.
 
-    So there is no `bind()`, no `unbind()`, and -- more to the point -- no
-    "unbound" state for any method here to know about.
-
-    ## `cell` is the only road into the world
-
-    A map makes its own world from the size you give it, all empty, and
-    `cell[x, y]` is how anything reaches it afterwards -- reading, writing,
-    one cell or a whole block in one NumPy write. There is no public array.
-
-    **That is not tidiness; a public array could not be made to work.** A
-    NumPy write cannot be observed, so a cell edited while it was on screen
-    kept the quad and the mask bits it was stamped with, and corrected itself
-    only if the camera wandered off far enough to cull it and came back. Nor
-    could a proxy have caught it: `map["tile"][x, y] = 7` is two operations
-    and only the first is the map's.
-
-    `cell[x, y]` is X FIRST, like every coordinate in the engine, and here
-    that is also the storage order -- a world is x-major -- so nothing is
-    transposed on any road. The console pays for this where the tile pillar
-    does not; see `paint_buffer` there.
-
-    **A world is not a game's world.** This one is a rendering and collision
-    format: an id and three orientation bits, shaped for a gather into quads
-    and a stamp into a mask. A game's own map is likely to be something else
-    -- hex axial coordinates, a graph to run A* over, cells holding entities
-    -- so the expected shape is that a game keeps its own and bridges into
-    this through `cell`, rather than that the two are one array.
-
-    ## The map holds a window, not a world
-
-    A world is any size; what this holds on the GPU is the viewport plus one
-    cell of border, and no more. `scroll` moves the camera over the world and
-    the map streams: the placements that left are culled, the cells that
-    arrived are stamped, and everything in between is one vertex attribute.
-
-    So **you never stamp a level.** Set `origin` to say where the world sits,
-    `scroll` to say where you are looking, and the cells appear as they come
-    into view. Writing a cell that is currently on screen changes what is
-    drawn on the next frame; writing one that is not changes the world alone,
-    and the refill picks it up when the camera arrives.
-
-    There is no way to put something in the plane that the world does not
-    contain. A tile layer draws its world and nothing else -- for a decoration
-    at an arbitrary pixel, a sprite with one part is the road, and it is not
-    culled.
-
-    This is Commander Keen's arrangement rather than AMOS's `SCROLL`: pan the
-    view and redraw the newly exposed edge, instead of blitter-copying the
-    screen and blanking the gap. The deciding fact is that there IS a world
-    behind the screen here, so a destructive copy would be strictly more work
-    for the same picture. `Console.scroll` is the other lineage, and means the
-    other thing, for the same reason in reverse.
-
-    `wrap` says whether the world has edges at all. A wrapped axis is read
-    modulo its own size, so the camera can pan along it forever and a
-    one-column strip is a complete repeating sky. Per axis, because a world
-    that joins up along one and not the other is the normal case rather than
-    an exotic one -- see the property.
+    `cell[x, y]` is X FIRST, and here that is also the storage order, so
+    nothing is transposed on any road.
     """
 
     def __init__(
@@ -193,9 +135,15 @@ class TileMap(Layer):
         # bytes would put an `Optional` back through every stamp, every cull
         # and both reads to buy 82KB from the one map that cannot use them.
         self._collision: CollisionMask = CollisionMask(tileset)
-        # Starts set, so the first compose fills through the same branch every
-        # later one uses and there is no separate no-prior path. See the board
-        # card *Collision answers about two different frames*.
+        # The plane does not match the placements. Set here because there are
+        # no placements yet, and cleared by whichever of the two roads fills
+        # it: the refill, when it paints a whole window, or `_rebuild_collision`
+        # when there was nothing for the refill to do. See
+        # `bps/reference/collision.md`, "When a question is answered".
+        #
+        # Only a tick can set it and only the commit reads it, so the two
+        # never interleave -- the plane is built after the game's code has
+        # run, and nothing can invalidate one in the frame that built it.
         self._collision_dirty: bool = True
         # Through the base's setter, so the one rule about palettised art
         # fires here and wherever a game flips the switch later.
@@ -218,6 +166,18 @@ class TileMap(Layer):
         self._count: int = 0
         self._dirty: bool = True
         self._batch = None
+        # This layer's colours. Seeded from what the tileset image carried,
+        # in row 0 -- the art's own table. The buffer does not own a palette:
+        # two maps over one tileset image are two layers with two banks, and
+        # a table on the image would make them share it with no road to part.
+        # The other 255 rows are the system palette until something fills
+        # them, and moving `palette.active` is how a map changes scheme.
+        self._palettes = PaletteBank()
+        embedded = self._tileset.buffer.embedded_palette
+        if embedded is not None:
+            self._palettes.texels[0, : len(embedded), :3] = embedded
+            self._palettes.texels[0, 0, 3] = 0
+            self._palettes.dirty = True
 
         # The camera. `_scroll` is where the game is looking, in world pixels
         # and free to be fractional. The other three describe THE FRAME THAT
@@ -249,8 +209,8 @@ class TileMap(Layer):
         makes it safe is that `TiledFile` builds its plane with `np.array(...)`
         and does not keep it: nothing outside can reach the world afterwards.
         A caller handing over an array it still holds would keep a live handle
-        on `_map`, which is what the constructor used to allow and what `cell`
-        exists to close.
+        on `_map`, which is the hole `cell` exists to close -- so do not widen
+        this door.
 
         `_validate` runs here and only here -- a file is untrusted input, and
         this is the one door a world arrives through fully formed.
@@ -294,29 +254,13 @@ class TileMap(Layer):
             sky.wrap = (True, False)        # a strip that goes on forever
             level.wrap = (True, False)      # and a level that loops
 
-        Off by default on both axes, because a world that silently repeats
-        when you scroll past its end is a surprise, and running out of world
-        is a thing a game may legitimately want to detect.
-
-        **Per axis, because the useful cases need them different.** Civ's
-        map wraps east to west and not north to south: the globe joins up
-        along one axis and the poles are a genuine edge, and that is a world
-        topology rather than a trick. A side scroller is the same shape --
-        the level loops, while the sky wrapping round into the ground is not
-        a level but a bug you can see. One flag for both would make both
-        unreachable.
+        Off by default on both axes. Per axis because the useful worlds need
+        them different -- see `bps/reference/tiles.md`, "Worlds with no edges".
 
         This costs nothing to have on. The world is not copied, tiled or
-        grown: a wrapped axis simply stops clamping the visible window, and
-        the cells are read modulo the world's size. So a one-column strip is
-        a legitimate world -- it is the whole of a repeating sky -- and
-        covering a 640px screen with it is the same work as covering it with
-        anything else.
-
-        The alternative a caller reaches for otherwise is `np.tile`, and it
-        is worse in three ways: it allocates N copies of the art's indices,
-        it only extends as far as it was tiled, and the seam is baked in at
-        build time so the world can never be edited as one thing again.
+        grown: a wrapped axis stops clamping the visible window, and the cells
+        are read modulo the world's size. So a one-column strip is a
+        legitimate world.
         """
         return self._wrap
 
@@ -338,11 +282,11 @@ class TileMap(Layer):
         parallax layer's collision off and on again must meet the same rule
         it met at construction.
         """
-        if self._tileset.indexed:
+        if self._tileset.buffer.mode == "P":
             return None
         return (
             f"a collidable tilemap needs an indexed sheet, and this one is "
-            f"mode {self._tileset.mode!r}. Collision is derived from palette "
+            f"mode {self._tileset.buffer.mode!r}. Collision is derived from "
             f"index 0 meaning transparent, so an RGBA sheet has nothing to "
             f"derive a mask from -- it is unbuildable here, not switched off. "
             f"Author the sheet indexed"
@@ -370,12 +314,19 @@ class TileMap(Layer):
     def _rebuild_collision(self) -> None:
         """Refill the whole plane from the placements. Called by `_stream`.
 
-        **Twice in a game's life.** The engine's cycle renders the frame and
-        the masks together, and after the first fill the plane is maintained
-        by the drawing itself, so this exists for the two moments there is
-        nothing to find: the very first compose, and a game that switched
-        `collidable` back on. `_collision_dirty` names both, which is why it
-        starts set rather than needing a no-prior branch beside it.
+        **One moment in a game's life: a game switched `collidable` back on
+        without the camera having repainted since.** The engine's cycle renders
+        the frame and the masks together, and after the first fill the plane is
+        maintained by the drawing itself.
+
+        The first compose is NOT this moment, though the flag is set for it.
+        A map with no window painted refills the whole of one, and a collidable
+        map's bits go in with its quads, so the plane is complete before this
+        would run -- `_refill` says so and this is skipped. Running it anyway
+        was the same walk twice, and cost more the second time than the first:
+        6.7ms against 3.3ms, because iterating the placement SoA row by row
+        and pulling each field out of a structured scalar is dearer than the
+        refill's road to the same stamps.
 
         NOT reachable from a read. A query answers about the frame that was
         painted, so a build on the read path would answer about a frame nobody
@@ -480,9 +431,7 @@ class TileMap(Layer):
     def _require_own(self, tile: Tile) -> Tile:
         """`tile`, or raise saying it belongs to another map.
 
-        The whole of the wrong-sheet guard, and one `is`. Reference needed two
-        comparisons here -- same buffer, same tile size -- because an
-        atlas-bound handle could not be asked who made it."""
+        The whole of the wrong-sheet guard, and one `is`."""
         if not isinstance(tile, Tile):
             raise TypeError(
                 f"expected a Tile from this map's tile[n]; got "
@@ -687,14 +636,12 @@ class TileMap(Layer):
         **Built as a block, not a loop.** Everything this does per cell is
         uniform across the whole plane -- the same sheet, the same cell size,
         one contiguous run of destination slots -- so it is a gather and four
-        broadcasts, and it used to be a `for` wearing them. The targets are two
-        broadcasts, the SoA rows are three slice assignments, and the UVs are
-        one gather off `Atlas.uvs` turned by `TileBatch.set_quads`.
+        broadcasts: the targets are two, the SoA rows are three slice
+        assignments, and the UVs are one gather off `Atlas.uvs` turned by
+        `TileBatch.set_quads`.
 
-        Collision is still per placement, deliberately: batching the mask
-        scatter is *Batch the collision stamp*, and it needs a kernel rather
-        than a reshape. Keeping the two separable is also what lets the draw
-        and collision costs be measured apart -- they have different curves.
+        Collision stays per placement, deliberately. Grouping it is costed in
+        the board card *Batch the collision stamp* and nothing asks for it.
         """
         if plane.dtype != PLANE_DTYPE:
             raise TypeError(f"expected a PLANE_DTYPE world slice; got {plane.dtype}")
@@ -774,33 +721,46 @@ class TileMap(Layer):
     # -- the camera ------------------------------------------------------
 
     @property
+    def palette(self) -> PaletteBank:
+        """This layer's colour tables, live.
+
+        Row 0 holds what the tileset image carried; the rest are the system
+        palette until something fills them, and `palette.active` picks which
+        one the whole map draws through -- a day/night switch is a write to
+        that rather than a rewrite of a table.
+
+        The colours belong to the LAYER, not to the art: two maps over one
+        tileset image have two banks and can be lit differently. Hand one
+        map's bank to another and they share it, deliberately; `copy()` is how
+        one of them stops.
+        """
+        return self._palettes
+
+    @palette.setter
+    def palette(self, value: PaletteBank) -> None:
+        if not isinstance(value, PaletteBank):
+            raise TypeError(f"expected PaletteBank, got {type(value)}")
+        self._palettes = value
+
+    @property
     def scroll(self) -> Tuple[float, float]:
         """Where the game is looking, in world pixels. Assignment is free.
 
             island.scroll = (x, 0)
 
         **Setting this stamps nothing.** It stores two floats; the next frame
-        works out what that means. Sub-cell movement turns out to mean one
-        generic vertex attribute and no buffer write at all, and crossing a
-        cell boundary means culling what left and stamping what arrived --
-        which is why a map holds only the viewport and one cell of border
-        rather than the whole world.
-
-        Reference did the work in this setter, so a game that nudged the
-        camera twice in a tick paid for two culls and two refills to arrive
-        where one would have put it. Here the reconciliation happens once, in
-        the frame, from wherever the camera ended up.
-
-        **A camera, not a move.** `Console.scroll` shifts its contents and
-        blanks the gap, because a console's grid IS the screen and there is
-        nothing behind it to look at. A tilemap has a world larger than the
-        screen, so moving the view over it is what scrolling can mean -- and
-        copying pixels would be strictly more work for the same picture. Same
-        word, different extents; see the class docstring.
+        works out what that means, once, from wherever the camera ended up --
+        so a game that nudges the camera twice in a tick pays for one
+        reconciliation rather than two. Sub-cell movement turns out to mean
+        one generic vertex attribute and no buffer write at all.
 
         Fractional values are welcome -- a game accumulating `speed * dt`
-        produces them -- but the view lands on a whole pixel, because a pixel
-        engine that sampled between them would not be one.
+        produces them -- but the view lands on a whole pixel.
+
+        **A camera, not a move.** `Console.scroll` shifts its contents and
+        blanks the gap; this moves a view over a world that is already there.
+        Same word, different extents; `bps/reference/tiles.md` says why each
+        is right for its pillar.
         """
         return self._scroll
 
@@ -847,9 +807,13 @@ class TileMap(Layer):
         writes quads nobody draws, and that is the price of the two never
         being able to disagree.
 
-        A map that is neither drawn nor collidable streams nothing; `composite`
-        does not call this, and the camera catches up in one frame whenever it
-        is next wanted.
+        Reached on every attached map, drawn or not and collidable or not,
+        because `Layer.composite` gates only the drawing half. A map that is
+        neither therefore still streams -- the cost of one camera compare and
+        whatever a coarse step drags with it. That is deliberate at the base:
+        a layer must behave the same whether or not it is visible, and a
+        camera that froze while hidden and caught up on reappearing would be
+        a second behaviour where the point is that there is one.
         """
         self._stream()
 
@@ -895,6 +859,10 @@ class TileMap(Layer):
         # reason `layers.prepare` runs before the game's tick. Last,
         # because by here the placements are this frame's and a fresh plane
         # built from them needs no translate.
+        # Only when the refill did not already do it. A repaint stamps the
+        # bits with the quads, so the common road to a full plane is the one
+        # above; this is what is left when the placements were already there
+        # and only the switch moved.
         if self._collidable and self._collision_dirty:
             self._rebuild_collision()
 
@@ -1009,6 +977,18 @@ class TileMap(Layer):
         ox0, oy0, ox1, oy1 = old
         if ox1 <= ox0 or oy1 <= oy0:
             self._stamp_cells(nx0, ny0, nx1, ny1)
+            # Nothing was painted, so this just stamped the whole window --
+            # and a collidable map's bits go in with its quads, which means
+            # the plane is now exactly what a rebuild would build. Say so, or
+            # `_stream` walks all of it a second time: 3054 stamps for 1527
+            # placements on the first compose of a real level, 10.6ms where
+            # 3.9ms builds the identical plane.
+            #
+            # Safe because the mask was zeroed by whatever emptied the window.
+            # `_NOTHING_PAINTED` is set in exactly two places -- construction,
+            # where the mask is fresh, and `clear()`, which takes the bits with
+            # it -- so a full-window fill never lands on top of stale bits.
+            self._collision_dirty = False
             return
         if nx0 < ox0:
             self._stamp_cells(nx0, ny0, min(ox0, nx1), ny1)
@@ -1088,7 +1068,7 @@ class TileMap(Layer):
         """
         if self._batch is None:
             self._batch = TileBatch(
-                shader.program(self._tileset.indexed),
+                shader.program(self._tileset.buffer.mode == "P"),
                 max(8, len(self._placements)),
             )
         return self._batch
@@ -1108,10 +1088,8 @@ class TileMap(Layer):
         sheet's cell, since a rectangular source may not be turned diagonally
         and turning a square one leaves its shape alone.
 
-        Reference had this as a public `prepare()`. It was called from exactly
-        one place -- the next line of its own `_composite` -- in all three
-        pillars, so it was never a frame phase, just a named section wearing
-        public clothes. It is private and named for what it does.
+        Private, and not a frame phase: its only caller is the next line of
+        `_composite`.
         """
         # The camera has already run, in `_settle_collision` -- it decides
         # WHAT the placements are before this decides where their corners go,
@@ -1164,20 +1142,14 @@ class TileMap(Layer):
         # uses.
         program = self._batch.program
         program["sprite_texture"] = 0
-        if self._tileset.indexed:
-            palette = self._tileset.palette
-            # Indexed implies a table: a file brings one and a blank canvas
-            # gets `system_palette()`. Asserted rather than guarded, because
-            # skipping the bind would draw the sheet's indices as colours --
-            # a picture that is wrong rather than absent.
-            assert palette is not None
+        if self._tileset.buffer.mode == "P":
             # Palette RAM on unit 1, as a texture rather than a uniform
-            # array: see PaletteTexture for why. One sheet, one table, so it
-            # is a single 256x1 row and the batch's `palette_row` register
-            # stays 0 -- a tilemap has no bank to pick out of. Unit 0 is left
-            # active because the batch binds the sheet there.
+            # array: see `bps/reference/palette.md`. The upload happens here, at
+            # the head of the composite, so it cannot land mid-pass and
+            # disturb the unit the sheet is bound to. Unit 0 is left active
+            # because the batch binds the sheet there.
             program["palette_texture"] = 1
-            table = PaletteTexture.get(palette)
+            table = self._palettes.texture
             glActiveTexture(GL_TEXTURE1)
             glBindTexture(table.target, table.id)
             glActiveTexture(GL_TEXTURE0)
@@ -1196,6 +1168,7 @@ class TileMap(Layer):
             self._tileset.buffer.texture,
             self._count,
             translate=(-float(fx), -float(fy)),
+            palette_row=self._palettes.active,
         )
 
     def __repr__(self) -> str:

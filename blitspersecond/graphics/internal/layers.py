@@ -122,8 +122,15 @@ class Layers:
         """Seconds the last commit took, excluding the present path.
 
         Billed at game rate: one commit per tick, whatever the panel does.
-        Note this now INCLUDES `prepare`'s work, which previously fell between
-        `gameloop_ms` and the old `compose_duration` and was in neither.
+        The clear, the walk, and the settle half of every layer's `composite`
+        -- so a hidden collider's camera and a hidden console's packing are
+        in here, which is where they belong: they are the engine's work and
+        they happen at the commit.
+
+        `prepare` is NOT: it runs before the game's tick, and this timer
+        starts after. It is in no published metric -- `gameloop_ms` starts
+        after it and this starts after that -- and the pacer's `observe_work`
+        is the only thing spanning it.
         """
         return self._commit_duration
 

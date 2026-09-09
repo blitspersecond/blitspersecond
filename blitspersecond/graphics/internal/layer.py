@@ -278,8 +278,9 @@ class Layer:
 
         It exists so the mask never has to move for fine scrolling. The
         compiled query reads each plane through its own offset for nothing
-        (measured: 0.52us against 0.53us), where shifting the plane instead
-        would cost tens of microseconds per layer per frame.
+        (measured 2026-09-07: 0.469us against 0.481us at zero, inside noise),
+        where shifting the plane instead would cost tens of microseconds per
+        layer per frame.
         """
         return (0, 0)
 
@@ -388,10 +389,11 @@ class Layer:
     def _settle_collision(self) -> None:
         """Bring this layer's collision geometry up to date for the commit.
 
-        A no-op unless the layer keeps a mask. Every pillar reaches this from
-        the top of its own `_composite` as well, so a layer being drawn does
-        it once, as part of drawing; this exists for the layer that is NOT
-        being drawn and still has to answer.
+        A no-op unless the layer keeps a mask. This is the ONLY road to the
+        work: each pillar split it out of the sync at the top of its own
+        `_composite`, so the draw path no longer does it and a layer settles
+        exactly once whether or not it is drawn. The split is what lets a
+        layer nobody sees keep a plane worth asking about.
 
         It is not `prepare`. That runs before the game's tick and brings a
         layer's presentation current for the tick about to run; this runs at

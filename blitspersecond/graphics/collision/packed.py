@@ -8,28 +8,20 @@ So packing is a library call rather than a loop, and unpacking for a debug
 viewer is its inverse rather than a second piece of arithmetic that has to
 agree with the first.
 
-## Why DWORD, and why 640 is the reason
-
-The screen is 640 pixels wide, which is exactly 20 `uint32` words. **There is
-no partial tail word**, so there are no unused high bits able to leak junk
-into an `.any()` -- a whole row of the mask is meaningful to its last bit.
-A source up to 32px wide straddles at most two words, so landing one at an
-unaligned x is two stores and not a loop. And `pattern << 31` still fits the
-`uint64` staging arithmetic below, which a `uint64` word size would not.
-
-The size is a constant here rather than a literal spelled across three
-pillars. An arch-dependent word is a knob nobody has needed; if one is ever
-wanted, this is the only file that decides it.
+Why the word is a DWORD, and why the screen being 640 wide is the reason:
+`bps/reference/collision.md`, "One bit per pixel". The size is a constant
+here rather than a literal spelled across three pillars, so this is the only
+file that would decide a different one.
 
 ## Patterns stage in uint64 and store in uint32
 
-Not an inconsistency -- the two are different moments. A row pattern is
-shifted LEFT by up to 31 places to land at an unaligned x, and the bits
-pushed past bit 31 are not overflow, they are the carry into the next word.
-Staging in `uint64` is what makes that carry recoverable; the low half and
-the high half are then extracted as `uint32` and OR'd into two adjacent
-words. `pack` therefore hands back `uint64` deliberately, and the masks it
-is stamped into are `uint32`.
+Not an inconsistency, and not a type to unify -- the two are different
+moments. A row pattern is shifted LEFT by up to 31 places to land at an
+unaligned x, and the bits pushed past bit 31 are not overflow, they are the
+carry into the next word. Staging in `uint64` is what makes that carry
+recoverable; the low half and the high half are then extracted as `uint32`
+and OR'd into two adjacent words. `pack` therefore hands back `uint64`
+deliberately, and the masks it is stamped into are `uint32`.
 """
 
 import numpy as np

@@ -10,7 +10,6 @@ import numpy as np
 from blitspersecond.common import Location
 
 from ..internal.layer import Layer
-from ..internal.palette_texture import PaletteTexture
 from ..orientation import Orientation
 from .internal import PaletteRegisters
 from .animation import Animation
@@ -156,9 +155,8 @@ class Sprite(Layer):
         # Banks this sprite has grown for itself, by tileset name. Empty for
         # almost every sprite: adding rows is what puts one here, and until
         # then the sheet's own bank is what draws -- so unextended siblings
-        # share a bank object, and `PaletteTexture` keys on identity, so they
-        # share its texture and its bind too.
-        self._banks: dict = {}
+        # share a bank object, and a bank owns its texture, so they share its
+        # upload and its bind too.
         self._slot0_palettes = {
             name: tileset.default_palette
             for name, tileset in sheet.tilesets.items()
@@ -336,17 +334,17 @@ class Sprite(Layer):
         return None if name is None else self._sheet.assembly(name)
 
     def _sync(self) -> None:
-        """Rebuild the frame plan, and the collision plane, if anything moved.
+        """Rebuild the frame plan, if anything moved.
 
         Private, and called from `_composite` -- not a phase a game runs.
         Reference exposed this as `prepare()` and called it from exactly one
         place: the first line of its own composite. Same finding and same fix
         as the other two pillars.
 
-        **The masks are rendered with the frame**, which is the engine's own
-        cycle: clear, read input, run the game, render the frame and the
-        masks. So a collidable sprite leaves the compose with its plane
-        already composed and the tick that asks about it spends nothing.
+        The plane is NOT rebuilt here. It moved to `_settle_collision`, which
+        the commit reaches on every attached layer rather than only the drawn
+        ones -- the plan is a draw projection and belongs behind `enabled`,
+        the plane is a world one and does not.
 
         Two flags, because the two projections are invalidated by different
         things. `visible` moves the draw and not the plane; `collide` moves
@@ -477,13 +475,13 @@ class Sprite(Layer):
         # to be this layer's first row.
         bound_row = None
         for buffer, bank, row, colors, first, count in plan.runs:
-            # Touch the texture BEFORE binding either unit: `.texture` and
-            # `PaletteTexture.get` blit into whatever unit is active, so they
-            # must not run between the unit assignments inside `draw_run`.
+            # Touch the texture BEFORE binding either unit: `.texture` on a
+            # buffer and on a bank both upload into whatever unit is active, so
+            # they must not run between the unit assignments inside `draw_run`.
             texture = buffer.texture
             bound_texture, bound_palette, bound_row = batch.draw_run(
                 texture,
-                PaletteTexture.get(bank),
+                bank.texture,
                 row,
                 colors,
                 first,
@@ -783,16 +781,16 @@ class Sprite(Layer):
     # -- what it is drawn with ---------------------------------------------
 
     def _bank(self, tileset: str):
-        """The bank this sprite draws `tileset` through.
+        """The tileset's bank -- the sheet's, always.
 
-        Its own if it has grown one, otherwise the sheet's. The draw path reads
-        this once per CHAIN -- `FramePlan` treats the bank as constant across
-        one, and depends on that for the bind -- so a sprite with its own bank
-        costs one more palette texture and one more bind, and a trail of 25,000
-        ghosts still costs one of each because a trail is one sprite.
+        This used to be copy on write: a sprite that grew rows got a bank of
+        its own so the interned sheet's was not disturbed. Banks do not grow
+        now -- every one is 256 rows and derived shades go into spare ones the
+        author names -- so there is nothing to fork, and two sprites over one
+        sheet share the bank and the texture while pointing their own
+        registers wherever they like.
         """
-        bank = self._banks.get(tileset)
-        return self._sheet.tilesets[tileset].palettes if bank is None else bank
+        return self._sheet.tilesets[tileset].palettes
 
     @property
     def palettes(self) -> PaletteRegisters:

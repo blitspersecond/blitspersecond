@@ -293,10 +293,12 @@ def test_an_unknown_tileset_raises_naming_the_sheets(chun: Sprite) -> None:
         assert "character" in str(excinfo.value)
 
 
-@pytest.mark.parametrize("index", [-1, 4, 99])
+@pytest.mark.parametrize("index", [256, 999])
 def test_a_palette_out_of_range_raises(chun: Sprite, index: int) -> None:
-    """Fumiko carries 4 tables. A register that silently did nothing would be
-    art in the wrong colours with nothing reporting it."""
+    """A bank is 256 rows, so any of those is a legal register -- the spare
+    ones are where a derived shade goes. Past the end is still refused: a
+    register that silently did nothing would be art in the wrong colours with
+    nothing reporting it."""
     with pytest.raises(ValueError, match="out of range"):
         chun.palettes["character"] = index
 

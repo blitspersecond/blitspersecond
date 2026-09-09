@@ -32,7 +32,7 @@ Close the window to quit.
 import numpy as np
 
 from blitspersecond import BlitsPerSecond
-from blitspersecond.graphics import WHITE, Orientation, system_palette
+from blitspersecond.graphics import WHITE, Orientation
 from blitspersecond.graphics.console import CharSet, Console, Pen
 
 # Where our ramp lives in palette RAM. Picked by hand, the ordinary way you
@@ -74,13 +74,14 @@ def main() -> None:
     console = Console(CharSet.ASCII8X12)
     bps.layers.add(console)
 
-    palette = system_palette()
+    # The console's own table, which already holds the system palette -- there
+    # is nothing to build and nothing to install afterwards.
+    palette = console.palette[0]
     # One ramp entry per scanline of a cell: that is what makes a length-N
     # sequence read as a gradient running DOWN the cell. A pen is exactly one
     # cell, so its `size` is where the height comes from.
     cell_width, cell_height = console.glyph.size
     ramp = load_ramp(palette, RAMP_BANK, COPPER, cell_height)
-    console.palette = palette
 
     # 1. A flat pen -- four indices. The everyday case.
     plain = Pen(0, WHITE)  # slot 0 transparent: whatever is behind shows

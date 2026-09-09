@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 from blitspersecond.common import PACKAGE_ROOT, Location, Rect
-from blitspersecond.graphics import Palette, PaletteBank, PixelBuffer
+from blitspersecond.graphics import PaletteBank, PixelBuffer
 from blitspersecond.graphics.sprite import GRID_TILESET, SpriteSheet
 
 #: `bps/assets/` is repo furniture beside the package, not shipped inside it.
@@ -53,7 +53,15 @@ def test_fumiko_loads_whole() -> None:
     assert set(sheet.tilesets) == {"character"}
     tileset = sheet.tilesets["character"]
     assert len(tileset.atlas) == 32
-    assert len(tileset.palettes) == 4
+    # A bank is always 256 rows, so "four palettes" is no longer a length to
+    # assert. What is still checkable, and is the actual claim, is that
+    # fumiko's four LANDED: rows 0..3 differ from each other and from the
+    # system palette every bank comes up with, and row 4 is untouched.
+    bank = tileset.palettes
+    assert len(bank) == 256
+    authored = {bank.texels[row].tobytes() for row in range(4)}
+    assert len(authored) == 4, "the four tables are not four tables"
+    assert tuple(bank[4][1]) == (255, 255, 255, 255), "row 4 is not still WHITE"
     assert tileset.default_palette == 0
     assert len(sheet.assemblies) == 32
     assert all(len(a.parts) == 1 for a in sheet.assemblies.values())
@@ -135,30 +143,18 @@ def test_the_same_package_gives_the_same_sheet() -> None:
 
 
 def test_a_tileset_holds_its_palettes_as_one_bank() -> None:
-    """The bank is an object, not a tuple, because it is the unit the GPU
-    stores -- one 256xN table with a row per member. It still reads as the
-    tuple it replaced, which is what keeps `sprite.palettes[...] = 3` a row
-    number and every caller that only wanted a table unchanged."""
+    """The bank is the unit the GPU stores -- one 256x256 table with a row
+    per palette, which is what keeps `sprite.palettes[...] = 3` a row NUMBER
+    rather than a bind. Every bank is that shape, so a row number is always
+    valid and no caller has to ask how many there are."""
     bank = SpriteSheet(FUMIKO).tilesets["character"].palettes
     assert isinstance(bank, PaletteBank)
-    assert len(bank) == 4
-    assert list(bank) == [bank[i] for i in range(4)]
-    assert len({id(p) for p in bank}) == 4  # four tables, none duplicated
+    assert len(bank) == 256
+    assert bank.texels.shape == (256, 256, 4)
+    # Rows are distinct tables, not one table seen four times.
+    assert len({bank.texels[row].tobytes() for row in range(4)}) == 4
     with pytest.raises(IndexError):
-        bank[4]
-
-
-def test_a_bank_refuses_what_it_cannot_project() -> None:
-    """A tileset with no tables is unreadable, and the loader says so with
-    the tileset named; this is the same refusal one level down, for a bank
-    built by hand -- a zero-row texture is not a thing to defer to the GPU.
-    A member that is not a Palette is refused for the same reason: the row
-    is uploaded from `tobytes()`, and finding that out at the draw would
-    report it a subsystem away from whoever built the bank."""
-    with pytest.raises(ValueError, match="at least one palette"):
-        PaletteBank(())
-    with pytest.raises(TypeError, match="row 1: expected Palette"):
-        PaletteBank((Palette(), [0, 0, 0]))
+        bank[256]
 
 
 def test_copy_owns_its_palettes_but_shares_its_pixels() -> None:
@@ -173,8 +169,8 @@ def test_copy_owns_its_palettes_but_shares_its_pixels() -> None:
     original = sheet.tilesets["character"].palettes[0]
     copied = twin.tilesets["character"].palettes[0]
     assert copied is not original
-    # A new bank as well as new tables: the bank is what PaletteTexture keys
-    # its GPU table on, so a twin sharing one would share the upload too.
+    # A new bank as well as new tables: a bank owns its GPU table, so a twin
+    # sharing one would share the upload too.
     assert twin.tilesets["character"].palettes is not sheet.tilesets[
         "character"
     ].palettes
@@ -526,71 +522,69 @@ def test_the_first_party_fixtures_answer_it(tmp_path: Path) -> None:
     assert len(bullets.tilesets) == 1
 
 
-# -- generated shades, and a bank that grows to hold them ----------------
+# -- the modify path ------------------------------------------------------
+#
+# `extended` and `shadowed` were tested here. Banks do not grow -- every one
+# is 256 rows and a derived shade goes into a spare row the author names --
+# so the extension tests have no subject. `shadowed` became two operators
+# doing one job each, which is what these prove.
 
 
-def _fixture_bank() -> PaletteBank:
-    return PaletteBank(
-        (Palette([200, 40, 40] * 256), Palette([40, 40, 200] * 256))
-    )
+def _art() -> "PaletteBank":
+    """A bank whose row 0 is a two-entry ramp: nearly black, nearly white."""
+    bank = PaletteBank()
+    bank[0][1] = (20, 20, 20)
+    bank[0][2] = (200, 200, 200)
+    return bank
 
 
-def test_a_shade_keeps_the_arts_light_and_shade() -> None:
+def test_a_duotone_keeps_the_arts_light_and_shade() -> None:
     """A duotone, not a blend toward the colour. Lerping toward a bright
     signature drags DARK pixels up, so a white character's shadow comes out
-    brighter than she is -- which is what this asserts cannot happen."""
-    art = Palette()
-    art[1] = (20, 20, 20)  # nearly black
-    art[2] = (200, 200, 200)  # nearly white
-    shade = art.shadowed((255, 255, 255), mix=1.0)
-    assert shade[1][:3] < shade[2][:3], "the duotone lost the art's ordering"
-    assert sum(shade[1][:3]) <= sum(art[1][:3]) + 3, (
+    brighter than she is -- which is what this asserts cannot happen, and is
+    why `duotone` and `blend` are two operators rather than one."""
+    bank = _art()
+    bank[40] = bank[0]
+    bank[40].duotone((255, 255, 255), 1.0)
+    assert bank[40][1][:3] < bank[40][2][:3], "the duotone lost the art's ordering"
+    assert sum(bank[40][1][:3]) <= sum(bank[0][1][:3]) + 3, (
         "a dark pixel got BRIGHTER under a white signature"
     )
 
 
+def test_a_blend_toward_a_flat_colour_is_the_thing_duotone_avoids() -> None:
+    """The other half of the argument, stated as a test so the distinction
+    cannot be quietly collapsed later: blending toward a flat white table
+    DOES drag the dark entry up, which is exactly why the trail uses a
+    duotone."""
+    bank = _art()
+    bank[9] = [(255, 255, 255)] * 256  # a flat white table to blend toward
+    bank[40] = bank[0]
+    bank[40].blend(bank[9], 1.0)
+    assert sum(bank[40][1][:3]) > sum(bank[0][1][:3]), (
+        "a lerp toward white left a dark entry alone -- it should raise it"
+    )
+
+
 def test_shades_darken_monotonically() -> None:
-    art = Palette([180, 120, 60] * 256)
+    """Each step of a trail is dimmer than the last."""
     steps = 6
-    means = [
-        sum(art.shadowed((200, 40, 40), mix=k / steps, dim=0.8 * k / steps)[9][:3])
-        for k in range(1, steps + 1)
-    ]
+    means = []
+    for k in range(1, steps + 1):
+        bank = PaletteBank()
+        bank[0][9] = (180, 120, 60)
+        bank[40] = bank[0]
+        bank[40].duotone((200, 40, 40), k / steps).darken(0.8 * k / steps)
+        means.append(sum(bank[40][9][:3]))
     assert means == sorted(means, reverse=True), means
 
 
-def test_a_shade_keeps_the_transparent_index() -> None:
-    """A shadow of a hole is still a hole. Alpha is a fact about the source
-    art, not about the shade."""
-    shade = Palette([90, 90, 90] * 256).shadowed((10, 200, 10), dim=0.5)
-    assert shade[0][3] == 0
-    assert shade[1][3] == 255
-
-
-def test_extending_a_bank_appends_and_never_renumbers() -> None:
-    """A palette register is a number a game is holding. Inserting would
-    silently recolour whatever held it, which is why this only appends."""
-    bank = _fixture_bank()
-    before = [tuple(p.raw()) for p in bank]
-    grown = bank.extended([bank[0].shadowed((0, 0, 0), dim=0.5)])
-    assert len(grown) == 3
-    assert [tuple(p.raw()) for p in grown][:2] == before
-
-
-def test_extending_a_bank_leaves_the_original_alone() -> None:
-    """The bank belongs to an IMMUTABLE, INTERNED sheet, so growing one in
-    place reached every other holder of that sheet -- and grew again on every
-    load that reached it. `extended` hands back a new bank instead."""
-    bank = _fixture_bank()
-    grown = bank.extended([bank[0].shadowed((0, 0, 0), dim=0.5)])
-    assert (len(bank), len(grown)) == (2, 3)
-    assert grown is not bank
-    # The rows are SHARED, not copied: a bank is a tuple of references, so
-    # what a copy really costs is one more GPU texture and nothing else.
-    assert grown[0] is bank[0]
-
-
-def test_a_bank_refuses_a_non_palette_row() -> None:
-    bank = _fixture_bank()
-    with pytest.raises(TypeError, match="row 2"):
-        bank.extended([object()])  # type: ignore[list-item]
+def test_an_operator_keeps_the_transparent_index() -> None:
+    """A shadow of a hole is still a hole. Alpha is decided by the index, and
+    no operator touches it -- which is why the pin survives all of them
+    without any of them knowing about it."""
+    bank = PaletteBank()
+    bank[0][1] = (90, 90, 90)
+    bank[0].duotone((10, 200, 10), 1.0).darken(0.5).negate()
+    assert bank[0][0][3] == 0
+    assert bank[0][1][3] == 255

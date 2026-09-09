@@ -39,13 +39,28 @@ What this is NOT is rotation in the general sense. There is no arbitrary
 angle and there is not meant to be: anything off the axes stops being a
 permutation of four corners and starts needing real sampling.
 
-## Which orientations are legal is a question about the SOURCE
+## Which orientations are legal is a question about the SLOT
 
-Square sources take all eight; rectangular ones take the four that leave the
-shape alone. `applies_to` is the whole rule and it is geometric -- it does not
-know or care which engine is asking. A quarter turn of a rectangle has nowhere
-to go: squeeze it back into the cell it came from and the pixels stop being
-square, place it at its turned extent and it overflows its neighbours.
+Everything here cuts rects. A grid is a table of rects under a constraint --
+they are uniform, and they tile -- so "square cell" is not a second kind of
+source, it is the rect whose extent a quarter turn does not change.
+
+That gives one rule, and `applies_to` is it: **a turn is legal when whatever
+must hold the result can hold the turned extent.** A quarter turn swaps a
+rect's extent, and a grid cell can do only two things with a swapped one --
+squeeze it back to the cell it came from, which stretches the pixels and stops
+them being square, or place it at its true extent, where it overflows its
+neighbours. Neither is acceptable, so a grid refuses the turn unless the swap
+changes nothing, which is exactly when the cell is square.
+
+A sprite has no slot to fit. It can appear anywhere, so nothing is being
+overflowed and nothing needs squeezing, and it turns arbitrary rects as a
+matter of course -- `sprite/frame.py`'s `local_rect` swaps width and height
+and places the result at its true extent.
+
+So `applies_to` is asked by the pillars that own a grid -- the console and the
+tilemap, and the TMX loader on the tilemap's behalf. The sprite pillar does
+not ask it, and that is correct rather than an oversight.
 
 ## What differs between engines is the PRICE, not the permission
 
@@ -137,32 +152,39 @@ SHAPE_PRESERVING = (
 
 
 def applies_to(flags: Orientation, size: Tuple[int, int]) -> bool:
-    """Whether `flags` may be applied to a source of `size`.
+    """Whether `flags` may be applied to a source of `size` **that must land in
+    a grid cell**.
 
-    **The whole policy, in one place:**
+    One condition, and it is about the SLOT rather than about the source:
+    a turn is legal when the cell can hold the turned extent. A quarter turn
+    swaps a rect's extent, so a cell can only squeeze it back -- which
+    stretches the pixels and stops them being square, the one thing this
+    engine will not do -- or place it at its true extent, where it overflows
+    its neighbours. So a grid takes all eight exactly when the swap changes
+    nothing, which is when its cells are square.
 
-        square source       all eight
-        rectangular source  SHAPE_PRESERVING only
+    A square cell is not a different kind of source. A grid is a table of
+    rects under a constraint, and square is the constraint under which a turn
+    is free.
 
-    A quarter turn of a rectangle is a different shape, and there is nowhere
-    for it to go. Placed in the cell it came from it must be squeezed, which
-    stops the pixels being square -- the one thing this engine will not do.
-    Placed at its turned extent it overflows into its neighbours. A glyph
-    grid cannot even hold it: its variant table is one densely indexed array
-    and a differently shaped entry will not stack.
+    A glyph grid has a third reason for the same answer: its variant table is
+    one densely indexed array, and a differently shaped entry will not stack.
 
-    Squareness decides, never which engine is asking. Reference had it the
-    other way round and the cost is visible: the glyph layer refused all four
-    turning orientations unconditionally, so an 8x8 console --
-    `CharSet.ASCII8X8`, where a quarter turn is free and correct -- was told
-    "a quarter turn would make it 8x8".
+    **A sprite is not asked this and must not be.** It can appear anywhere, so
+    neither horn applies, and it turns arbitrary rectangles as a matter of
+    course -- `sprite/frame.py`'s `local_rect` swaps width and height under
+    the four transposing orientations and places the result. Callers here are
+    the console, the tilemap and the TMX loader.
 
-    An earlier version of this returned the turned EXTENT instead of a
-    verdict, so that a tile engine could place at the swapped size while a
-    grid refused. That was a policy with an exception carved into it for one
-    caller, and the exception is void: rectangles do not turn ANYWHERE, so no
-    caller ever legally receives a swapped size and the extent was machinery
-    for a case that cannot arise.
+    Within a grid, squareness decides and never which engine is asking. Making
+    it the engine's question costs an 8x8 console -- `CharSet.ASCII8X8`, where
+    a quarter turn is free and correct -- being told "a quarter turn would make
+    it 8x8".
+
+    It returns a verdict rather than the turned extent, because the caller that
+    needs an extent is the one this does not serve: a sprite computes its own
+    where it places it, and a grid caller has no use for a size it is being
+    refused.
     """
     return not swaps_axes(flags) or int(size[0]) == int(size[1])
 

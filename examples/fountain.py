@@ -232,7 +232,7 @@ class MaskView:
 
         fountain.sprite.collidable = True
         self.canvas = Console(CharSet.ASCII8X12)
-        palette = self.canvas.palette
+        palette = self.canvas.palette[0]
         palette[self.GROUND] = (10, 6, 20)
         palette[self.BIT] = (255, 240, 120)
         palette[self.SEAM] = (255, 64, 64)

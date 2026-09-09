@@ -14,8 +14,8 @@ class Collider:
     """One layer's solid geometry, optionally narrowed to one named plane.
 
     **The word means a participant here, not a layer that only collides.**
-    `COLLISION.md` and `ASPIRATIONS.md` both use "collider layer" in prose
-    for the knee-high wall -- a collidable layer nobody draws. That is a
+    `ASPIRATIONS.md` uses "collider layer" in prose for the knee-high wall
+    -- a collidable layer nobody draws. That is a
     thing you build; this is a thing you ask. Both senses are staying, so
     the distinction is worth keeping in view: a shadow collider is a LAYER,
     and `layer.collider()` is a HANDLE onto one plane of one.

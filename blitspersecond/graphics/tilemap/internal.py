@@ -5,24 +5,15 @@
 
 Internal because **you never name any of this**. You reach through a tilemap
 to it, exactly as you reach through a console to `console.glyph[id]` and
-`console.cell[x, y]`, which are the same two faces on the other pillar.
+`console.cell[x, y]`.
 
-`PLANE_DTYPE` lives here for the same reason. A world's storage layout is the
-map's business now that `cell` is the only road in, and a layout nobody
-outside can name is a layout that can change -- a palette register or a
-per-cell tag can be added without that being a public break. `EMPTY_TILE` is
-the one word that does go out, because a caller filling a buffer taken off
-`cell[:, :]` needs to say "nothing here" and `np.zeros` says tile 0, which is
-a real tile.
+`PLANE_DTYPE` lives here for the same reason: a layout nobody outside can name
+is a layout that can change. `EMPTY_TILE` is the one word that does go out,
+because a caller filling a buffer taken off `cell[:, :]` needs to say "nothing
+here" and `np.zeros` says tile 0, which is a real tile.
 
-**This module used to argue the opposite** -- that a tilemap needs no access
-face because its grid is "a plain, x-major NumPy array that means what NumPy
-means", where a console needs one because its grid IS the screen. The extent
-argument was sound and the conclusion did not follow from it. A public array
-cannot be observed, so a cell edited on screen kept its old quad and its old
-mask bits until the camera walked away and came back; and `map["tile"][x, y]
-= 7` is two operations, so nothing could have intercepted it either. See
-`Reach the world through cell` on the board for how that was worked through.
+Why the world is reachable only through `cell`, and what each road checks, is
+in `bps/reference/tiles.md`, "A world, and `cell` is the only road in".
 """
 
 from __future__ import annotations
@@ -54,14 +45,12 @@ def bounded_plane(cell: Size) -> Tuple[int, int, int, int]:
     """Where a stamp may land, in local pixels: `(left, top, right, bottom)`.
 
     The viewport rounded OUTWARD to whole cells, plus one cell of border on
-    every side. The border is what makes scrolling cheap -- the row about to
-    come on screen is already stamped, waiting just outside.
+    every side.
 
-    **It lives here because two things need it and they must not each work it
+    **It lives here because two things read it and they must not each work it
     out.** `TileMap` refuses a stamp outside it and `CollisionMask` sizes its
     apron to hold it, and those two agreeing is not optional: an apron short
-    of the plane drops border content SILENTLY, which is what happened when
-    the mask sized itself from the cell alone. Note the rounding is why -- at
+    of the plane drops border content SILENTLY. Note the rounding is why -- at
     360 rows and a 16px cell the plane reaches 384, twenty-four rows past the
     screen rather than the sixteen a cell-sized apron would allow for.
     """
@@ -84,10 +73,7 @@ class TileAccess:
 
     **Memoised, not interned.** Asking twice gives the same `Tile`, because a
     refill loop asking per cell must not allocate per call. The memo is a
-    lazily filled list of `len(sheet)` slots that dies with its tilemap --
-    deliberately not reference's global pool, whose weakrefs, reclaim pass and
-    staleness flag all existed to manage a lifetime that an owner now answers
-    for free.
+    lazily filled list of `len(sheet)` slots that dies with its tilemap.
     """
 
     __slots__ = ("_owner", "_memo")
@@ -152,24 +138,18 @@ class CellAccess:
         level.cell[3:9, 4] = wall                          # a run, one write
         level.cell[a:b, c] = level.cell[d:e, f]            # round-trips
 
-    **X FIRST**, screen order, the order `Size`, `scroll` and every coordinate
-    in the engine already use. Unlike the console's `cell`, this order is also
-    the storage order -- a world is x-major -- so it is free here and nothing
-    is transposed on any road.
+    **X FIRST**, screen order, and here that is also the STORAGE order -- a
+    world is x-major -- so nothing is transposed on any road.
 
-    **A write reaches the world always, and the screen too when the cell is
-    on it.** That is the whole point of the accessor existing: a NumPy write
-    into a raw array cannot be observed, so a cell edited in view kept its old
-    quad and its old mask bits. Off screen there is nothing to do -- the
-    refill reads the world as the camera arrives.
+    **A write reaches the world always, and the screen too when the cell is on
+    it.** That is what the accessor exists for: a NumPy write into a raw array
+    cannot be observed, so a cell edited in view would keep its old quad and
+    its old mask bits. Off screen there is nothing to do -- the refill reads
+    the world as the camera arrives.
 
-    **Orientation round-trips, and the console's opposite rule is also
-    right.** A read hands back `(Tile, Orientation)` and a write takes it, so
-    `cell[a, b] = cell[c, d]` preserves a flip with no special form. A
-    console's `cell` deliberately drops the facing, because a facing comes
-    from the PEN at the moment of writing; a tile's orientation is a property
-    of the CELL, sitting beside the tile id. Different owners, different
-    round-trip rules.
+    **Orientation round-trips**, so `cell[a, b] = cell[c, d]` preserves a flip.
+    A console's `cell` drops the facing and both rules are right; see
+    `bps/reference/tiles.md`.
     """
 
     __slots__ = ("_owner",)
@@ -191,17 +171,12 @@ class CellAccess:
         **A block read is a COPY, not a view**, and that is load-bearing: a
         view would put the world back in public hands through the side door,
         where `cell[0:10, 0:10]["tile"] = 5` would reach it with nothing
-        noticing. Measured at about 1us of fixed cost and then free -- copying
-        4096 cells costs less than five scalar reads.
+        noticing.
 
         The copy is also the buffer to fill and write back, which is why this
-        pillar needs no `empty_map`: a fresh map hands back a correctly
-        shaped, correctly typed, all-`EMPTY_TILE` array.
-
-        A scalar read pays ~402ns of NumPy scalar extraction, of which the
-        return type is about 5%. **That is why slices exist on this
-        accessor**: no per-cell API can be made competitive with one, so the
-        answer to "I have a lot of cells" is a block, not a faster scalar.
+        pillar needs no `empty_map`. Costs are in `bps/reference/tiles.md` --
+        the short of it is that a block beats any per-cell road, so slices are
+        the answer to "I have a lot of cells".
         """
         x, y = cell
         owner = self._owner
@@ -226,22 +201,13 @@ class CellAccess:
             (tile, orientation)         and turned
             a PLANE_DTYPE array         what a block read hands back
 
-        **The scalar road checks OWNERSHIP; the array road checks RANGE**, and
-        they are not the same guarantee. A `Tile` knows which map minted it,
-        so one from another map is refused -- it is an index into art this map
-        has never seen. A raw array carries no `Tile`, so all that can be
-        checked is that its ids exist on this sheet.
-
-        The difference is deliberate rather than a gap. An id out of range is
-        a certain `IndexError` from `Atlas._row` LATER, inside `_refill`,
-        whenever the camera next brings that cell into view -- with nothing in
-        the traceback naming the line that wrote it. The check does not add a
-        failure; it moves one that was already certain back to its cause.
-        A valid id from the wrong sheet is only ever a wrong picture, on the
-        frame it happens, in front of whoever just typed it. Kris, 2026-09-05:
-        *"seeing poo all over the screen is fine; you can visually see you did
-        something wrong - it's better than the engine exploding because it's
-        trying to draw a non existent tile later."*
+        **The scalar road checks OWNERSHIP; the array road checks RANGE.** A
+        `Tile` knows which map minted it, so one from another map is refused; a
+        raw array carries no `Tile`, so all that can be checked is that its ids
+        exist on this sheet. The asymmetry is deliberate and argued in
+        `bps/reference/tiles.md` -- an out-of-range id would otherwise be a
+        certain `IndexError` inside a later refill, with nothing in the
+        traceback naming the write.
 
         **Writes raise out of range on every axis, wrapped or not.** Reading
         past the edge is a camera looking across a seam; writing past it is

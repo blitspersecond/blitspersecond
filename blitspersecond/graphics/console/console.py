@@ -31,9 +31,9 @@ from pyglet.gl import (
 from blitspersecond.common import SCREEN, Size
 
 from ..collision import CWORD, pack_store, words_for
-from ..internal import Layer, PaletteTexture
+from ..internal import Layer
 from ..orientation import Orientation, applies_to
-from ..palette import Palette, system_palette
+from ..palette import PaletteBank
 from ..pixel_buffer import PixelBuffer
 from ..atlas import Atlas
 from . import shader
@@ -167,7 +167,11 @@ class Console(Layer):
             _VARIANTS * CHAR_COUNT, char_height, char_width
         )
 
-        self._palette = system_palette()
+        # A bank, not one table. Every bank comes up holding the system
+        # palette in every row, so a fresh console writes in real, named
+        # colours with nothing to build first -- and the spare rows are a
+        # colour scheme away: write them, then move the register.
+        self._palettes = PaletteBank()
         # A pen from the start, bound to this console's cells in the same
         # breath, so nothing downstream has to test for one. The SYSTEM pen:
         # Pen owns what that means, so this repeats no literal. White ink on a
@@ -211,7 +215,6 @@ class Console(Layer):
         self._image = PixelBuffer(
             (self._cols * char_width, self._rows * char_height),
             "P",
-            palette=self._palette,
         )
         # Built on first composite: a vertex list needs a current GL context
         # and construction must not.
@@ -225,8 +228,8 @@ class Console(Layer):
         # Kept rather than derived on demand, which is the change of 2026-09-07
         # and the one thing this pillar gave up: an answer must be about the
         # frame that was PAINTED, and a plane pulled mid-tick is about neither
-        # that frame nor the next one. See the board card *Collision answers
-        # about two different frames*.
+        # that frame nor the next one. See `bps/reference/collision.md`,
+        # "When a question is answered".
         self._collision: np.ndarray = np.zeros(
             (
                 len(_PLANES) + 1,
@@ -316,7 +319,7 @@ class Console(Layer):
                 f"cells are one size by definition. Cut the font with "
                 f"Atlas(buffer, w, h)."
             )
-        if not sheet.indexed:
+        if sheet.buffer.mode != "P":
             raise ValueError(
                 "a glyph sheet must be an indexed image -- a glyph is a "
                 "stencil of plane indices, not a picture"
@@ -397,16 +400,21 @@ class Console(Layer):
     # -- palette and pen -----------------------------------------------------
 
     @property
-    def palette(self) -> Palette:
-        """The console's live index-to-colour table."""
-        return self._palette
+    def palette(self) -> PaletteBank:
+        """The console's colour tables, live.
+
+        A whole bank. Writing into it recolours what is already on screen at
+        the next compose -- no recompose, because the pixels are indices and
+        only the table changed. Hand the same bank to another layer and they
+        share it, deliberately; `copy()` is how one of them stops.
+        """
+        return self._palettes
 
     @palette.setter
-    def palette(self, value: Palette) -> None:
-        if not isinstance(value, Palette):
-            raise TypeError(f"expected Palette, got {type(value)}")
-        self._palette = value
-        self._image.palette = value
+    def palette(self, value: PaletteBank) -> None:
+        if not isinstance(value, PaletteBank):
+            raise TypeError(f"expected PaletteBank, got {type(value)}")
+        self._palettes = value
 
     @property
     def pen(self) -> Pen:
@@ -1258,9 +1266,13 @@ class Console(Layer):
         program = shader.program()
         # Uploads if the recompose above marked it dirty.
         texture = self._image.texture
-        palette = PaletteTexture.get(self._palette)
+        # The upload, at the head of the composite and before any quad: once
+        # per frame per changed bank, and never mid-pass where it could
+        # disturb the unit the art is bound to.
+        palette = self._palettes.texture
         if self._quad is None:
             self._build_quad(program, texture)
+        self._quad.palette_row[:] = (float(self._palettes.active),) * 4
 
         program.use()
         program["sprite_texture"] = 0

@@ -12,32 +12,18 @@ class Tile:
     """One cell of a `TileMap`'s sheet -- an index, and the map it belongs to.
 
         door = island.tile[42]
-        island.blit(door, x, y)
+        island.cell[x, y] = door
 
     **A tile is minted by a TileMap and only that TileMap will draw it.** You
     do not construct one; `tilemap.tile[n]` hands you the one that exists, and
-    asking twice gives the same object.
+    asking twice gives the same object. The guard is `tile.owner is self`, and
+    it is exact: art is shared on purpose, so a handle naming the SHEET would
+    be valid for every map over that art and could answer nothing about
+    identity.
 
-    ## Why the owner is a TileMap and not the sheet
-
-    Reference bound this to the atlas, and could therefore only ask *is this
-    from the same art?* -- its guard compared buffers. But art is shared on
-    purpose: parallax layers, a mirror match, and `PixelBuffer` interning by
-    path all mean one sheet backs many maps. A handle naming the sheet is
-    valid for all of them at once, so it cannot answer a question about
-    identity, and identity is what a layer IS in this engine.
-
-    Naming the map instead makes the check exact and one word: `tile.owner is
-    self`. Stamping a tile into the wrong layer -- reading cells from one map
-    and drawing them into another -- stops being a silent wrong picture.
-
-    ## What it deliberately does not carry
-
-    No source rectangle, no size, no buffer. All three are derivable from the
-    owner and the index: the map has exactly one sheet and cannot change it,
-    every placement matches the atlas grid, and the rectangle is arithmetic.
-    Reference stored all three per tile and pooled the objects globally to
-    afford it; that pool is gone with the fields it existed to amortise.
+    Carries no rectangle, no size and no buffer -- all three are arithmetic
+    from the owner and the index. Why that holds, and what it buys, is in
+    `bps/reference/tiles.md`, "Stamping a cell".
     """
 
     __slots__ = ("_owner", "_index")

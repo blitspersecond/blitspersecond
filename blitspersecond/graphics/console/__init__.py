@@ -39,8 +39,8 @@ them, the recompose band, and the generality that was removed and why. This
 package documents itself only as far as someone editing these files needs.
 
 Neighbouring pages: `bps/reference/layers.md` for the draw order and where
-blend belongs, `bps/reference/collision.md` and `docs/bps/COLLISION.md` for
-the masks, `docs/bps/INPUT_STREAM.md` for what feeds `echo`.
+blend belongs, `bps/reference/collision.md` for the masks, and
+`docs/bps/INPUT_STREAM.md` for what feeds `echo` until that has a chapter.
 """
 
 from .charset import CharSet

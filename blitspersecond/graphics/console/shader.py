@@ -5,8 +5,8 @@ single `PixelBuffer` of palette indices and draws it as one quad wherever it
 sits -- no scaling, no rotation, no per-tile anything -- which is what the
 picture vertex stage is for. `indexed.frag` does the palette lookup on the
 GPU: unit 0 carries the indices, unit 1 the palette table from
-`graphics.internal.PaletteTexture`. A console has one palette, so that table
-is a single 256x1 row and `palette_row` is 0.
+the console's own `PaletteBank`, which owns and uploads it. A console draws
+through one row, so `palette_row` is `palette.active`.
 
 A program has ONE uniform state, so anything per-instance -- the palette row,
 any tint -- is set per draw and never once at build.

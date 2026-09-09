@@ -64,9 +64,11 @@ holds the image is free.
 | two full-screen writes without `defer()` | ~1.26ms/frame wasted, of 3.74ms |
 | whole-plane paint write, native axes | 21µs |
 | whole-plane paint write, transposed | 1.2ms |
-| collision silhouette derive | 20µs |
-| collision named plane derive | 217µs |
-| collision cached plane read | 0.2µs |
+| collision packing, all 30 cell rows, all five planes | 322µs, at the commit |
+| collision packing, one dirty cell row | 36µs |
+| collision packing, nothing dirty | 0.14µs |
+| collision plane read | 0.21µs — an array index, no work |
+| collision planes held while `collidable` | 141KB |
 | charset load, when nothing already holds the image | 0.3ms |
 
 A partial write recomposes only the band of cell rows it touched, so the
@@ -461,18 +463,26 @@ ordinary text.
 
 ## Colliding with text
 
-The console offers four collision planes and a silhouette, and it is the
-pillar that **pulls**. A tilemap stamps because a tile has to be painted
-somewhere; a sprite composes because everything moved. A console already holds
-both halves of every plane it could offer — the glyph gather and the composed
-image — so it writes nothing and derives on the read.
+The console offers four collision planes and a silhouette, and it **packs
+them at the commit** — like the other two pillars, and for the reason every
+pillar does it there: a query answers about the frame that was painted, so
+the planes have to be settled by the time that frame exists. A read hands back
+an array and derives nothing.
 
 Nothing is added to the recompose. Reading and writing text are the main uses
-and colliding with text is the oddball, so the representation favours the main
-case: `_refresh` is untouched, the partial band stays, and **a console nobody
-asks retains no mask memory at all.** Invalidation rides `_touch`, which is
-already the one funnel every write reaches, so it is one line rather than one
-per write path.
+and colliding with text is the oddball, so the representation still favours
+the main case: `_refresh` is untouched, the partial band stays, and packing
+covers only the cell rows `_touch` marked — 36µs for one row against 322µs for
+all thirty. Invalidation rides `_touch`, which is already the one funnel every
+write reaches, so it is one line rather than one per write path.
+
+**The cost is 141KB, and only while `collidable`.** A console that never
+collides pays nothing, which is the default. What that buys is a question
+that costs an array index instead of a derivation: the old shape held no
+memory and made the *first* question after any write expensive — 20µs for the
+silhouette, 217µs for each named plane — which is the worst place in a tick to
+put a cost, since it lands on the game's side of the billing line and moves
+depending on what the game happened to type.
 
 **The vocabulary is the pen's own slot indices**, so a pen slot and a
 collision plane are one number seen from two ends:
@@ -497,13 +507,14 @@ slot may legitimately hold index 0, and the paint buffer resolves through
 colour rather than through the glyph, so only the pixels know what was
 actually drawn. Drawn and solid stay one predicate.
 
-The silhouette rides the composed image's mask and is nearly free; a named
-plane pays the glyph gather; a repeat read is a dict hit. See
+**All five planes are packed together, and that is what makes the gather
+affordable.** The silhouette rides the composed pixels and is nearly free; a
+named plane needs `_plane_indices`, and that gather is most of a recompose on
+its own. Deriving them together lets one gather serve all four named planes.
+Deriving them on demand could not share it without holding the ~900KB index
+array across a tick — so the shape that retains 141KB permanently is also the
+one that never has to retain the much larger thing temporarily. See
 [Limits and costs](#costs) for the figures.
-
-A console asked for several named planes in one frame pays the gather once per
-plane. Sharing it between them would trade away the property that a console
-nobody asks retains nothing, which is the more valuable one.
 
 ## What it is not
 

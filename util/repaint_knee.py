@@ -5,8 +5,9 @@ the window.
     util/repaint_knee.py
     util/repaint_knee.py --cells 8,16,32 --repeats 200
 
-`Reach the world through cell` settled that a write restamps in PROPORTION to
-what it changed, and that a knee must exist because the two roads have
+A write through `cell` restamps in PROPORTION to what it changed
+(`bps/reference/tiles.md`, "Stamping a cell"), and a knee must exist because
+the two roads have
 different shapes: per cell is `N x c` and unbounded, a window repaint is
 bounded by one screen whatever N is. Anything unbounded crosses anything
 bounded. This measures where.
@@ -34,10 +35,10 @@ that cost rather than the absence of one. `--no-collide` separates them.
 
 ## The constant this produces has a short life
 
-It moves when *Vectorise the tilemap refill* turns `_stamp_plane` into a
-gather, and again when *Batch the collision stamp* takes a full-screen mask
-build from 32.1ms to 0.07ms -- 444x. Re-run it after each. What should NOT
-move is the shape: bounded against unbounded, crossing once.
+`_stamp_plane` is a gather rather than a per-cell loop now, and the
+collision stamp went the same way, so the numbers below are older than both.
+Re-run before quoting them. What should NOT move is the shape: bounded
+against unbounded, crossing once.
 
 Warm-up runs are discarded rather than averaged in, and every arm runs in one
 process against one map, because session variance on this box has moved a
@@ -75,11 +76,9 @@ def _sheet(cell: int, image=None) -> Atlas:
     """
     if image is not None:
         return Atlas(PixelBuffer(image), cell, cell)
+    # No palette on the buffer: a buffer carries pixels and a LAYER carries the
+    # colours. Indices 1..3 are distinct in the bank every map comes up with.
     buffer = PixelBuffer((cell * 2, cell * 2), "P")
-    palette = buffer.palette
-    assert palette is not None
-    for index in (1, 2, 3):
-        palette[index] = (255, 0, 0)
     with buffer.edit() as pixels:
         pixels[:] = 0
         pixels[:cell, :cell] = 1

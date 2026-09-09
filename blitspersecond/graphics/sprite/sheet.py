@@ -12,7 +12,7 @@ from typing import Dict, Mapping, NamedTuple, Optional, Tuple, Union
 from blitspersecond.common import CacheableResource, Location, Rect
 
 from ..atlas import Atlas
-from ..palette import Palette, PaletteBank
+from ..palette import PaletteBank
 
 
 class SpriteTileset(NamedTuple):
@@ -32,7 +32,7 @@ class SpriteTileset(NamedTuple):
     different `Palette` uniform -- never duplicated pixels."*
 
     A `PaletteBank` rather than a tuple of them, because the bank is what
-    the GPU stores: one 256xN texture, one row per member, so the register
+    the GPU stores: one 256x256 texture, one row per member, so the register
     is a number the shader reads and not a texture the draw binds. It
     indexes and iterates exactly as the tuple did.
 
@@ -277,8 +277,8 @@ class SpriteSheet(CacheableResource):
         The only way to own colour that arrived shared: the twin's banks are
         fresh `Palette` objects in a fresh `PaletteBank`, so a super-flash or
         a colour cycle written into them reaches nothing else -- and, because
-        `PaletteTexture` keys its GPU table on the bank's identity, the twin
-        gets its own table too.
+        a `PaletteBank` owns its own GPU table, the twin gets its own texture
+        and its own upload too.
 
         Pixels are NOT copied. Two sheets over one image sharing one texture
         is the point of `PixelBuffer` interning, and a caller who wants
@@ -289,7 +289,7 @@ class SpriteSheet(CacheableResource):
         twin._tilesets = {
             name: SpriteTileset(
                 atlas=tileset.atlas,
-                palettes=PaletteBank(Palette(p.raw()) for p in tileset.palettes),
+                palettes=tileset.palettes.copy(),
                 default_palette=tileset.default_palette,
             )
             for name, tileset in self._tilesets.items()

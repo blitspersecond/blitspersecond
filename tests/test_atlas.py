@@ -69,7 +69,7 @@ def test_rect_is_a_Rect_of_the_cell_size(grid: Atlas) -> None:
 
 
 def test_every_cell_lies_inside_the_image(grid: Atlas) -> None:
-    width, height = grid.size
+    width, height = grid.buffer.size
     for n in range(len(grid)):
         r = grid.rect(n)
         assert 0 <= r.x and r.x + r.width <= width
@@ -78,7 +78,7 @@ def test_every_cell_lies_inside_the_image(grid: Atlas) -> None:
 
 def test_the_cells_tile_the_image_exactly(grid: Atlas) -> None:
     """No overlap and no gap -- the rects cover every pixel exactly once."""
-    width, height = grid.size
+    width, height = grid.buffer.size
     covered = np.zeros((height, width), dtype=np.int32)
     for n in range(len(grid)):
         r = grid.rect(n)
@@ -275,16 +275,24 @@ def test_the_two_roads_cannot_be_mixed(sheet: PixelBuffer) -> None:
         Atlas(sheet, 8)  # pyright: ignore[reportCallIssue]
 
 
-def test_metadata_is_the_images_either_way(sheet: PixelBuffer) -> None:
-    """`buffer`, `size`, `mode`, `indexed`, `palette` describe the picture,
-    not the rects, so both roads answer them the same."""
+def test_the_image_is_asked_of_the_buffer_and_not_the_atlas(
+    sheet: PixelBuffer,
+) -> None:
+    """An atlas answers about the CUTTING; the image answers about itself.
+
+    `buffer` is public and one word away, so proxying `size`, `mode`,
+    `indexed` and `palette` onto the atlas would be a second surface saying
+    what this one already says. Pinned, because a proxy is the kind of
+    convenience that grows back.
+    """
     named, grid = Atlas(sheet, RECTS), Atlas(sheet, 8, 8)
     for atlas in (named, grid):
         assert atlas.buffer is sheet
-        assert atlas.size == sheet.size
-        assert atlas.mode == "P"
-        assert atlas.indexed is True
-        assert atlas.palette is sheet.palette
+        for proxied in ("size", "mode", "indexed", "palette"):
+            assert not hasattr(atlas, proxied), (
+                f"Atlas.{proxied} is the buffer's question: "
+                f"atlas.buffer.{proxied}"
+            )
 
 
 def test_repr_says_how_the_table_was_filled(

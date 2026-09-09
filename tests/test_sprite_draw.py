@@ -257,16 +257,19 @@ def _resolved(bank, row: int, indices: np.ndarray) -> np.ndarray:
 
 
 def test_a_bank_is_one_texture_with_a_row_each(window, fumiko: Sprite) -> None:
-    """The shape of the thing, before what it draws: four palettes are four
-    ROWS of one 256x4 table, not four textures."""
-    from blitspersecond.graphics.internal import PaletteTexture
+    """The shape of the thing, before what it draws: a bank's palettes are
+    ROWS of one 256x256 table, not a texture each.
 
+    Fumiko's package authors four of them and the bank holds 256 -- the
+    authored rows are 0..3 and the rest are spare, which is where a derived
+    shade goes now that nothing grows.
+    """
     window.switch_to()
     bank = fumiko.sheet.tilesets["character"].palettes
-    assert len(bank) == 4
-    table = PaletteTexture.get(bank)
-    assert (table.width, table.height) == (256, 4)
-    assert PaletteTexture.get(bank) is table  # memoised on the bank
+    assert len(bank) == 256
+    table = bank.texture
+    assert (table.width, table.height) == (256, 256)
+    assert bank.texture is table  # the bank owns it; there is no memo
 
 
 def test_each_palette_register_draws_its_own_row(window, fumiko: Sprite) -> None:
@@ -375,15 +378,20 @@ def test_a_mirrored_sprite_draws_mirrored(window, fumiko: Sprite) -> None:
     )
 
 
-def test_a_bank_that_grows_after_drawing_still_draws(window, fumiko: Sprite) -> None:
-    """`palettes.add` derives a trail's shades, and a game may reach it after
-    a frame has already been drawn.
+def test_a_spare_row_written_after_drawing_still_draws(window, fumiko: Sprite) -> None:
+    """A derived shade goes into a spare row, and a game may do that after a
+    frame has already been drawn.
 
-    The texture is sized to the row count it was FIRST asked for, so growing
-    the bank used to blit a taller table into a shorter texture -- which is
-    not a resize, it is a fault, and it would have surfaced as corrupt colour
-    rather than as an error. This draws, grows, selects a new row, and draws
-    again.
+    Fumiko's package authors four tables; the bank holds 256, so rows 4 up are
+    the author's to fill. This draws, derives a shade into a spare row,
+    selects it, and draws again -- the same pose must light the same pixels
+    and colour them differently.
+
+    This used to be `a bank that grows after drawing still draws`, and it
+    guarded a real fault: the texture was sized to the row count it was first
+    asked for, so growing the bank blitted a taller table into a shorter one.
+    Nothing grows now and every texture is 256 rows, so what is left to prove
+    is that a late write reaches the GPU at all.
     """
     fumiko.assembly = "idle-0"
     fumiko.position = (16, 16)
@@ -392,23 +400,21 @@ def test_a_bank_that_grows_after_drawing_still_draws(window, fumiko: Sprite) -> 
     assert _lit(before).any(), "nothing was drawn at all"
 
     bank = fumiko.sheet.tilesets["character"].palettes
-    shades = fumiko.palettes.add(
-        "character", [bank[0].shadowed((255, 40, 40), mix=1.0, dim=0.5)]
-    )
-    fumiko.palettes["character"] = shades[0]
+    spare = 40
+    bank[spare] = bank[0]
+    bank[spare].duotone((255, 40, 40), 1.0).darken(0.5)
+    fumiko.palettes["character"] = spare
     after = _compose(window, fumiko)
 
-    # Copy on write: the sheet is immutable and interned, so the rows this
-    # sprite grew are ITS rows and no other holder of the sheet can see them.
-    assert len(fumiko.sheet.tilesets["character"].palettes) == len(bank)
-    assert fumiko._bank("character") is not bank
+    # The sheet is interned and the bank is shared, deliberately: this sprite
+    # wrote a row of the sheet's own bank and every holder can see it. That is
+    # the PixelBuffer rule, and `copy()` is how a holder opts out.
+    assert fumiko._bank("character") is bank
 
-    assert _lit(after).any(), "the grown bank drew nothing"
+    assert _lit(after).any(), "the derived row drew nothing"
     assert np.array_equal(_lit(before), _lit(after)), (
         "the same pose lit different pixels through a different row"
     )
     assert not np.array_equal(before, after), (
         "the new row drew identical colours -- the register did not take"
     )
-    lit = _lit(after)
-    assert after[lit].mean() < before[lit].mean(), "the shade is not darker"

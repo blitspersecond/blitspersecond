@@ -18,12 +18,12 @@ both. `Sprite._sync` is dirty-gated, so a still scene uploads nothing.
 ## Order of binds inside a run
 
 Touch the texture BEFORE binding either unit. `PixelBuffer.texture` and
-`PaletteTexture.get` may blit into whatever unit is currently active, so
-letting them run between the unit assignments would upload into the wrong one.
+`PaletteBank.texture` may upload into whatever unit is currently active, so
+letting them run between the unit assignments would land in the wrong one.
 
 A palette upload may itself disturb unit 0's binding, so a run that changes
 BANK invalidates the remembered texture and rebinds it. Changing palette
-WITHIN a bank does not: the bank is one 256xN texture and the row is a
+WITHIN a bank does not: the bank is one 256x256 texture and the row is a
 generic vertex attribute, so a costume swap between two runs of one tileset
 costs a `glVertexAttrib1f` and nothing else. What is still expensive is a
 change of BUFFER, which is why the frame plan works to keep instanced
@@ -242,9 +242,9 @@ class SpriteBatch:
         27.1ms with this comparison.
         """
         if palette_texture is not bound_palette:
-            # Unit 1 carries palette RAM as a 256xN texture rather than a
-            # 256-vec4 uniform: see PaletteTexture. Uploading may disturb
-            # unit 0, so the atlas is forced to rebind after.
+            # Unit 1 carries palette RAM as a 256x256 texture rather than a
+            # 256-vec4 uniform: see `bps/reference/palette.md`. Uploading may
+            # disturb unit 0, so the atlas is forced to rebind after.
             self._program["palette_texture"] = 1
             glActiveTexture(GL_TEXTURE1)
             glBindTexture(palette_texture.target, palette_texture.id)

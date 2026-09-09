@@ -74,10 +74,9 @@ def _sheet():
     from blitspersecond.graphics import Atlas, PixelBuffer
 
     buffer = PixelBuffer((CELL * 2, CELL * 2), "P")
-    palette = buffer.palette
-    assert palette is not None
-    for index in (1, 2, 3):
-        palette[index] = (255, 0, 0)
+    # No palette here any more: a buffer carries pixels, a LAYER carries the
+    # colours. Indices 1..3 are white/silver/gray in the bank every map comes
+    # up with, which is all this fixture needs -- opaque and distinguishable.
     with buffer.edit() as pixels:
         pixels[:] = 0
         pixels[:CELL, CELL:] = SOLID            # tile 1: the whole cell

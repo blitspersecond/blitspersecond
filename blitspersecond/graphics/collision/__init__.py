@@ -43,12 +43,12 @@ because every collidable layer has a default plane and it is the silhouette of
 everything solid in it. Named planes are opt-in refinement on top. A game that
 never authors one never types the word `collider`.
 
-## Status
+All three pillars fill their planes at the commit, through
+`Layer._settle_collision`, so a question answers about the frame that was
+painted. How each one fills is that pillar's business and its own chapter.
 
-Landed: the layout, the participant, and the query -- answering between
-hand-built masks. **The pillars do not stamp yet.** `TileMap.collidable` is a
-constructor invariant with no mask behind it, and `Sprite.collide` is a
-per-presentation bit nothing reads. Those arrive with their own cards.
+Reference: `bps/reference/collision.md`, which owns the layout, the costs,
+the query surface and the case for compiling the kernel.
 """
 
 from .collider import Collider, as_collider

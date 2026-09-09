@@ -57,11 +57,10 @@ def _sheet():
     from blitspersecond.graphics import Atlas, PixelBuffer
 
     buffer = PixelBuffer((CELL * 2, CELL * 2), "P")
-    palette = buffer.palette
-    assert palette is not None
-    palette[1] = (255, 0, 0)
-    palette[2] = (0, 255, 0)
-    palette[3] = (0, 0, 255)
+    # No palette here any more: a buffer carries pixels, a LAYER carries the
+    # colours. Indices 1..3 are white/silver/gray in the bank every map comes
+    # up with -- distinct, and none of them black, which is what the "anything
+    # not the clear was drawn" check below rests on.
     with buffer.edit() as pixels:
         rng = np.random.default_rng(11)
         # tile 0: a ragged blob, so an off-by-one in either direction shows
@@ -245,6 +244,52 @@ def test_switching_collision_on_picks_up_what_is_already_stamped(
     # a frame, and says so by answering empty rather than by guessing.
     assert not tilemap.collider().unpacked.any()
     _drawn(window, tilemap)
+    assert np.count_nonzero(drawn ^ tilemap.collider().unpacked) == 0
+
+
+def test_the_first_compose_stamps_each_placement_once(window, monkeypatch) -> None:
+    """A repaint fills the plane, so the rebuild must not fill it again.
+
+    A collidable map's bits go in with its quads, so a compose that paints a
+    whole window leaves the plane already complete. `_rebuild_collision`
+    exists for the case where the placements were already there and only the
+    switch moved -- and it used to run here too, walking all of them a second
+    time: 3054 stamps for 1527 placements on a real level, 10.5ms where 3.9ms
+    builds the identical plane.
+
+    Counted rather than timed, because the fault is a duplicated walk and a
+    timing would only say it was slow.
+    """
+    from blitspersecond.graphics.tilemap.collision import CollisionMask
+
+    stamps = []
+    original = CollisionMask.stamp
+    monkeypatch.setattr(
+        CollisionMask,
+        "stamp",
+        lambda self, *args, **kwargs: (
+            stamps.append(None),
+            original(self, *args, **kwargs),
+        )[1],
+    )
+
+    tilemap = _map()
+    _drawn(window, tilemap)
+    assert tilemap._count, "nothing was placed, so this proves nothing"
+    assert len(stamps) == tilemap._count
+
+
+def test_a_switch_with_nothing_to_repaint_still_rebuilds(window) -> None:
+    """The other side of that guard. When the refill has nothing to do -- the
+    window is already painted and only `collidable` moved -- the rebuild is
+    what fills the plane, and the flag must survive the refill to reach it.
+    """
+    tilemap = _map(collidable=False)
+    drawn = _drawn(window, tilemap)
+    window_before = tilemap._window
+    tilemap.collidable = True
+    _drawn(window, tilemap)
+    assert tilemap._window == window_before, "the refill repainted after all"
     assert np.count_nonzero(drawn ^ tilemap.collider().unpacked) == 0
 
 

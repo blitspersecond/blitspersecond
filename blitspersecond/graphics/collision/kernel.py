@@ -11,87 +11,19 @@ the sub-word arithmetic to this file is the same rule `local_rect` follows on
 the draw side: two statements of one transform drift, and they drift
 invisibly.
 
-## Why this is compiled, and the honest size of the argument
-
-**Compiling is the exception here, not the habit.** NumPy is the tool; numba
-is for what NumPy is bad at, and most of this engine's wins come from giving
-NumPy a better data shape instead. This is the one place in `graphics` that
-compiles, so the case for it is written out rather than assumed.
-
-Re-measured 2026-09-05 on a 16x16 box against `(360, 20)` planes, a MISS so
-no early-out flatters the kernel:
-
-    plain windowed AND, numpy                 3.02 us
-    the same with per-side offsets, numpy     5.64 us   (+2.62)
-    shifting the WHOLE 29KB mask, numpy       5.78 us
-    this kernel                               0.48 us
-    this kernel, both sides offset            0.48 us   (+0.00)
-
-**The speed on its own would not justify it.** Composition already collapses
-the bulk case -- 25,000 bullets are one plane and one question -- so a game
-asks tens of box queries a frame, not hundreds. At ten, NumPy costs 0.35% of a
-frame against the kernel's 0.03%. That is not a reason to compile anything.
-
-The real reason is the second row against the third, and it belongs to ONE
-participant. **You cannot offset a sprite** -- a sprite is at a coordinate and
-a console is screen space, so their planes ARE the screen and pass `(0, 0)`.
-An offset exists because a tilemap scrolls a contiguous grid in lockstep, and
-it is the tile pillar's affordance alone.
-
-For that participant: in NumPy, offsetting per query costs 2.62us and
-normalising the entire mask costs 5.78us, so **normalising wins after 2.2
-questions** -- and normalising means moving the bits every time the camera
-moves, which is exactly the property the apron and the drift exist to avoid.
-The tool would have chosen the design. Compiled, an offset costs nothing
-measurable (0.48 against 0.48) and the mask never moves, so the design is
-chosen by the problem.
-
-So the rows above are the tile pillar's worst case, not the common one. A
-sprite against a sprite offsets neither side.
-
-NumPy also cannot stop early: it computes the whole window and then asks
-`.any()`, where this returns on the first set word.
-
-Numba is already an engine dependency -- the audio operators compile with the
-same `@njit(cache=True)` -- so this costs no new dependency and no toolchain.
-
-## Two callers, opposite economics -- and that is why they optimise apart
-
-Kris, 2026-09-05: *"tiles are retained, sprites aren't which is why we have
-different optimisation paths."* Worth stating here, because this file is the
-one thing both pillars call and the temptation is to assume what helps one
-helps the other.
-
-**A tilemap RETAINS its placements.** They persist across frames; a coarse
-camera step culls what left and stamps the column that arrived. Steady-state
-scrolling therefore costs about 2 us, and every real cost is EPISODIC -- a
-boundary crossing, a full repaint at level load or on `origin`. Batching a
-scatter buys such a caller very little: there is rarely a large batch, and
-when there is, nobody is looking, because the screen changed wholly and that
-is exactly what makes those moments affordable.
-
-**A sprite population is REBUILT.** Every presentation restamps every frame,
-because a sprite is at a coordinate rather than in a grid and no scroll trick
-is available to it. Its cost is continuous, watched, and scales with the
-roster -- so one call for N placements is the entire game, and this file
-exists mostly for that caller.
-
-So the same 8.5 us per stamp meant different things on the two sides. For
-sprites it was a per-frame bill that had to be batched away. For tiles it was
-an episodic one that mostly went away by using this kernel AT ALL, scalar, at
-N=1 -- because the road it replaced was reference's word-slice strokes, which
-the sprite pillar had already measured and deleted.
-
-The other half of the divergence is the apron. Tiles scroll, so they hold the
-viewport plus a cell of skirt and carry a sub-word drift; a sprite's plane IS
-the screen and passes `(0, 0)`. That is why the coordinates below are STORE
-coordinates and the apron stays outside this file.
+**Compiling is the exception in this engine, not the habit**, and the case for
+these two is written out in `bps/reference/collision.md` ("Why this is
+compiled") rather than assumed here. The short of it: `collide_any` is
+compiled so that a per-plane offset costs nothing, because in NumPy it does
+not and the tool would then have chosen a design where the mask moves with the
+camera. `stamp_many` is compiled because NumPy has no vectorised accumulating
+scatter at all. Neither is here merely because it is faster.
 
 ## Bounds are the kernel's own business
 
 Numba does not bounds-check by default, so an index it is handed wrong reads
 whatever is next in memory and returns a plausible answer. The first draft of
-this function did exactly that and passed 4000 random cases against a
+`collide_any` did exactly that and passed 4000 random cases against a
 reference before the error was found -- it had been reading zeros. Every row
 and word access below is therefore guarded here, out-of-range reads as empty,
 and the fuzz in `test_collision_kernel.py` runs a second time with
@@ -171,26 +103,17 @@ def collide_any(a, a_x, a_y, b, b_x, b_y, x0, x1, y0, y1):
     return False
 
 
-# `stamp_many`'s case for compiling is different from `collide_any`'s, and
-# stronger: NumPy has no vectorised accumulating scatter at all.
+# `flat[idx] |= vals` is not a faster spelling of what this does -- it is a
+# WRONG one, and that is the reason this function exists rather than a NumPy
+# one-liner. Fancy-index assignment is BUFFERED: read all, OR all, write all,
+# so duplicate indices keep only the last write. Three sprites landing in one
+# word give 0b100 where the answer is 0b111.
 #
-# The DOD shape gets most of the way on its own -- grouping placements by pose
-# so one cached pattern serves many positions takes a stamp from 8.51us to
-# 0.260us, 32.7x, with no compiler. But it lands on `np.bitwise_or.at`, and
-# that is where 95% of what remains goes (179.5us against 18.9us for all four
-# elementwise ufuncs, at 25,000 placements).
-#
-# It cannot be avoided. `flat[idx] |= vals` is BUFFERED -- read all, OR all,
-# write all -- so duplicate indices keep only the last write: three sprites
-# landing in one word give 0b100 where the answer is 0b111. Overlapping
-# sprites are not an edge case; composing overlaps into one plane is what a
-# silhouette IS. So `.at` is compulsory, and `.at` is NumPy's unbuffered path:
-# a scalar read-modify-write loop that goes through the ufunc protocol per
-# element, at 7.3ns each against 0.6ns here.
-#
-# Both are scalar loops by then. NumPy has already fallen off its own fast
-# path, and the comparison is between a C loop with per-element dispatch and a
-# compiled monomorphic one that keeps the shift and the mask in registers.
+# Overlapping sprites are not an edge case; composing overlaps into one plane
+# is what a silhouette IS. So the unbuffered path is compulsory, and NumPy's
+# is `np.bitwise_or.at` -- a scalar read-modify-write loop through the ufunc
+# protocol, which is where 95% of the pre-compile cost went. See
+# `bps/reference/collision.md` for the measurements.
 @njit(cache=True)
 def stamp_many(store, pattern, xs, ys):
     """OR one packed pattern into `store` at every `(x, y)` in `xs`, `ys`.
