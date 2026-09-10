@@ -112,7 +112,7 @@ class TestLogLevel:
         assert LogLevel.from_string("chatty") is LogLevel.INFO
 
 
-class TestConsoleColour:
+class TestConsoleColor:
     """`ColoredFormatter` is what makes the console readable at a glance, and
     it is invisible to `caplog` -- the colour goes into the formatted string,
     never onto the record. So it is exercised against a record directly."""
@@ -126,7 +126,7 @@ class TestConsoleColour:
         return record
 
     @pytest.mark.parametrize(
-        "levelname, colour",
+        "levelname, color",
         [
             ("DEBUG", Fore.CYAN),
             ("INFO", Fore.GREEN),
@@ -135,11 +135,11 @@ class TestConsoleColour:
             ("CRITICAL", Fore.RED + Style.BRIGHT),
         ],
     )
-    def test_the_levelname_is_wrapped_in_its_colour(self, levelname, colour):
+    def test_the_levelname_is_wrapped_in_its_colour(self, levelname, color):
         formatted = ColoredFormatter(self.FORMAT).format(
             self._record(WARNING, levelname)
         )
-        assert formatted == f"{colour}{levelname}{Style.RESET_ALL}|the message"
+        assert formatted == f"{color}{levelname}{Style.RESET_ALL}|the message"
 
     def test_the_message_itself_is_left_uncoloured(self):
         """Only the level is colour-coded. Colouring the message would put

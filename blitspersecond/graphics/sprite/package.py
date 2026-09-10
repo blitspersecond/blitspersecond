@@ -93,17 +93,17 @@ def _palette(raw, where: str) -> np.ndarray:
     if len(raw) > 256:
         raise ValueError(f"{where}: {len(raw)} entries exceeds 256")
     flat = []
-    for i, colour in enumerate(raw):
-        if not isinstance(colour, str) or not _HEX_RGBA.match(colour):
-            raise ValueError(f"{where}[{i}]: expected '#rrggbbaa', got {colour!r}")
-        alpha = int(colour[7:9], 16)
+    for i, color in enumerate(raw):
+        if not isinstance(color, str) or not _HEX_RGBA.match(color):
+            raise ValueError(f"{where}[{i}]: expected '#rrggbbaa', got {color!r}")
+        alpha = int(color[7:9], 16)
         expected = 0 if i == TRANSPARENT_INDEX else 255
         if alpha != expected:
             raise ValueError(
                 f"{where}[{i}]: alpha {alpha:#04x} -- transparency is "
                 f"all-or-nothing (00 at index {TRANSPARENT_INDEX}, ff elsewhere)"
             )
-        flat.extend(int(colour[j : j + 2], 16) for j in (1, 3, 5))
+        flat.extend(int(color[j : j + 2], 16) for j in (1, 3, 5))
     return np.array(flat, dtype=np.uint8).reshape(-1, 3)
 
 
@@ -158,8 +158,8 @@ def _tileset(name: str, raw: dict, base: str) -> SpriteTileset:
     # system palette they came up with -- spare, and the author's to use for
     # derived shades or costume variants by naming a row and writing it.
     bank = PaletteBank()
-    for row, colours in enumerate(palettes):
-        bank.texels[row, : len(colours), :3] = colours
+    for row, colors in enumerate(palettes):
+        bank.texels[row, : len(colors), :3] = colors
         bank.texels[row, 0, 3] = 0
     bank.dirty = True
     bank.active = default

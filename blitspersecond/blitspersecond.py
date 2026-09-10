@@ -241,8 +241,8 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         return self._layers.background
 
     @background.setter
-    def background(self, colour: tuple[float, float, float]) -> None:
-        self._layers.background = colour
+    def background(self, color: tuple[float, float, float]) -> None:
+        self._layers.background = color
 
     @property
     def logger(self) -> Logger:

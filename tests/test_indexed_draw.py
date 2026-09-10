@@ -70,7 +70,7 @@ def _compose(window, layer) -> np.ndarray:
     return np.frombuffer(buffer, dtype=np.uint8).reshape(SIZE, SIZE, 4)
 
 
-def _colours(pixels: np.ndarray) -> set:
+def _colors(pixels: np.ndarray) -> set:
     """Every non-black colour on screen. Black is the clear, and index 0 is
     the hole, so what is left is what the palette resolved."""
     flat = pixels[:, :, :3].reshape(-1, 3)
@@ -93,7 +93,7 @@ def test_a_tilemap_draws_through_its_palette(window) -> None:
     tilemap.cell[:, :] = tilemap.tile[0]
     tilemap.cell[0, 0] = tilemap.tile[3]
 
-    seen = _colours(_compose(window, tilemap))
+    seen = _colors(_compose(window, tilemap))
     assert seen == {(255, 0, 0), (0, 255, 0)}
 
 
@@ -110,7 +110,7 @@ def test_a_console_draws_through_its_palette(window) -> None:
 
     pixels = _compose(window, console)
     assert pixels[:, :, :3].any(), "the console drew nothing"
-    assert _colours(pixels) == {(255, 0, 0)}
+    assert _colors(pixels) == {(255, 0, 0)}
 
 
 def test_a_recoloured_palette_reaches_the_screen(window) -> None:
@@ -124,7 +124,7 @@ def test_a_recoloured_palette_reaches_the_screen(window) -> None:
     tilemap = TileMap(Atlas(sheet, 8, 8), 2, 2)
     tilemap.palette[0][1] = (255, 0, 0)
     tilemap.cell[:, :] = tilemap.tile[0]
-    assert _colours(_compose(window, tilemap)) == {(255, 0, 0)}
+    assert _colors(_compose(window, tilemap)) == {(255, 0, 0)}
 
     tilemap.palette[0][1] = (0, 0, 255)
-    assert _colours(_compose(window, tilemap)) == {(0, 0, 255)}
+    assert _colors(_compose(window, tilemap)) == {(0, 0, 255)}

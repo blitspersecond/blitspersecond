@@ -76,7 +76,7 @@ them -- see the comment on that arm.
 a `solidity` lookup, and it stays.** Grouping on `(tile, orientation)` would
 collapse it to about 0.7ms, and nothing asks for that: a rebuild is a
 one-frame 3.6ms against a 16.67ms budget that a real scene leaves 15.8ms of.
-See *Batch the collision stamp* in `implemented` for the costing. If a slower
+See `bps/reference/graphics/collision.md`, "Still open", for the costing. If a slower
 part ever makes one rebuild drop a frame, this harness is what says so.
 """
 
@@ -330,7 +330,8 @@ def _distinct_patterns(tilemap: TileMap) -> int:
     """How many `(tile, orientation)` pairs the painted window holds.
 
     The ratio against the placement count is what decides whether a repaint's
-    stamps would group -- see *Batch the collision stamp*.
+    stamps would group -- see `bps/reference/graphics/collision.md`,
+    "Still open".
     """
     count = tilemap._count
     if count == 0:

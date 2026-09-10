@@ -17,31 +17,28 @@ class Size(NamedTuple):
 class Location(NamedTuple):
     """An (x, y) position in pixels, origin top-left.
 
-    The public counterpart to graphics.internal.Point: Point is the engine's
-    mutable internal state for in-place restamping; Location is the
-    immutable value users see in signatures and can use as a dict key.
+    **It is a tuple. What it adds is `.x`/`.y` and a name in a signature**,
+    and that is the whole value: `if sprite.position.x <= 10:` says what it
+    means, and the IDE offers the fields as you type it, where
+    `sprite.position[0]` offers nothing and reads as less. Immutability,
+    unpacking, hashing and equality with a plain 2-tuple all come from
+    `tuple` and are not what this type is for. Nor is it enforcement --
+    setters take `Union[Tuple[...], Location]`, so a bare tuple is accepted
+    wherever one is wanted. This is what the engine hands back, never what it
+    demands.
 
-    OPEN: whether immutable is right HERE, specifically. It plainly is for
-    `Size` and `Rect` -- an extent is a fact about a thing, and `size.width
-    = 40` should not be a way to resize anything. A position is different:
-    positions get NUDGED, and `thing.x = 10` is how a person says it.
+    **Immutable is settled**, and it was never the interesting question --
+    a tuple is immutable too. A position gets nudged and `thing.x = 10` is how
+    a person says it, but that assignment belongs to the OWNER and never
+    reaches through the value. An owner exposes its own `x`, `y` and
+    `position` properties over whatever it actually stores -- a sprite keeps
+    its position in a slot row and mints a `Location` on read -- so this type
+    is a value at the boundary and never has to take a write.
 
-    2026-08-28 is the evidence so far, and it went both ways. `Console.cursor`
-    was collapsed onto this type -- it had reduced to exactly x, y and a
-    bounds check -- and the collapse was reverted within the hour, because a
-    NamedTuple cannot take `console.cursor.x = 10` and that assignment was
-    the entire reason the cursor had a type at all. So `Cursor` stayed a
-    mutable object with a back-reference to its console, and this type stayed
-    immutable and unused.
-
-    That is one data point, and one is not a verdict: a cursor also needs a
-    bounds check on the way in, which no value type could carry. Kris: *"if
-    we find we need to do this again the type may be wrong."* So the thing to
-    watch for is a SECOND surface that wants a nudgeable position and ends up
-    minting its own class rather than using this one -- sprite positions are
-    the obvious candidate, and `Point` above is that shape already existing
-    on the internal side. Two would say the immutability is the problem
-    rather than the callers.
+    `Cursor` is the apparent counterexample and is not one: it is a mutable
+    object because `console.cursor.x = 10` reaches one level deeper, through a
+    value the caller does not own, and the bounds check has to live on the way
+    in. Both cases are about who owns the setter, not about immutability.
     """
 
     x: int

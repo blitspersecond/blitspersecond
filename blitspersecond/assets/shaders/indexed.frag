@@ -16,7 +16,7 @@
         // Round, not truncate: the normalised byte k/255.0 scaled back by 255
         // must land on k for every k regardless of float rounding. The row
         // arrives as a small whole float and is rounded for the same reason.
-        vec4 colour = texelFetch(
+        vec4 color = texelFetch(
             palette_texture,
             ivec2(int(palette_index * 255.0 + 0.5), int(vertex_palette_row + 0.5)),
             0
@@ -29,8 +29,8 @@
         // fragment would write black over whatever is behind it. This is also
         // what makes "was it drawn" and "is it solid" one predicate rather
         // than two that agree -- see COLLISION.md.
-        if (colour.a < 0.5) {
+        if (color.a < 0.5) {
             discard;
         }
-        final_colors = colour * vertex_colors;
+        final_colors = color * vertex_colors;
     }

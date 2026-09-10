@@ -44,7 +44,7 @@ BAR = 8  # BAR + n is a column filled n eighths from the bottom
 PANEL_X, PANEL_Y, PANEL_W, PANEL_H = 8, 6, 34, 18
 # How tall each bar stands, as a fraction of the panel interior.
 BARS = (0.35, 0.85, 0.55, 1.0, 0.7, 0.2, 0.9, 0.45, 0.95, 0.6, 0.3, 0.75)
-BAR_COLOURS = (CYAN, YELLOW, WHITE, GRAY)
+BAR_COLORS = (CYAN, YELLOW, WHITE, GRAY)
 
 
 def define_glyphs(layer: Console) -> None:
@@ -128,7 +128,7 @@ def draw_bars(layer: Console) -> None:
         eighths = max(1, round(fraction * interior * 8))
         whole, remainder = divmod(eighths, 8)
 
-        pen[1] = BAR_COLOURS[index % len(BAR_COLOURS)]
+        pen[1] = BAR_COLORS[index % len(BAR_COLORS)]
         layer.pen = pen
 
         # The solid part is a RUN: one write however tall the bar is.

@@ -189,7 +189,7 @@ class Console(Layer):
         # Pen paints a cell's slab with four constants and behaves exactly as
         # it always has; the room this leaves is for a pen that varies within
         # the cell, which a cell-shaped buffer could only hold the average of.
-        self._colours = np.empty(
+        self._colors = np.empty(
             (self._rows * char_height, self._cols * char_width, 4), dtype=np.uint8
         )
         self._cell = CellAccess(self)
@@ -752,7 +752,7 @@ class Console(Layer):
         paint = self._pen._bind(self._char_width, self._char_height)
         top, bottom = y0 * self._char_height, y1 * self._char_height
         left, right = x0 * self._char_width, x1 * self._char_width
-        self._colours[top:bottom, left:right].reshape(
+        self._colors[top:bottom, left:right].reshape(
             y1 - y0, self._char_height, x1 - x0, self._char_width, 4
         )[:] = paint[None, :, None, :, :]
         if self._touch(y0, y1):
@@ -768,7 +768,7 @@ class Console(Layer):
         wide by construction -- a whole-plane recompose is 1.2ms, a wrong one
         is a rendering bug."""
         leading = key[0] if isinstance(key, tuple) else key
-        height = self._colours.shape[0]
+        height = self._colors.shape[0]
         top, bottom = 0, height
         if isinstance(leading, slice):
             start, stop, step = leading.indices(height)
@@ -971,25 +971,25 @@ class Console(Layer):
             cells = self._grid[src_x0:src_x1, src_y0:src_y1].copy()
             # Colour moves in pixels, because that is how it is stored -- the
             # slab of a moved cell travels intact, whatever is inside it.
-            colours = self._colours[
+            colors = self._colors[
                 src_y0 * gh : src_y1 * gh, src_x0 * gw : src_x1 * gw
             ].copy()
         else:
             cells = None
-            colours = None
+            colors = None
 
         self._grid.fill(self._facing_bits())
         self._flood()
 
-        if cells is not None and colours is not None:
+        if cells is not None and colors is not None:
             dst_x0 = max(x, 0)
             dst_y0 = max(y, 0)
             dst_x1 = dst_x0 + cells.shape[0]
             dst_y1 = dst_y0 + cells.shape[1]
             self._grid[dst_x0:dst_x1, dst_y0:dst_y1] = cells
-            self._colours[
+            self._colors[
                 dst_y0 * gh : dst_y1 * gh, dst_x0 * gw : dst_x1 * gw
-            ] = colours
+            ] = colors
 
         self._refresh()
 
@@ -1043,19 +1043,19 @@ class Console(Layer):
         path (a console newline floods). Broadcasting into a reshaped view
         allocates nothing and measured ~7x faster than a constant broadcast."""
         paint = self._pen._bind(self._char_width, self._char_height)
-        self._colours.reshape(
+        self._colors.reshape(
             self._rows, self._char_height, self._cols, self._char_width, 4
         )[:] = paint[None, :, None, :, :]
 
-    def _paint(self, x: int, y: int, colour: np.ndarray) -> None:
+    def _paint(self, x: int, y: int, color: np.ndarray) -> None:
         """Fill one cell's colour slab from the pen's `(gh, gw, 4)` paint -- a
         contiguous copy, which measured 2.4x faster than broadcasting four
         constants across the same slab."""
         top = y * self._char_height
         left = x * self._char_width
-        self._colours[
+        self._colors[
             top : top + self._char_height, left : left + self._char_width
-        ] = colour
+        ] = color
 
     # -- compositing: glyph plus paint into the image -------------------------
 
@@ -1067,7 +1067,7 @@ class Console(Layer):
             return
         planes = self._plane_indices(0, self._rows)
         self._image.pixels[:] = np.take_along_axis(
-            self._colours, planes[..., None], axis=2
+            self._colors, planes[..., None], axis=2
         )[..., 0]
         self._image.dirty = True
 
@@ -1105,7 +1105,7 @@ class Console(Layer):
         bottom = last * self._char_height
         planes = self._plane_indices(first, last)
         self._image.pixels[top:bottom] = np.take_along_axis(
-            self._colours[top:bottom], planes[..., None], axis=2
+            self._colors[top:bottom], planes[..., None], axis=2
         )[..., 0]
         self._image.dirty = True
 
@@ -1114,12 +1114,12 @@ class Console(Layer):
         glyph_height, glyph_width = glyph.shape
         top = y * glyph_height
         left = x * glyph_width
-        colours = self._colours[
+        colors = self._colors[
             top : top + glyph_height, left : left + glyph_width
         ]
         self._image.pixels[
             top : top + glyph_height, left : left + glyph_width
-        ] = np.take_along_axis(colours, glyph[..., None], axis=2)[..., 0]
+        ] = np.take_along_axis(colors, glyph[..., None], axis=2)[..., 0]
         self._image.dirty = True
 
     # -- drawing -------------------------------------------------------------

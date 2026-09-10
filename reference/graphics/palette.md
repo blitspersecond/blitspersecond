@@ -97,9 +97,10 @@ Three channels is the normal spelling everywhere a colour is written — alpha
 is decided by the index, so `(255, 0, 0)` means what it looks like.
 
 **`color` is the spelling of the identifiers here**, and `colour` the
-spelling of the prose. Not drift: the package has settled on the American
-form for names, and the sweep that makes the rest of the tree agree is
-`Normalise spelling across the engine`.
+spelling of the prose. Not drift, and not local to this package: every
+identifier in the engine is American and prose is unconstrained — the rule,
+and the one case where a docstring has to follow the code, are in
+[conventions.md](../conventions.md).
 
 It lives at `blitspersecond.graphics.color`, outside the palette package,
 because it depends on nothing there and a buffer or an atlas can name a colour
@@ -284,6 +285,4 @@ it. A fixed bank with spare rows removes the whole category.
 
 ## Still open
 
-Nothing. The subject is settled; the outstanding work touching it is the
-tree-wide sweep in *Normalise spelling across the engine*, which is not this
-chapter's to carry.
+Nothing. The subject is settled.

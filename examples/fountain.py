@@ -339,10 +339,10 @@ class Readout:
         # fresh `Pen` would not carry it -- reassigning per line would quietly
         # drop the outline that keeps white text legible over a bright plane.
         self.pens = {}
-        for colour in (WHITE, GRAY, CYAN):
-            pen = Pen(TRANSPARENT, colour)
+        for color in (WHITE, GRAY, CYAN):
+            pen = Pen(TRANSPARENT, color)
             pen[2] = NAVY
-            self.pens[colour] = pen
+            self.pens[color] = pen
         self.left = self.console.cols - self.WIDTH - 1
         self.frames = 0
 
@@ -381,10 +381,10 @@ class Readout:
         # `defer()` batches the block into one composite of the console
         # surface rather than one per line.
         with self.console.defer():
-            for row, (label, value, colour) in enumerate(rows):
+            for row, (label, value, color) in enumerate(rows):
                 self.console.pen = self.pens[GRAY]
                 self.console.write(label.ljust(9), at=(self.left, row))
-                self.console.pen = self.pens[colour]
+                self.console.pen = self.pens[color]
                 self.console.write(value.rjust(self.WIDTH - 10))
             self.console.pen = self.pens[GRAY]
             self.console.write(

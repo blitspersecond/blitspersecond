@@ -7,6 +7,13 @@ For getting started rather than digging in, `bps/guide/` is the other book.
 **A list, and not yet a structure.** The set is incomplete, so the grouping
 below says what exists, not what the finished shape is.
 
+## [Conventions](conventions.md)
+
+The rules that hold across every subsystem and belong to no pillar: argument
+order and the two exceptions to it, the value types a call hands back, the
+`(x, y)` / `[row, col]` seam, where the engine's vocabulary stops and a file
+format's begins, and the spelling rule.
+
 ## [Graphics](graphics/graphics.md)
 
 Everything that reaches the screen, and the one bitmap that answers whether

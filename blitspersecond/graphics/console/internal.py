@@ -57,7 +57,7 @@ class PaintAccess:
     OUTPUT: `PixelBuffer.pixels` is the composed one-index-per-pixel image,
     and `color_buffer` is the FBO attachment. Naming the input after either
     would point the wrong way down the pipeline. It holds palette indices
-    rather than colours besides, which `paint` says and `colour` does not.
+    rather than colours besides, which `paint` says and `color` does not.
 
     THE AXES ARE NOT THE CELL GRID'S, and the names carry the warning:
 
@@ -87,14 +87,14 @@ class PaintAccess:
         self._console = console
 
     def __getitem__(self, key: Any) -> np.ndarray:
-        view = self._console._colours[key]
+        view = self._console._colors[key]
         if isinstance(view, np.ndarray):
             view = view.view()
             view.flags.writeable = False
         return view
 
     def __setitem__(self, key: Any, value: Any) -> None:
-        self._console._colours[key] = value
+        self._console._colors[key] = value
         first, last = self._console._cell_rows_touched(key)
         if self._console._touch(first, last):
             self._console._refresh_rows(first, last)
@@ -103,7 +103,7 @@ class PaintAccess:
     def shape(self) -> tuple[int, int, int]:
         """`(height, width, slots)` in pixels -- the shape a whole-plane write
         must match, and the shape to build a field with."""
-        return self._console._colours.shape
+        return self._console._colors.shape
 
 
 class CellAccess:

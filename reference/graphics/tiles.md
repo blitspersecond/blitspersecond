@@ -508,8 +508,7 @@ Destruction is a cell being replaced, not a sheet being cut. Dirt becomes
 rubble becomes nothing — Dig Dug, Bomberman, and every breakable door there
 has ever been. A tile sheet cannot host a crater even privately, because its
 tiles are shared by every cell that names them, so digging into the dirt tile
-digs the same hole into every dirt tile on screen. Carving an arbitrary shape
-out of one image is what `PixelBuffer.copy()` and a picture layer are for.
+digs the same hole into every dirt tile on screen.
 
 ## What it is not
 

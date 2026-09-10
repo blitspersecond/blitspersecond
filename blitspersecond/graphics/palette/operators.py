@@ -29,19 +29,19 @@ def blend(rgb: np.ndarray, other: np.ndarray, strength: float) -> np.ndarray:
     return _bytes(mine + (theirs - mine) * strength)
 
 
-def duotone(rgb: np.ndarray, colour: np.ndarray, mix: float) -> np.ndarray:
-    """Every colour `mix` of the way into a duotone of `colour`.
+def duotone(rgb: np.ndarray, color: np.ndarray, mix: float) -> np.ndarray:
+    """Every colour `mix` of the way into a duotone of `color`.
 
-    Each entry keeps its own luminance and takes `colour`'s hue, so the art's
+    Each entry keeps its own luminance and takes `color`'s hue, so the art's
     light and shade survive and only its variety collapses. **This is not
     `blend` toward a flat table** -- a lerp drags dark pixels UP toward a
     bright signature, and the ramp stops being monotonic.
 
-    `colour` is normalised by its own brightest channel, so a dim signature
+    `color` is normalised by its own brightest channel, so a dim signature
     tints rather than darkens; darkening is `darken`'s job.
     """
     source = rgb.astype(np.float32)
-    target = colour.astype(np.float32)
+    target = color.astype(np.float32)
     target = target / max(float(target.max()), 1.0)
     shade = (source @ _LUMA)[:, None] * target
     return _bytes(source + (shade - source) * mix)

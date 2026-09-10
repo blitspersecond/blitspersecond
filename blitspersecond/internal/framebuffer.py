@@ -98,8 +98,8 @@ class Framebuffer(pyglet.image.buffer.Framebuffer):
             in_tex_coords=("f", _QUAD_TEX_COORDS),
         )
 
-    def clear(self, colour: tuple[float, float, float] = (0.0, 0.0, 0.0)) -> None:
-        red, green, blue = colour
+    def clear(self, color: tuple[float, float, float] = (0.0, 0.0, 0.0)) -> None:
+        red, green, blue = color
         self.bind()
         pyglet.gl.glClearColor(red, green, blue, 1.0)
         pyglet.gl.glClear(pyglet.gl.GL_COLOR_BUFFER_BIT)

@@ -30,8 +30,8 @@ Two cost laws were argued and only one of them was checked. A quad is four
 vertices and one UV row whatever the tile's pixel size, so the DRAW side
 should be flat in cell size. Collision writes bits proportional to the tile's
 AREA, so it should not be -- `CollisionMask.stamp` measures 8.51/8.50/8.52 us
-at cells 8/16/32, which *Batch the collision stamp* reads as dispatch hiding
-that cost rather than the absence of one. `--no-collide` separates them.
+at cells 8/16/32, which `bps/reference/graphics/collision.md` reads as
+dispatch hiding that cost rather than the absence of one. `--no-collide` separates them.
 
 ## The constant this produces has a short life
 

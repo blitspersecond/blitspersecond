@@ -35,10 +35,10 @@ class ColoredFormatter(Formatter):
 
     def format(self, record: LogRecord) -> str:
         levelname = record.levelname
-        colour = self.COLORS.get(levelname)
-        if colour is None:
+        color = self.COLORS.get(levelname)
+        if color is None:
             return super().format(record)
-        record.levelname = f"{colour}{levelname}{Style.RESET_ALL}"
+        record.levelname = f"{color}{levelname}{Style.RESET_ALL}"
         try:
             return super().format(record)
         finally:

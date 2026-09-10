@@ -641,7 +641,8 @@ class TileMap(Layer):
         `TileBatch.set_quads`.
 
         Collision stays per placement, deliberately. Grouping it is costed in
-        the board card *Batch the collision stamp* and nothing asks for it.
+        `bps/reference/graphics/collision.md`, "Still open", and nothing asks
+        for it.
         """
         if plane.dtype != PLANE_DTYPE:
             raise TypeError(f"expected a PLANE_DTYPE world slice; got {plane.dtype}")

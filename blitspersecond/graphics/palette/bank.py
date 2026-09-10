@@ -85,15 +85,15 @@ class PaletteBank:
         # row: put what you are deriving FROM in the row you are deriving
         # INTO, then modify it. Straight out of the source table, so it is a
         # 1KB copy and no Python.
-        colours = (
+        colors = (
             value._bank._table[value._row]
             if isinstance(value, Palette)
             else _palette(value)
         )
-        if colours[0, 3]:
-            colours = colours.copy()
-            colours[0, 3] = 0
-        self._table[row] = colours
+        if colors[0, 3]:
+            colors = colors.copy()
+            colors[0, 3] = 0
+        self._table[row] = colors
         self._dirty = True
 
     @property

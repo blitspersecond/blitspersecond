@@ -82,11 +82,11 @@ class Palette:
         every hole in the art at once.
         """
         index = self._at(index)
-        colour = _quad(value)
+        color = _quad(value)
         if index == 0:
-            colour = colour.copy()
-            colour[3] = 0
-        self._bank._table[self._row, index] = colour
+            color = color.copy()
+            color[3] = 0
+        self._bank._table[self._row, index] = color
         self._bank._dirty = True
 
     # -- the modify path ---------------------------------------------------
@@ -121,8 +121,8 @@ class Palette:
             operators.blend(self._rgb(), other._rgb(), _amount(strength, "strength"))
         )
 
-    def duotone(self, colour, mix: float = 1.0) -> "Palette":
-        """Turn every colour `mix` of the way into a duotone of `colour`.
+    def duotone(self, color, mix: float = 1.0) -> "Palette":
+        """Turn every colour `mix` of the way into a duotone of `color`.
 
             bank[40] = bank[0]
             bank[40].duotone(HAIR, 0.6).darken(0.5)     # one ghost of a trail
@@ -131,7 +131,7 @@ class Palette:
         not `blend` toward a flat table.
         """
         return self._apply(
-            operators.duotone(self._rgb(), _rgb_triple(colour), _amount(mix, "mix"))
+            operators.duotone(self._rgb(), _rgb_triple(color), _amount(mix, "mix"))
         )
 
     def darken(self, amount: float = 1.0) -> "Palette":

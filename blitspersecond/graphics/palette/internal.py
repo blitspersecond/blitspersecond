@@ -79,5 +79,5 @@ def _palette(value) -> np.ndarray:
     if len(value) != SIZE:
         raise ValueError(f"a palette is exactly {SIZE} colours; got {len(value)}")
     return np.stack(
-        [_quad(colour, f"colour {index}") for index, colour in enumerate(value)]
+        [_quad(color, f"colour {index}") for index, color in enumerate(value)]
     )

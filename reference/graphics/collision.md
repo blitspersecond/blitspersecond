@@ -426,10 +426,9 @@ budget wants.
 
 There is no general rebuild. A tileset is immutable at runtime, so the case a
 restamp existed for — repainting a sheet under a live map — is forbidden
-rather than rare. Destruction that replaces a cell restamps that cell;
-destruction that cuts a hole in the ground is the picture layer's job, not a
-tilemap's. The one rebuild left runs when `collidable` is switched on over a
-map that was already drawing, and it reads one bordered screenful.
+rather than rare. Destruction that replaces a cell restamps that cell. The one
+rebuild left runs when `collidable` is switched on over a map that was already
+drawing, and it reads one bordered screenful.
 
 It does not run when a map repaints, and a map's first compose is a repaint.
 A tile's bits go in with its quad, so painting a whole window leaves the plane

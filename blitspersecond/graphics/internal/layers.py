@@ -114,8 +114,8 @@ class Layers:
         return self._background
 
     @background.setter
-    def background(self, colour: tuple[float, float, float]) -> None:
-        self._background = colour
+    def background(self, color: tuple[float, float, float]) -> None:
+        self._background = color
 
     @property
     def commit_duration(self) -> float:

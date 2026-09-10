@@ -232,10 +232,10 @@ class Pen:
         if _is_plane(value):
             self._set_plane(index, value)
             return
-        colour = int(value)  # pyright: ignore[reportArgumentType]
-        self._slots[index] = colour
+        color = int(value)  # pyright: ignore[reportArgumentType]
+        self._slots[index] = color
         if self._slab is not None:
-            self._slab[:, :, index] = colour
+            self._slab[:, :, index] = color
 
     def _set_plane(self, index: int, values: object) -> None:
         if self._slab is None or self._cell is None:

@@ -192,8 +192,8 @@ def test_a_palette_row_recolours_what_is_drawn(window, bullets: Sprite) -> None:
     bullets.position = (32, 32)
     row = bullets.sheet.tilesets[bullets.sheet.primary_tileset].palette.current
     for index in range(1, 256):
-        colour = row[index]
-        row[index] = (colour.red, 0, 0)
+        color = row[index]
+        row[index] = (color.red, 0, 0)
     pixels = _compose(window, bullets)
     drawn = pixels[_lit(pixels)]
     assert drawn.size, "nothing was drawn at all"
