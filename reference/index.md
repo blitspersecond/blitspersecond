@@ -28,26 +28,14 @@ pillars, what they are made of, and where they genuinely differ.
 ## [The engine](engine/engine.md)
 
 The machine a game runs on: what a frame is worth, the order one is built in,
-when it lands on the panel, and where. **Being written** — the overview and
-two chapters are stubs listing what they owe.
+when it lands on the panel, and where. The overview page carries the shape —
+three leaves and two integrators, the two grids that never convert into each
+other, and what the `BlitsPerSecond` facade forwards.
 
 **(Alpha)** marks a chapter whose subject has not had a full design pass. What
 it describes is what the engine really does, but the design behind it is not
-settled, so expect the chapter to change with the code rather than only with a
-correction. Each says so in its own opening and lists what is unresolved.
-
-**Both Alpha chapters are integrators, and that is not a coincidence.** The
-leaves settle first — a clock, a pacer, a compositor each answer one question
-and can be finished. The loop and the lifecycle exist to *coordinate* those,
-so they cannot be finalised before the things they coordinate are all present
-and have stopped moving. A chapter about one bounded thing is written once; a
-chapter about the seams between them is written twice.
-
-**The split is per subject, not per module.** Display is the clear case: its
-drawing half is a settled leaf, while its window half is the event source
-that input and lifecycle both feed from, and those two halves are at
-different stages. Deciding which half a chapter is about is part of writing
-it.
+settled. Both Alpha chapters are integrators, and the overview says why that is
+not a coincidence.
 
 | | |
 |---|---|
@@ -55,13 +43,25 @@ it.
 | [pacing.md](engine/pacing.md) | WHEN a frame lands: one question per presentation slot, the reserve, and how long the pacer makes a second last |
 | [loop.md](engine/loop.md) | **(Alpha)** the clearing house: every subsystem serviced in one controlled order, and the frame as a transaction |
 | [lifecycle.md](engine/lifecycle.md) | **(Alpha)** CREATED through STOPPED, and the backgrounding axis that is deliberately not a state |
-| [display.md](engine/display.md) | *stub* — WHERE the picture lands |
-| [metrics.md](engine/metrics.md) | *stub* — the instruments |
+| [display.md](engine/display.md) | WHERE the picture lands, and where the events come from: the boundary with the window system, both ways |
+
+## [System](system/system.md)
+
+Configuration, logging and observability. **The hot path is
+the distinction** — the engine is what runs to build a frame, and this is
+everything else. **Not written**; the folder exists and `metrics.md` is a
+stub.
+
+## [Input](input/input.md)
+
+What the player did, settled onto the engine's frame boundary. **Not written,
+and not yet writable** — input is next in line for the full porting process,
+so the page is a marker for other chapters to point at rather than a brief.
 
 ## Not started
 
-Input and audio. `docs/bps/` holds the standing authority for each until its
-chapter exists — `INPUT_STREAM.md`, `audio.md`.
+Audio. `docs/bps/audio.md` holds the standing authority until its chapter
+exists.
 
 **Capture methodology is not a chapter.** Taking and reading a frame-pacing
 capture is a runbook, useless away from a terminal, so it lives in the tools:
