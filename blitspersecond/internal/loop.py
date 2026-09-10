@@ -1,31 +1,24 @@
 """The machine loop: service every subsystem in one controlled order.
 
-The loop walks presentation slots and asks the pacer one question at each:
-**does the pending frame belong on this slot?** Yes, and it goes up and the
-engine is called for the next one. No, and the frame is held and the slot
-passes. Everything the engine does happens in the "yes" branch, immediately
-after the swap, which is what gives it the whole interval to the next slot it
-must make rather than the sliver of slack before an ideal instant.
+The clearing house. Everything the engine does every frame is sequenced from
+here, and this file does none of it -- graphics, input, metrics, lifecycle and
+presentation are each asked, in an order that is written down rather than
+configured.
 
-The engine's clock counts frames and nothing else -- it has no deadline, no
-grid and no wall clock. WHEN a frame is due is `origin + frame * step`, held
-by the pacer because the pacer is the only thing that knows the grid it has
-to be reconciled against. What comes back the other way is just the count.
-
-That separation is the point. Presentation used to GRANT ticks: the loop
-asked display how many simulation steps it was allowed, so a late present was
-a late simulation, and a compositor charging a whole extra refresh for a
-narrowly missed vblank ran the game at 75% speed. Nothing here can do that
-now -- the pacer decides when a frame is SHOWN and never how often the engine
-runs.
-
-Audio commands issued by a tick are consumed independently by the realtime
-audio worker; it is a third clock domain and references neither of these.
+**Presentation must never GRANT ticks.** `clock.frame` advances once per
+iteration and never by an amount; nothing asks display how many simulation
+steps it is allowed. Break that and a late present becomes a late simulation,
+which is measured: a compositor charging a whole extra refresh for a narrowly
+missed vblank runs the game at 75% of target.
 
 The loop does not own the state machine. An engine is already RUNNING when it
 arrives here, having blocked through warm-up in its own constructor. The loop
 brackets its spell of servicing (`servicing`, `stopped`) and offers
-`Lifecycle` one boundary per slot to apply deferred requests (`settle`).
+`Lifecycle` one boundary per iteration to apply deferred requests (`settle`).
+
+`bps/reference/engine/loop.md` is the authority -- the frame as a BEGIN/COMMIT
+transaction, why composition bills at tick rate, and what is still open about
+the phase list.
 """
 
 from time import perf_counter
@@ -40,31 +33,27 @@ if TYPE_CHECKING:
 def _frame(engine, clock, metrics, display, layers, inputs) -> None:
     """One frame, end to end: prepare, run the game, commit.
 
-    The shape is a transaction. Everything the engine needs true before the
-    game looks happens in PREPARE; the game's tick then mutates the world;
-    COMMIT draws what that world implies and leaves each layer ready for next
-    time. The game therefore sees a coherent world and can never observe a
-    half-written frame.
-
         prepare   close the interval, turn the clock, bring layers current
         ---       the game's tick runs and mutates
         commit    draw the frame, flag it complete
 
-    Composition happens once per TICK, never per slot -- it bills at game
-    rate whatever the panel is doing, which is what the retired `recompose`
-    flag used to arrange. The frame index turns FIRST: everything staged
-    since the last tick belongs to the frame now closing, including the
-    swaps that showed it, so a tick and its presentations share one slot.
+    A transaction, and the invariant is the reason: the game sees a coherent
+    world and can never observe a half-written frame. Anything added here goes
+    before the game looks or after it has finished looking -- there is no
+    third place to put it.
 
-    The loop names the two phases and no per-layer step. Which layers are
-    prepared, which are drawn and what each does is the compositor's, and the
-    compositor is `Layers` -- see `graphics/internal/layers.py`.
+    Three rules a change here could break:
 
-    **This runs AFTER the slot's present, which is what makes `pending` free.**
-    The pacer swaps and then issues the tick, so by the time COMMIT resolves
-    `display.pending` it is the buffer that just stopped being shown. Nobody
-    reasons about which of the two they hold, because nobody holds one across
-    a present that could exchange them.
+    * **The frame index turns LAST of the three closing operations**, so
+      metrics and input both stamp the frame now closing.
+    * **Composition happens once per TICK, never per slot**, so `compose.ms`
+      does not depend on the panel.
+    * **This runs AFTER the present, which is what makes `pending` free.** By
+      the time COMMIT resolves it, it is the buffer that just stopped being
+      shown, so nobody holds one across a present that could exchange them.
+
+    The loop names the two compositor calls and no per-layer step; which
+    layers are prepared and which are drawn is `Layers`'s.
     """
     metrics.advance()
     # The third frame-closing operation, beside the other two and for the same
@@ -115,17 +104,16 @@ class Loop:
     def run(engine: "BlitsPerSecond") -> None:
         """Run input, game, lifecycle, and output at controlled boundaries.
 
-        Ordering contract, per presentation slot:
+        Ordering contract, ONE TICK per iteration -- not one slot. The
+        pacer's question, which slot does this frame belong on, is answered
+        by the sleep target rather than polled for, so the loop wakes at the
+        FRAME rate and sleeps through the slots in between:
 
         1. Sleep until the pending frame's slot, less the latch margin.
         2. Pump the window event queue.
         3. Apply lifecycle transitions.
         4. Put the frame up.
         5. Run one game tick and compose the next.
-
-        The pacer's question -- which slot does this frame belong on -- is
-        answered by the sleep target rather than polled at each slot, so the
-        loop runs at the FRAME rate, not the panel rate.
 
         A backgrounded display stops presenting but keeps ticking -- hiding a
         window changes what is displayed, not the simulation rate. Suspension

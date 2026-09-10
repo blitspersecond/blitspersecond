@@ -29,18 +29,26 @@ pillars, what they are made of, and where they genuinely differ.
 
 The machine a game runs on: what a frame is worth, the order one is built in,
 when it lands on the panel, and where. **Being written** — the overview and
-three chapters are stubs listing what they owe.
+two chapters are stubs listing what they owe.
 
 **(Alpha)** marks a chapter whose subject has not had a full design pass. What
 it describes is what the engine really does, but the design behind it is not
 settled, so expect the chapter to change with the code rather than only with a
 correction. Each says so in its own opening and lists what is unresolved.
 
+**Both Alpha chapters are integrators, and that is not a coincidence.** The
+leaves settle first — a clock, a pacer, a compositor each answer one question
+and can be finished. The loop and the lifecycle exist to *coordinate* those,
+so they cannot be finalised before the things they coordinate are all present
+and have stopped moving. Expect that to hold for the rest of the set: a
+chapter about one bounded thing is written once, and a chapter about the
+seams between them is written twice.
+
 | | |
 |---|---|
 | [clock.md](engine/clock.md) | what a frame IS: the fixed step, `time = frame · step`, and who owns 60 |
 | [pacing.md](engine/pacing.md) | WHEN a frame lands: one question per presentation slot, the reserve, and how long the pacer makes a second last |
-| [loop.md](engine/loop.md) | *stub* — every subsystem serviced in one controlled order |
+| [loop.md](engine/loop.md) | **(Alpha)** the clearing house: every subsystem serviced in one controlled order, and the frame as a transaction |
 | [lifecycle.md](engine/lifecycle.md) | **(Alpha)** CREATED through STOPPED, and the backgrounding axis that is deliberately not a state |
 | [display.md](engine/display.md) | *stub* — WHERE the picture lands |
 | [metrics.md](engine/metrics.md) | *stub* — the instruments |
