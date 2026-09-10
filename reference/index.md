@@ -40,9 +40,14 @@ correction. Each says so in its own opening and lists what is unresolved.
 leaves settle first — a clock, a pacer, a compositor each answer one question
 and can be finished. The loop and the lifecycle exist to *coordinate* those,
 so they cannot be finalised before the things they coordinate are all present
-and have stopped moving. Expect that to hold for the rest of the set: a
-chapter about one bounded thing is written once, and a chapter about the
-seams between them is written twice.
+and have stopped moving. A chapter about one bounded thing is written once; a
+chapter about the seams between them is written twice.
+
+**The split is per subject, not per module.** Display is the clear case: its
+drawing half is a settled leaf, while its window half is the event source
+that input and lifecycle both feed from, and those two halves are at
+different stages. Deciding which half a chapter is about is part of writing
+it.
 
 | | |
 |---|---|
