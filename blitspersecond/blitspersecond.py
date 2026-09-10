@@ -296,6 +296,13 @@ class BlitsPerSecond(metaclass=SingletonMeta):
 
     @property
     def state(self) -> EngineState:
+        """Where the machine is now, as an `EngineState`.
+
+        Exported from the package root, so a game compares against the member
+        rather than a string: `bps.state is EngineState.SUSPENDED`. Five of
+        the nine are announcements rather than places -- see
+        `bps/reference/engine/lifecycle.md` before branching on one.
+        """
         return self._lifecycle.state
 
     @property

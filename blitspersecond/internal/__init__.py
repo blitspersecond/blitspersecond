@@ -34,9 +34,12 @@ on it.
 Living here is not the same as being unreachable. `Display` went private
 outright -- a game has no call to name the screen at all. `Clock` and
 `Lifecycle` did not: a game reads `bps.clock.frame` and calls
-`bps.suspend()`. What none of them is, is something a game IMPORTS or
-CONSTRUCTS. That is the line, and the forward is how the far side of it
-gets served.
+`bps.suspend()`. What none of them is, is something a game CONSTRUCTS, and
+the forward is how the far side of that line gets served.
+
+`EngineState` is the one name re-exported from the package root, because it
+is a vocabulary rather than machinery: a game needs it to say what
+`bps.state` came back as, and importing an enum builds nothing.
 
 This was `display.internal`, one level deeper, back when `Display` was the
 public face of drawing. Layers moving into `graphics` left `Display` with

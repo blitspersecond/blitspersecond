@@ -8,7 +8,7 @@ implementation detail of the metaclass.
 
 import pytest
 
-from blitspersecond import BlitsPerSecond, fps
+from blitspersecond import BlitsPerSecond, EngineState, fps
 from blitspersecond.system import Config, Logger
 
 
@@ -86,3 +86,16 @@ def test_engine_config_is_a_stable_reach_through():
     engine = BlitsPerSecond()
     assert engine.config is engine.config
     assert BlitsPerSecond().config is engine.config
+
+
+def test_engine_state_is_reachable_from_the_package_root():
+    """`bps.state` is compared against the member, never against a string.
+
+    The whole reason the enum is re-exported: without it a game branching on
+    engine state has to reach into `blitspersecond.internal` or match on
+    `.name`, and both are worse than the thing they work around. It is the
+    one internal name that comes out, because it is a vocabulary for reading
+    a property rather than machinery a game would construct.
+    """
+    engine = BlitsPerSecond()
+    assert engine.state is EngineState.RUNNING

@@ -29,14 +29,19 @@ pillars, what they are made of, and where they genuinely differ.
 
 The machine a game runs on: what a frame is worth, the order one is built in,
 when it lands on the panel, and where. **Being written** — the overview and
-most chapters are stubs listing what they owe.
+three chapters are stubs listing what they owe.
+
+**(Alpha)** marks a chapter whose subject has not had a full design pass. What
+it describes is what the engine really does, but the design behind it is not
+settled, so expect the chapter to change with the code rather than only with a
+correction. Each says so in its own opening and lists what is unresolved.
 
 | | |
 |---|---|
+| [clock.md](engine/clock.md) | what a frame IS: the fixed step, `time = frame · step`, and who owns 60 |
 | [pacing.md](engine/pacing.md) | WHEN a frame lands: one question per presentation slot, the reserve, and how long the pacer makes a second last |
-| [clock.md](engine/clock.md) | *stub* — what a frame IS |
 | [loop.md](engine/loop.md) | *stub* — every subsystem serviced in one controlled order |
-| [lifecycle.md](engine/lifecycle.md) | *stub* — CREATED through STOPPED, and the backgrounding axis |
+| [lifecycle.md](engine/lifecycle.md) | **(Alpha)** CREATED through STOPPED, and the backgrounding axis that is deliberately not a state |
 | [display.md](engine/display.md) | *stub* — WHERE the picture lands |
 | [metrics.md](engine/metrics.md) | *stub* — the instruments |
 
@@ -50,10 +55,6 @@ capture is a runbook, useless away from a terminal, so it lives in the tools:
 `util/capture_frame_pacing.py` takes one, `util/frame_pacing.py` reads one, and
 `blitspersecond/system/frame_pacing/recorder.py` owns the format. The chapter
 says what the numbers have to be; the tools say how to get them.
-
-`docs/bps/DECOUPLED_PRESENTATION.md` is no longer the authority on how pacing
-works — `engine/pacing.md` is — but it still holds material `engine/clock.md`
-owes and has not taken.
 
 ---
 

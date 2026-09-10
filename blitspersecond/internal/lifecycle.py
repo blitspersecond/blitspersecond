@@ -1,21 +1,18 @@
 """The engine's lifecycle: one state machine, in one object.
 
-Before this was an object, the machine was spread across three files -- the
-enum here, the storage and the request API on ``BlitsPerSecond``, and the
-transition *rules* inside ``Loop``. That is why ``Loop.run`` opened with
-``self = engine``: it was a method of the engine living in another file,
-reaching through a dozen privates. ``Lifecycle`` owns all three parts, so the
-loop asks a collaborator instead of mutating its owner.
-
 Two orthogonal axes live here, deliberately not merged:
 
   * ``state`` -- explicit engine control (running, suspended, stopping).
   * ``backgrounded`` -- whether the compositor is presenting us at all.
 
-Backgrounding is NOT an EngineState and must not become one. It is an
+**Backgrounding is NOT an EngineState and must not become one.** It is an
 observation about the window system, not a command; games decide for
 themselves whether losing visibility means pausing. Folding it into the enum
 would make that policy the engine's, and would multiply every state by two.
+
+`bps/reference/engine/lifecycle.md` is the authority -- the machine written
+out, the four kinds of state, why stopping is not exiting, and what is still
+open about the suspension arc.
 """
 
 from __future__ import annotations
@@ -32,49 +29,29 @@ from .events import EventBus
 class EngineState(Enum):
     """Lifecycle of the engine's main loop.
 
-    The spine is CREATED -> STARTING -> RUNNING -> STOPPING -> STOPPED, with
-    a suspension arc hanging off RUNNING and FAILED joining the spine at
-    STOPPING when something breaks. Four kinds of state sit on it:
+    The spine is CREATED -> STARTING -> RUNNING -> STOPPING -> STOPPED, with a
+    suspension arc hanging off RUNNING and FAILED joining the spine at
+    STOPPING. Four kinds of state sit on it -- markers that record a passage
+    (CREATED, FAILED, STOPPED), working states that take real time (STARTING,
+    STOPPING), settled states the engine sits in (RUNNING, SUSPENDED), and
+    momentary ones that exist only to give observers a hook mid-transition
+    (SUSPENDING, RESUMING). Four rules that a change here could break:
 
-    CREATED, FAILED and STOPPED are markers -- they record that the engine
-    passed through, rather than naming somewhere it sits. None survives a
-    single line of code: CREATED advances to STARTING inside the same
-    constructor that made it, FAILED issues its own stop the moment it is
-    entered, and STOPPED is published immediately before the process leaves.
-    They earn their place by being observable on the bus, not by having any
-    duration. (CREATED is deliberately not INITIALISED -- initialisation is
-    exactly what has not happened yet.)
+    * **FAILED is the single way in to an unclean shutdown.** Do not add an
+      edge from STARTING or RUNNING straight to STOPPING; entering FAILED is
+      what makes the status non-zero, so such an edge exits clean on a crash.
+    * **STARTING blocks through warm-up inside ``BlitsPerSecond.__init__``**,
+      so a constructed engine is already RUNNING -- "never run" cannot be read
+      off the state.
+    * **Game-level pause is NOT an engine state.** It is a mode the game runs
+      while the engine is RUNNING.
+    * **Audio is its own clock domain** and deliberately continues across
+      suspension.
 
-    FAILED exists so that "this run ended badly" is a fact about the machine
-    rather than an argument someone remembered to pass. Warm-up dying and the
-    loop throwing both route through it, which is what keeps STARTING and
-    RUNNING from each needing their own edge straight into STOPPING -- there
-    is one way in to an unclean shutdown, and it is named.
-
-    STARTING and STOPPING are the two that do real work and take real time.
-    STARTING blocks through warm-up inside ``BlitsPerSecond.__init__``,
-    opening the display and later gating on audio readiness, so a constructed
-    engine is already RUNNING. STOPPING is where resources come down.
-
-    RUNNING and SUSPENDED are the settled states: RUNNING services the game
-    loop, SUSPENDED holds with events and presentation still live.
-
-    SUSPENDING and RESUMING are momentary: they exist so observers of
-    ``on_engine_state`` get a hook *during* the transition, and always settle
-    into the adjacent settled state within the same loop iteration.
-    Game-level pause is NOT an engine state -- it's a mode the game runs
-    while the engine is RUNNING. Audio is its own clock domain and
-    deliberately continues across suspension.
-
-    OPEN (2026-08-26): whether the suspension arc is needed at all. It is
-    kept because it is a coherent lifecycle in its own right, but nothing
-    currently asks for it -- ``suspend()``/``resume()`` are game-facing verbs
-    no game has used yet, and backgrounding deliberately does not imply them.
-    Parked as a backlog ticket, "Bottom out backgrounding and OS sleep
-    behaviour", which carries the evidence gathered so far and the two
-    experiments that would settle it. Read that before removing anything
-    here: the arc lifts out as one seam, but its single call site in the loop
-    is the loop's ONLY per-iteration lifecycle boundary.
+    OPEN: whether the suspension arc is needed at all. Read
+    `bps/reference/engine/lifecycle.md` before removing it -- the arc lifts
+    out as one seam, but its single call site is the loop's ONLY
+    per-iteration lifecycle boundary, which goes with it.
     """
 
     CREATED = auto()
@@ -96,15 +73,13 @@ EventBus.register_event_type("on_background")
 EventBus.register_event_type("on_foreground")
 
 
-#: The machine, written out. This IS the diagram -- read it top to bottom and
-#: you have the whole lifecycle.
+#: The machine, written out.
 #:
-#: PROVISIONAL, and deliberately not enforced yet: this table records what the
-#: machine does *today*, transcribed from the loop that used to own these
-#: rules. Working the transitions through properly is its own pass, now that
-#: there is a clean object to do it in. Until then an unexpected move is
-#: logged loudly rather than raised -- a half-rebuilt engine should not gain a
-#: new crash path from rules nobody has signed off on.
+#: PROVISIONAL, and deliberately NOT enforced: this describes what the machine
+#: does rather than constraining it, so an unexpected move is logged loudly and
+#: then MADE. A half-rebuilt engine should not gain a new crash path from rules
+#: nobody has signed off on. There are no tests over any of this; see
+#: `bps/reference/engine/lifecycle.md`, "Still open", before tightening it.
 _LEGAL_TRANSITIONS: dict[EngineState, tuple[EngineState, ...]] = {
     EngineState.CREATED: (EngineState.STARTING,),
     # Warm-up either finishes or fails; it never reaches STOPPING directly.
@@ -150,8 +125,8 @@ class Lifecycle:
 
     Requests are deferred rather than immediate. ``suspend()`` from inside a
     game tick must not freeze the machine half-way through that tick, so it
-    sets an intent and ``settle()`` acts on it between event dispatch and
-    input -- never part-way through a coherent simulation step. ``stop()`` is
+    sets an intent and ``settle()`` acts on it between event dispatch and the
+    swap -- never part-way through a coherent simulation step. ``stop()`` is
     the exception: shutdown is published immediately so subsystems tear down
     at the moment of the request, and the loop then unwinds on its own.
     """
