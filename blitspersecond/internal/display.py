@@ -1,23 +1,19 @@
+"""The engine's logical screen, realised on a physical one.
+
+The chain, the present pass, the window as an event source, and what the
+counters below really count: `bps/reference/engine/display.md`.
+"""
+
 from time import perf_counter
 from typing import Optional
 
 from pyglet import clock as pyglet_scheduler
-from pyglet.gl import (
-    GL_BLEND,
-    GL_ONE_MINUS_SRC_ALPHA,
-    GL_SRC_ALPHA,
-    glBlendFunc,
-    glDisable,
-    glEnable,
-    glViewport,
-)
-from pyglet.math import Mat4
 
 from blitspersecond.system import Logger
 from blitspersecond.system.frame_pacing import FramePacingRecorder
 
 from .events import EventBus
-from .framebuffer import Framebuffer, FramebufferPair
+from .framebuffer import Framebuffer, FrameHandoff
 from .pacing.session import PresentationSession
 from .window.surface import Surface
 
@@ -38,7 +34,7 @@ class Display:
             self.height,
             events=events,
         )
-        self._framebuffer = FramebufferPair(
+        self._framebuffer = FrameHandoff(
             self.width,
             self.height,
             self._surface,
@@ -70,12 +66,10 @@ class Display:
     def dispatch_events(self):
         """Pump everything the window system has queued for us.
 
-        Both queues, deliberately in one call: the surface's own events, and
-        pyglet's scheduled callbacks. The latter used to be a bare
-        `clock.tick()` in the machine loop, which read as a second engine
-        clock sitting beside the real one. It is neither -- it is window-
-        system housekeeping, it belongs at iteration rate, and this is where
-        iteration-rate window chores live.
+        Both queues in one call: the surface's own events, and pyglet's
+        scheduled callbacks. The second is window-system housekeeping at
+        iteration rate, NOT a second engine clock -- which is what keeping
+        them together prevents anyone reading it as.
         """
         self._surface.dispatch_events()
         pyglet_scheduler.tick()
@@ -86,8 +80,7 @@ class Display:
         """Build the display-owned presentation pacing for one engine run.
 
         `target_rate` is a per-run argument rather than display state: it is
-        capture metadata, not configuration. Display has no use for the
-        authored rate and deliberately does not keep one.
+        capture metadata, and display has no use for the authored rate.
         """
         return PresentationSession(
             self,
@@ -99,75 +92,55 @@ class Display:
 
     @property
     def pending(self) -> Framebuffer:
-        """The buffer free to write into: composed this frame, not yet shown.
+        """The buffer the engine composes into.
 
-        The display's whole part in composition -- it owns the targets and
-        hands the writable one over. `present` flips which of the two this
-        is, so nothing that writes a frame ever learns a swap happened, and a
-        buffer declares its own render space when drawn into, so nothing that
-        writes one needs to know a window exists either.
-
-        **Read it, never keep it.** There are two buffers, built once and
-        alive for the process; this returns whichever is currently free. A
-        present that PROMOTES exchanges the two references, so a reference
-        held across one would write into the buffer being shown. Nothing is
-        allocated to make that happen and no pixels are copied -- see
-        `FramebufferPair.promote`.
-
-        Nothing in the engine has to remember the rule, because the order
-        makes it moot: the pacer swaps and only then issues the tick, so the
-        tick resolves this property fresh and always gets the buffer that
-        just stopped being displayed. The game never meets a buffer.
+        A buffer declares its own render space when drawn into, so nothing
+        that writes one needs to know a window exists, or when it is shown.
         """
         return self._framebuffer.pending
-
-    @property
-    def current(self) -> Framebuffer:
-        """The buffer on the display surface -- the frame being shown."""
-        return self._framebuffer.current
 
     def frame_complete(self) -> bool:
         """Flag the drawn frame finished and ready to be shown.
 
-        Returns whether a finished frame was discarded unshown -- the engine
-        outran the panel and overwrote one the display never promoted.
-        Expected below the rate crossover; above it, an overrun.
+        Returns whether a finished frame was composed over unshown. Reachable
+        only while backgrounded -- see `display.md`, *What the counters
+        count*.
         """
         return self._framebuffer.complete()
 
     @property
     def swap_duration(self) -> float:
-        """Seconds the last window-system swap blocked, excluding compose and
-        the post-process draw. This is the vsync-block signal the engine's
-        presentation health monitor watches: composition cost must not be able
-        to masquerade as a presentation stall."""
+        """Seconds the last window-system swap blocked.
+
+        Excludes compose and the post-process draw, deliberately: composition
+        cost must not be able to masquerade as a presentation stall. This is
+        what the presentation health monitor watches.
+        """
         return self._swap_duration
 
     @property
     def dropped(self) -> int:
-        """Frames composed but never shown. See `FramebufferPair.dropped`."""
+        """Frames composed over before being shown. See `FrameHandoff`."""
         return self._framebuffer.dropped
 
     @property
     def repeated(self) -> int:
-        """Presents that re-showed the held frame. See `FramebufferPair`."""
+        """Presents that re-showed the standing frame. See `FrameHandoff`."""
         return self._framebuffer.repeated
 
     def present(self) -> bool:
-        """Display side: promote the newest finished frame, draw it, swap.
+        """Display side: take the finished frame, draw it, swap.
 
-        Returns whether the picture actually moved -- False means the held
-        frame was re-presented because the engine had nothing new ready.
+        Returns whether the picture moved -- False means nothing new was
+        ready and the standing frame was drawn again. That is the same code
+        path, not a re-present branch.
 
-        Promotion happens HERE, immediately before the draw, rather than when
-        the engine flagged completion -- see `FramebufferPair` for why that
-        costs a frame of latency if moved earlier. If no new frame is ready
-        the held one is drawn again, which is the whole of the above-crossover
-        behaviour.
+        Promotion happens HERE, immediately before the draw, never when the
+        engine flags completion. The reason on record does not survive
+        tracing the loop; the rule stands until it is settled, and the
+        argument is in `display.md`.
 
-        The swap is measured as `swap_duration`. Nothing blocks in it now
-        that client vsync is off on every path; a long one means the
-        compositor is withholding presentations.
+        The swap is measured as `swap_duration`.
         """
         promoted = self._framebuffer.promote()
         self._framebuffer.draw(self._surface)
