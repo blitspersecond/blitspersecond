@@ -216,7 +216,7 @@ are not: this reports what was **owed**, `metrics` reports what was
 **delivered**. An object answering both starts quantising, and a step that
 rounds 16.667ms to a whole 16 is a game running 4% slow while every number it
 publishes about itself agrees. See `engine.frame.ms` and `pace` in
-[metrics.md](metrics.md).
+[metrics.md](../system/metrics.md).
 
 ## Still open
 
