@@ -5,36 +5,55 @@ it does not work some other way, and the measured data where there is any.
 For getting started rather than digging in, `bps/guide/` is the other book.
 
 **A list, and not yet a structure.** The set is incomplete, so the grouping
-below is provisional — it says what exists, not what the finished shape is.
+below says what exists, not what the finished shape is.
 
-## The frame
+## [Graphics](graphics/graphics.md)
 
-| | |
-|---|---|
-| [layers.md](layers.md) | the draw order and the compositor: what `bps.layers` owns, the prepare/commit frame, blend, and where a layer's settle happens |
-| [collision.md](collision.md) | one bit per pixel: the packed plane, the query surface, the compiled kernel, and how the three pillars differ in filling one |
-
-## The pillars
+Everything that reaches the screen, and the one bitmap that answers whether
+things touched. The overview page carries the architectural shape — the three
+pillars, what they are made of, and where they genuinely differ.
 
 | | |
 |---|---|
-| [console.md](console.md) | the glyph grid: a cell as one number, the variant table, the pen, and what recomposes |
-| [tiles.md](tiles.md) | a world of cells over one sheet, with a camera: `cell` as the only road in, the retained window, and the coarse/fine split |
-| sprites.md | **not written.** The pillar is built; the chapter waits on it settling |
+| [layers.md](graphics/layers.md) | the draw order and the compositor |
+| [collision.md](graphics/collision.md) | one bit per pixel: the packed plane and the query |
+| [console.md](graphics/console.md) | the glyph grid |
+| [tiles.md](graphics/tiles.md) | a world of cells over one sheet, with a camera |
+| [sprites.md](graphics/sprites.md) | independently moving things, and their many drawings |
+| [palette.md](graphics/palette.md) | colour as an index: the bank and the register |
+| [atlas.md](graphics/atlas.md) | one image cut into rects |
+| [tmx.md](graphics/tmx.md) | reading a Tiled map |
+| [sprite-package.md](graphics/sprite-package.md) | reading a `.sprite.json` |
 
-## What the pillars are made of
+## [The engine](engine/engine.md)
+
+The machine a game runs on: what a frame is worth, the order one is built in,
+when it lands on the panel, and where. **Being written** — the overview and
+most chapters are stubs listing what they owe.
 
 | | |
 |---|---|
-| [palette.md](palette.md) | colour as an index: the 256-row bank, the register that picks a row, the modify path, and the pin that keeps drawing and collision agreeing |
-| [atlas.md](atlas.md) | one image cut into rects, shared by all three pillars: the autogrid ruling, the rect table, the keying, and what is derived from a rect |
-| [tmx.md](tmx.md) | reading a Tiled file: the accepted profile, every refusal by name, and the global-id resolution |
+| [pacing.md](engine/pacing.md) | WHEN a frame lands: one question per presentation slot, the reserve, and how long the pacer makes a second last |
+| [clock.md](engine/clock.md) | *stub* — what a frame IS |
+| [loop.md](engine/loop.md) | *stub* — every subsystem serviced in one controlled order |
+| [lifecycle.md](engine/lifecycle.md) | *stub* — CREATED through STOPPED, and the backgrounding axis |
+| [display.md](engine/display.md) | *stub* — WHERE the picture lands |
+| [metrics.md](engine/metrics.md) | *stub* — the instruments |
 
 ## Not started
 
-Input, frame pacing, and audio. `docs/bps/` holds the standing authority for
-each until its chapter exists — `INPUT_STREAM.md`, `FRAME_PACING.md` and
-`DECOUPLED_PRESENTATION.md`, `audio.md`.
+Input and audio. `docs/bps/` holds the standing authority for each until its
+chapter exists — `INPUT_STREAM.md`, `audio.md`.
+
+**Capture methodology is not a chapter.** Taking and reading a frame-pacing
+capture is a runbook, useless away from a terminal, so it lives in the tools:
+`util/capture_frame_pacing.py` takes one, `util/frame_pacing.py` reads one, and
+`blitspersecond/system/frame_pacing/recorder.py` owns the format. The chapter
+says what the numbers have to be; the tools say how to get them.
+
+`docs/bps/DECOUPLED_PRESENTATION.md` is no longer the authority on how pacing
+works — `engine/pacing.md` is — but it still holds material `engine/clock.md`
+owes and has not taken.
 
 ---
 

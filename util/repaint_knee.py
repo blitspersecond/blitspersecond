@@ -6,7 +6,7 @@ the window.
     util/repaint_knee.py --cells 8,16,32 --repeats 200
 
 A write through `cell` restamps in PROPORTION to what it changed
-(`bps/reference/tiles.md`, "Stamping a cell"), and a knee must exist because
+(`bps/reference/graphics/tiles.md`, "Stamping a cell"), and a knee must exist because
 the two roads have
 different shapes: per cell is `N x c` and unbounded, a window repaint is
 bounded by one screen whatever N is. Anything unbounded crosses anything

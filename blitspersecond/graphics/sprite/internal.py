@@ -1,6 +1,6 @@
 """The faces a sprite presents onto its own state.
 
-    sprite.palettes["character"] = 3     -- PaletteRegisters
+    sprite.palette_index["character"] = 3     -- PaletteRegisters
 
 Internal because **you never name this type.** You reach through a sprite to
 it, exactly as you reach through a console to `console.cell[x, y]`. See
@@ -23,11 +23,12 @@ class PaletteRegisters:
     """A sprite's palette selection: tileset name -> which table it draws
     through.
 
-        chun.palettes["character"] = 3      # a costume swap
-        chun.palettes["effects"]            # 25, and left alone
+        chun.palette_index["character"] = 3      # a costume swap
+        chun.palette_index["effects"]            # 25, and left alone
 
     One register per tileset the sheet draws, seeded from each tileset's
-    `default_palette`. This is the hardware OBJ model made literal -- a
+    bank register -- `palette.active`, which is where the package's
+    `default_palette` landed. This is the hardware OBJ model made literal -- a
     palette-bank field per sprite entry, not per tile -- and it is what makes
     a mirror match cost one sheet: red and blue Chun-Li are two sprites, two
     layers, two registers, one set of shared tables and one texture upload.
@@ -97,8 +98,8 @@ class PaletteRegisters:
     def __getitem__(self, tileset: str) -> int:
         self._check(tileset)
         if self._index == PRIMARY:
-            return self._sprite._slot0_palettes[tileset]
-        return int(self._sprite._slots.palette[self._index])
+            return self._sprite._slot0_palette_index[tileset]
+        return int(self._sprite._slots.palette_index[self._index])
 
     def __setitem__(self, tileset: str, index: int) -> None:
         self._check(tileset)
@@ -113,10 +114,10 @@ class PaletteRegisters:
                 f"{available} ({0}..{available - 1})"
             )
         if self._index == PRIMARY:
-            self._sprite._slot0_palettes[tileset] = index
+            self._sprite._slot0_palette_index[tileset] = index
 
         else:
-            self._sprite._slots.palette[self._index] = index
+            self._sprite._slots.palette_index[self._index] = index
         self._sprite._touch()
 
     def __contains__(self, tileset: object) -> bool:

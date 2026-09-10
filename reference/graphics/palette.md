@@ -121,7 +121,7 @@ this rather than a rewrite of anything.
 `Console` and `TileMap` draw one thing each and use it directly.
 
 **Sprites do not.** A sprite carries its own register per tileset, through
-`sprite.palettes["character"] = 3`, because the register has to be per
+`sprite.palette_index["character"] = 3`, because the register has to be per
 instance: two sprites over one interned sheet share the bank and the texture
 and must be able to point at different rows. The killing test is a mirror
 match — red Chun-Li and blue Chun-Li are two sprites, two layers, two

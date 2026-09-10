@@ -2,7 +2,7 @@
 
 The tilemap's GPU backend. `draw()` is one `glBindTexture` and one
 `glDrawElements` for the whole layer at any quad count -- which is what the
-pillar's one-sheet contract buys, and `bps/reference/tiles.md` argues under
+pillar's one-sheet contract buys, and `bps/reference/graphics/tiles.md` argues under
 "One bind, one draw call".
 
 The render state, and the reasons a line of it cannot move:

@@ -1,48 +1,38 @@
 """The frame plan: presentation state projected into quads and runs.
 
-No GL here. This module turns "where everything is" into two float arrays and
-a list of draw runs; `_composite` in the draw step issues them. Keeping the
+No GL here. This turns "where everything is" into one float array and a list
+of draw runs; `_composite` in the draw step issues them. Keeping the
 projection separate is what makes it testable without a window, and it is
 where the pillar's cost actually lives.
-
-## The shape of a frame
 
     walk the before chain   -- one quad each
     emit the primary        -- one quad per part
     walk the after chain    -- one quad each
 
 In that order, always, with no sort. The chains ARE the draw order (see
-`presentation.py`), so there is nothing to decide here about sequence -- only
-about where one run of quads ends and the next begins.
-
-## Runs, and why they are cheap
-
-A **run** is a maximal stretch of adjacent quads sharing a material:
-`(buffer, palette bank, palette row, colour registers)`. Coalescing is
-**strictly order-preserving** -- never reordering across a material boundary
--- because that is exactly where transparency stops commuting.
-
-Boundaries are found by a vectorised diff rather than by walking, which
-matters: a population of 25,000 must not be inspected one at a time. And
-because instanced presentations are pinned to the sheet's `primary_tileset`,
-the buffer and the bank are constant across a whole chain by construction and
-the colour belongs to the sprite, so the only thing that can break a run there
-is the palette ROW.
-
-A uniform population therefore finds ZERO boundaries and emits ONE run --
-the same result reference got by holding its material once per pool, reached
-here without a second representation.
+`presentation.py`), so nothing here decides sequence -- only where one run of
+quads ends and the next begins.
 
 ## The one orientation formula
 
-`local_rect` is shared by draw staging and (later) collision stamping **so the
-two cannot drift**. It is one function and stays one function: transpose swaps
-the axes, then the two mirrors reflect about the sprite's origin, matching the
-order the flag bits are documented in.
+`local_rect` is shared by draw staging and collision stamping **so the two
+cannot drift**. It is one function and stays one function: transpose swaps the
+axes, then the two mirrors reflect about the sprite's origin, matching the
+order the flag bits are documented in. Getting it backwards is invisible on a
+square symmetric source and wrong on everything else.
 
-The per-assembly tables it fills are computed once per orientation and reused
-for every presentation, so a 25,000-bullet population of two kinds fills
-sixteen rows and gathers the rest.
+## What may cut a run
+
+A run is a maximal stretch of adjacent quads sharing `(buffer, palette bank,
+palette row)`, and coalescing is **strictly order-preserving** -- never
+reordering across a material boundary, because that is where transparency
+stops commuting. Instanced presentations are pinned to the primary tileset, so
+inside a chain the buffer and bank are constant by construction and **only the
+row can cut**. That is an invariant the bind DEPENDS on: the buffer and bank
+are read once, and the per-slot assemblies are never consulted for them.
+
+Why the record is nine floats, what a boundary costs, and the population
+curve: `bps/reference/graphics/sprites.md`, "The frame plan".
 """
 
 from __future__ import annotations
@@ -61,15 +51,17 @@ if TYPE_CHECKING:
     from .sprite import Sprite
 
 
-#: `(buffer, palette bank, palette row, colour registers)` -- what a run is
-#: constant in, and what the draw binds or sets before issuing it. The bank
+#: `(buffer, palette bank, palette row)` -- what a run is constant in, and
+#: what the draw binds or sets before issuing it. Three fields, not four:
+#: colour left the material with the per-presentation registers on 2026-09-09
+#: and is a whole-pass uniform now, so it cannot cut a run. The bank
 #: and the row are two fields rather than the `Palette` this held until
 #: 2026-09-02, because a bank is ONE texture: only the bank is bound, and the
 #: row is a number fed to the vertex stage.
-Material = Tuple[object, object, int, Tuple[float, float, float, float]]
+Material = Tuple[object, object, int]
 
 #: One draw: its material and the slice of the staging arrays it covers.
-Run = Tuple[object, object, int, Tuple[float, float, float, float], int, int]
+Run = Tuple[object, object, int, int, int]
 
 #: The eight orientations, as the index the tables are keyed by.
 ORIENTATIONS = 8
@@ -360,15 +352,15 @@ class FramePlan:
         self.quads = last
 
         # The buffer and the bank are constant across a chain -- instanced
-        # presentations are pinned to the primary tileset -- and so is the
-        # colour, which belongs to the sprite. **So the palette ROW is the
-        # only thing left that can cut a run here**, and it is found by a diff
-        # over one int32 array rather than by walking 25,000 slots.
+        # presentations are pinned to the primary tileset. **So the palette
+        # ROW is the only thing left that can cut a run here**, and it is
+        # found by a diff over one int32 array rather than by walking 25,000
+        # slots.
         #
         # It used to diff the colour too, over an `(n, 4)` float32: 3.70ms at
         # 250,000 presentations, to discover boundaries a population does not
         # have. That went with the per-presentation colour registers on
-        # 2026-09-02 -- see `Presentation.red`.
+        # 2026-09-09 -- see `Presentation.red`.
         #
         # **This is an invariant the bind DEPENDS on, not a preference.** The
         # buffer and bank are read once, here, and the per-slot assemblies
@@ -380,8 +372,7 @@ class FramePlan:
         # 25,000 to defend a door that does not exist. **Anything that adds a
         # bulk write into the state arrays must validate it there.**
         tileset = sprite.sheet.tilesets[sprite.sheet.primary_tileset]
-        registers = slots.palette[order]
-        color = _tint(sprite)
+        registers = slots.palette_index[order]
         cuts = np.zeros(order.size, dtype=bool)
         if order.size > 1:
             cuts[1:] = registers[1:] != registers[:-1]
@@ -393,7 +384,6 @@ class FramePlan:
                     tileset.atlas.buffer,
                     sprite._bank(sprite.sheet.primary_tileset),
                     int(registers[begin]),
-                    color,
                 ),
                 first + begin,
                 end - begin,
@@ -414,7 +404,6 @@ class FramePlan:
         slots = sprite._slots
         turn = int(slots.orientation[PRIMARY])
         px, py = (int(v) for v in slots.position[PRIMARY])
-        color = _tint(sprite)
         origin = sprite.origin
         cached = None
         if len(parts) == 1:
@@ -444,8 +433,7 @@ class FramePlan:
                 (
                     tileset.atlas.buffer,
                     sprite._bank(part.tileset),
-                    sprite.palettes[part.tileset],
-                    color,
+                    sprite.palette_index[part.tileset],
                 ),
                 index,
                 1,
@@ -460,24 +448,11 @@ class FramePlan:
         commute across one.
         """
         if self.runs:
-            buffer, bank, row, color, begin, length = self.runs[-1]
-            if (buffer, bank, row, color) == material and begin + length == first:
-                self.runs[-1] = (buffer, bank, row, color, begin, length + count)
+            buffer, bank, row, begin, length = self.runs[-1]
+            if (buffer, bank, row) == material and begin + length == first:
+                self.runs[-1] = (buffer, bank, row, begin, length + count)
                 return
         self.runs.append((*material, first, count))
-
-
-def _tint(sprite: "Sprite") -> Tuple[float, float, float, float]:
-    """The sprite's colour registers as the run's `colors` attribute.
-
-    Alpha is pinned at 1.0 and is not a register. The attribute stays a vec4
-    because that is what the shared vertex stage declares, and feeding it a
-    fourth component the engine never varies is cheaper than a sprite-specific
-    stage would be. A pixel's transparency is decided by the palette index and
-    the shader's discard, not here.
-    """
-    r, g, b = sprite._color
-    return (float(r), float(g), float(b), 1.0)
 
 
 def _drawable(sprite: "Sprite", order: np.ndarray) -> np.ndarray:

@@ -2,18 +2,10 @@
 
 Where `TileBatch` is one texture and one `glDrawElements`, this is a sequence
 of runs -- each a stretch of adjacent quads sharing `(buffer, palette bank,
-palette row, colour registers)` -- issued in order with binds between them.
-That difference is the pillar, not an implementation detail: a tilemap spends
-its single bind on a uniform grid, and this spends binds on ordered
-composition.
+palette row)` -- issued in order with binds between them. That difference is
+the pillar, not an implementation detail.
 
-## Both streams are uploaded every rebuild
-
-`TileBatch` keeps tex_coords as a CPU mirror written per placement, because a
-tile's source rect changes only when something is stamped. A sprite's UVs
-change whenever a pose or an orientation does, which for anything animated is
-most frames -- so the frame plan produces both arrays whole and this uploads
-both. `Sprite._sync` is dirty-gated, so a still scene uploads nothing.
+`Sprite._sync` is dirty-gated, so a still scene uploads nothing.
 
 ## Order of binds inside a run
 
@@ -24,10 +16,12 @@ letting them run between the unit assignments would land in the wrong one.
 A palette upload may itself disturb unit 0's binding, so a run that changes
 BANK invalidates the remembered texture and rebinds it. Changing palette
 WITHIN a bank does not: the bank is one 256x256 texture and the row is a
-generic vertex attribute, so a costume swap between two runs of one tileset
-costs a `glVertexAttrib1f` and nothing else. What is still expensive is a
-change of BUFFER, which is why the frame plan works to keep instanced
-presentations on one tileset.
+uniform, so a costume swap between two runs of one tileset costs one call and
+nothing else. What is still expensive is a change of BUFFER, which is why the
+frame plan works to keep instanced presentations on one tileset.
+
+Why a buffer texture rather than an SSBO, and what the record layout buys:
+`bps/reference/graphics/sprites.md`, "The draw".
 """
 
 from typing import List, Optional, Tuple
@@ -95,6 +89,11 @@ def _uniform(program, name: str) -> int:
             f"against `quads.vert`; a program without it is a different one."
         )
     return int(entry["location"])
+
+
+#: The whole-pass colour register at rest: multiply by one, change nothing.
+#: See `SpriteBatch.begin`.
+NO_TINT = (1.0, 1.0, 1.0, 1.0)
 
 
 class SpriteBatch:
@@ -196,16 +195,26 @@ class SpriteBatch:
             live.nbytes,
         )
 
-    def begin(self) -> None:
+    def begin(self, tint: Tuple[float, float, float, float] = NO_TINT) -> None:
         """Bind the VAO and the record texture for the pass.
 
         Unit 0 is left active on the way out, because `draw_run` and the
         palette upload both assume it is.
+
+        **`tint` is a whole-PASS register and nothing drives it today.** It
+        multiplies whatever the palette produced, over every quad in the pass.
+        Per-sprite colour registers were removed on 2026-09-09 -- recolouring
+        is a palette job -- but the register is kept because a post-process
+        over a whole layer is the shape that would want one, and that is a
+        per-pass decision rather than a per-run one. Set here rather than in
+        `draw_run` for exactly that reason: one ctypes call a pass instead of
+        one a run, and it cannot cut a run.
         """
         self._vao.bind()
         glActiveTexture(GL_TEXTURE0 + QUAD_UNIT)
         glBindTexture(GL_TEXTURE_BUFFER, self._quad_texture)
         glActiveTexture(GL_TEXTURE0)
+        glUniform4f(self._loc_colors, *tint)
 
     def end(self) -> None:
         self._vao.unbind()
@@ -215,7 +224,6 @@ class SpriteBatch:
         texture,
         palette_texture,
         palette_row: int,
-        colors: Tuple[float, float, float, float],
         first: int,
         count: int,
         bound_texture,
@@ -239,11 +247,12 @@ class SpriteBatch:
         rather than an assignment, about 2us, so that cost 2.7us per run.
         `util/run_cost.py` at 100,000 presentations cut into 4,096 runs BY
         COLOUR: 24.4ms shipped, 35.4ms with the row written unconditionally,
-        27.1ms with this comparison.
+        27.1ms with this comparison. Colour no longer cuts a run at all --
+        that measurement stands as the reason the comparison is here.
         """
         if palette_texture is not bound_palette:
             # Unit 1 carries palette RAM as a 256x256 texture rather than a
-            # 256-vec4 uniform: see `bps/reference/palette.md`. Uploading may
+            # 256-vec4 uniform: see `bps/reference/graphics/palette.md`. Uploading may
             # disturb unit 0, so the atlas is forced to rebind after.
             self._program["palette_texture"] = 1
             glActiveTexture(GL_TEXTURE1)
@@ -262,7 +271,6 @@ class SpriteBatch:
         if palette_row != bound_row:
             glUniform1f(self._loc_row, float(palette_row))
             bound_row = palette_row
-        glUniform4f(self._loc_colors, *colors)
         glDrawElements(
             GL_TRIANGLES, count * 6, GL_UNSIGNED_INT, first * 24
         )

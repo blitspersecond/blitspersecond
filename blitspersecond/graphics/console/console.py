@@ -51,7 +51,7 @@ from .pen import PLANE_0, PLANE_1, PLANE_2, PLANE_3, Pen
 #: branch. On a rectangular cell the four turning slots stay unfilled and the
 #: pen setter refuses them, so nothing ever gathers from them.
 #:
-#: Why eight and what the table costs: `bps/reference/console.md`, "The
+#: Why eight and what the table costs: `bps/reference/graphics/console.md`, "The
 #: variant table".
 _VARIANTS = 8
 
@@ -65,7 +65,7 @@ _VARIANTS = 8
 #: buffer, and there is no second array to forget.
 #:
 #: The upper field is a VARIANT index and facing is only what it holds today.
-#: What may widen it, and what may not: `bps/reference/console.md`, "A cell is
+#: What may widen it, and what may not: `bps/reference/graphics/console.md`, "A cell is
 #: one number".
 _FACING_SHIFT = 8
 
@@ -171,7 +171,7 @@ class Console(Layer):
         # palette in every row, so a fresh console writes in real, named
         # colours with nothing to build first -- and the spare rows are a
         # colour scheme away: write them, then move the register.
-        self._palettes = PaletteBank()
+        self._palette = PaletteBank()
         # A pen from the start, bound to this console's cells in the same
         # breath, so nothing downstream has to test for one. The SYSTEM pen:
         # Pen owns what that means, so this repeats no literal. White ink on a
@@ -228,7 +228,7 @@ class Console(Layer):
         # Kept rather than derived on demand, which is the change of 2026-09-07
         # and the one thing this pillar gave up: an answer must be about the
         # frame that was PAINTED, and a plane pulled mid-tick is about neither
-        # that frame nor the next one. See `bps/reference/collision.md`,
+        # that frame nor the next one. See `bps/reference/graphics/collision.md`,
         # "When a question is answered".
         self._collision: np.ndarray = np.zeros(
             (
@@ -408,13 +408,13 @@ class Console(Layer):
         only the table changed. Hand the same bank to another layer and they
         share it, deliberately; `copy()` is how one of them stops.
         """
-        return self._palettes
+        return self._palette
 
     @palette.setter
     def palette(self, value: PaletteBank) -> None:
         if not isinstance(value, PaletteBank):
             raise TypeError(f"expected PaletteBank, got {type(value)}")
-        self._palettes = value
+        self._palette = value
 
     @property
     def pen(self) -> Pen:
@@ -807,7 +807,7 @@ class Console(Layer):
         and row 28 recomposes everything between them.
 
         Why it is explicit rather than lazy, why it is not called `batch`, and
-        what the waste measures: `bps/reference/console.md`, "What changed,
+        what the waste measures: `bps/reference/graphics/console.md`, "What changed,
         and what recomposes"."""
         self._defer_depth += 1
         try:
@@ -1269,10 +1269,10 @@ class Console(Layer):
         # The upload, at the head of the composite and before any quad: once
         # per frame per changed bank, and never mid-pass where it could
         # disturb the unit the art is bound to.
-        palette = self._palettes.texture
+        palette = self._palette.texture
         if self._quad is None:
             self._build_quad(program, texture)
-        self._quad.palette_row[:] = (float(self._palettes.active),) * 4
+        self._quad.palette_row[:] = (float(self._palette.active),) * 4
 
         program.use()
         program["sprite_texture"] = 0

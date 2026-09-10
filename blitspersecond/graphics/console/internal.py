@@ -26,7 +26,7 @@ through a captured view would reach the buffer without passing this way, and
 the frame would silently not change.
 
 The recompose band, and how `Cursor` ended up here after being taken apart
-and put back together: `bps/reference/console.md`.
+and put back together: `bps/reference/graphics/console.md`.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ class PaintAccess:
         x, y        screen order      -- cell[x, y]
         row, col    array order       -- paint_buffer[row, col]
 
-    The order is not negotiable -- see `bps/reference/console.md`, "Colour is
+    The order is not negotiable -- see `bps/reference/graphics/console.md`, "Colour is
     not a cell attribute", for the measurement that settles it.
 
     This is the advanced road. Colour is NOT a per-cell attribute and never

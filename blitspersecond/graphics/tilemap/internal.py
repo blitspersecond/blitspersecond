@@ -13,7 +13,7 @@ because a caller filling a buffer taken off `cell[:, :]` needs to say "nothing
 here" and `np.zeros` says tile 0, which is a real tile.
 
 Why the world is reachable only through `cell`, and what each road checks, is
-in `bps/reference/tiles.md`, "A world, and `cell` is the only road in".
+in `bps/reference/graphics/tiles.md`, "A world, and `cell` is the only road in".
 """
 
 from __future__ import annotations
@@ -149,7 +149,7 @@ class CellAccess:
 
     **Orientation round-trips**, so `cell[a, b] = cell[c, d]` preserves a flip.
     A console's `cell` drops the facing and both rules are right; see
-    `bps/reference/tiles.md`.
+    `bps/reference/graphics/tiles.md`.
     """
 
     __slots__ = ("_owner",)
@@ -174,7 +174,7 @@ class CellAccess:
         noticing.
 
         The copy is also the buffer to fill and write back, which is why this
-        pillar needs no `empty_map`. Costs are in `bps/reference/tiles.md` --
+        pillar needs no `empty_map`. Costs are in `bps/reference/graphics/tiles.md` --
         the short of it is that a block beats any per-cell road, so slices are
         the answer to "I have a lot of cells".
         """
@@ -205,7 +205,7 @@ class CellAccess:
         `Tile` knows which map minted it, so one from another map is refused; a
         raw array carries no `Tile`, so all that can be checked is that its ids
         exist on this sheet. The asymmetry is deliberate and argued in
-        `bps/reference/tiles.md` -- an out-of-range id would otherwise be a
+        `bps/reference/graphics/tiles.md` -- an out-of-range id would otherwise be a
         certain `IndexError` inside a later refill, with nothing in the
         traceback naming the write.
 

@@ -1,48 +1,44 @@
 #!/usr/bin/env python3
-"""What a material change actually costs at the draw, priced separately.
+"""What a run cut costs at the draw, priced on its own.
 
     util/run_cost.py
-    util/run_cost.py --count 100000 --by palette
+    util/run_cost.py --count 100000
 
 `_emit_chain` cuts a run wherever the material changes, and a material is
-`(buffer, palette bank, palette row, colour registers)`. Those are usually
-spoken of as one thing, and they are not one thing:
+`(buffer, palette bank, palette row)`. Those are usually spoken of as one
+thing, and they are not one thing:
 
 | part of a material | what the draw does with it | where it lives |
 |---|---|---|
 | buffer | `glBindTexture` on unit 0 | a texture |
 | palette bank | `glBindTexture` on unit 1, **and unit 0 again** | a texture |
-| palette row | `glVertexAttrib1f` | a generic vertex attribute |
-| colour registers | `glVertexAttrib4f` | a generic vertex attribute |
+| palette row | `glUniform1f` | a uniform |
 
-So "one material" is not "one texture unit", and the two texture halves are
-already fixed for a whole chain by construction: instanced presentations are
-pinned to the sheet's `primary_tileset`, so the buffer cannot cut a run
-there, and since 2026-09-02 a tileset's palettes are ONE 256xN texture, so
-the bank cannot either. **What is left cutting runs is two generic
-attributes**, and this prices them against each other by holding the
-population fixed and splitting it into K runs -- once by colour, once by
-palette register -- so the staging is near enough constant and the difference
-is the draw.
+So "one material" is not "one texture unit" -- and in a chain, the two
+texture halves are fixed by construction: instanced presentations are pinned
+to the sheet's `primary_tileset`, so the buffer cannot cut a run there, and
+since 2026-09-02 a tileset's bank is ONE 256x256 texture, so the bank cannot
+either. **The palette row is the only thing left that can cut one**, and this
+prices it by holding the population fixed and splitting it into K runs, so
+the staging is near enough constant and the difference is the draw.
 
-**Why it matters.** Particle mode gives up per-presentation colour AND
-per-presentation palette in one move, because both cut runs. If a colour cut
-is nearly free at the draw, that is one restriction too many: a particle chain
-could keep its fades by emitting K runs and pin only the palette.
+**There was a second arm, and the answer removed it.** This compared a
+palette cut against a COLOUR cut, because both were generic vertex attributes
+and a particle chain that had to give up per-presentation colour to stay in
+one run was giving up a fade. At 100,000 presentations in 4,096 runs a
+palette cut cost 8.3us against a colour cut's 6.4us, and the gap was not a
+bind: a palette-cut run wrote the row and the colour, a colour-cut run wrote
+only the colour, because `draw_run` tracks the row. Then the per-presentation
+colour registers went entirely on 2026-09-09 -- recolouring is a palette job,
+see `Presentation.red` -- so there is no colour in a material to cut on, and
+the arm measured a thing that cannot happen. The figures survive in
+`draw_run`, which is what they justify.
 
-**What the bank changed, measured here.** At 100,000 presentations cut into
-4,096 runs, a palette cut cost 16.3us against a colour cut's 5.8us -- the
-difference being two `glBindTexture` calls. It is now 8.3us against 6.4us,
-and the remaining gap is not a bind: a palette-cut run writes the row AND the
-colour, a colour-cut run writes only the colour, because `draw_run` tracks
-the row and writes it when it moves. So the two are one mechanism now, priced
-per generic attribute written.
-
-**Read the palette column as a stress case and not a frame.** Cutting 4,096
-palette runs out of one population is this harness manufacturing switches to
-price them. The register is not an effect that varies per presentation the
-way a fade is -- it answers whether Chun-Li is in her 1P blue costume or her
-2P red one, which is one answer for the whole of her. A swarm has ONE.
+**Read this as a stress case and not a frame.** Cutting 4,096 palette runs
+out of one population is this harness manufacturing switches to price them.
+The register is not an effect that varies per presentation the way a fade
+was -- it answers whether Chun-Li is in her 1P blue costume or her 2P red
+one, which is one answer for the whole of her. A swarm has ONE.
 
 Fumiko rather than the bullets, because the bullet sheet carries a single
 palette and there would be nothing to switch between.
@@ -85,7 +81,7 @@ def _blocks(count: int, runs: int) -> np.ndarray:
     return (np.arange(count) * runs // max(count, 1)).astype(np.int32)
 
 
-def run_one(count: int, runs: int, by: str) -> int:
+def run_one(count: int, runs: int) -> int:
     from blitspersecond import BlitsPerSecond
     from blitspersecond.graphics.sprite import Sprite, SpriteSheet
 
@@ -104,14 +100,8 @@ def run_one(count: int, runs: int, by: str) -> int:
         swarm.positions[:, 0] = rng.integers(0, SCREEN[0], count)
         swarm.positions[:, 1] = rng.integers(0, SCREEN[1], count)
         swarm.visible[:] = True
-        if by == "color":
-            # Alpha only, so every run still draws and the fill stays equal
-            # across conditions. A run that draws nothing would flatter the
-            # high-K end by removing fragments rather than binds.
-            swarm.color[:, 3] = 0.4 + 0.6 * (block % 7) / 6.0
-        else:
-            palettes = len(sprite.sheet.tilesets[sprite.sheet.primary_tileset].palettes)
-            swarm.palettes[:] = block % palettes
+        rows = len(sprite.sheet.tilesets[sprite.sheet.primary_tileset].palette)
+        swarm.palette_index[:] = block % rows
 
     state = {"tick": 0, "started": perf_counter()}
 
@@ -133,7 +123,6 @@ def run_one(count: int, runs: int, by: str) -> int:
                 {
                     "count": count,
                     "runs": runs,
-                    "by": by,
                     "emitted": len(sprite._plan.runs),
                     "compose": summary.mean if summary else None,
                     "p99": summary.percentiles[2] if summary else None,
@@ -148,10 +137,10 @@ def run_one(count: int, runs: int, by: str) -> int:
     return 0
 
 
-def _worker(count: int, runs: int, by: str) -> dict | None:
+def _worker(count: int, runs: int) -> dict | None:
     command = [
         sys.executable, str(Path(__file__).resolve()),
-        "--run", str(count), "--runs", str(runs), "--by", by,
+        "--run", str(count), "--runs", str(runs),
     ]
     done = subprocess.run(command, capture_output=True, text=True,
                           env=os.environ.copy())
@@ -170,34 +159,29 @@ def main() -> int:
     parser.add_argument("--run", type=int, help="worker: one condition")
     parser.add_argument("--count", type=int, default=100_000)
     parser.add_argument("--runs", type=int, default=1)
-    parser.add_argument("--by", choices=("color", "palette"), default="color")
-    parser.add_argument("--only", choices=("color", "palette"))
     args = parser.parse_args()
 
     if args.run:
-        return run_one(args.run, args.runs, args.by)
+        return run_one(args.run, args.runs)
 
-    modes = [args.only] if args.only else ["color", "palette"]
-    for by in modes:
-        thing = "colour register" if by == "color" else "palette register"
-        print(f"\n{args.count:,} presentations, cut into runs by {thing}\n")
-        print(f"  {'runs':>7}  {'emitted':>8}  {'compose':>9}  {'p99':>9}"
-              f"  {'vs 1 run':>9}  {'us per extra run':>17}")
-        print("  " + "-" * 70)
-        base = None
-        for runs in DEFAULT_RUNS:
-            row = _worker(args.count, runs, by)
-            if row is None:
-                continue
-            if base is None:
-                base = row["compose"]
-            delta = row["compose"] - base
-            each = delta * 1000.0 / max(row["emitted"] - 1, 1)
-            print(
-                f"  {runs:>7,}  {row['emitted']:>8,}  {row['compose']:8.2f}m"
-                f"  {row['p99']:8.2f}m  {delta:+8.2f}m"
-                + (f"  {each:>16.2f}" if row["emitted"] > 1 else f"  {'--':>16}")
-            )
+    print(f"\n{args.count:,} presentations, cut into runs by palette register\n")
+    print(f"  {'runs':>7}  {'emitted':>8}  {'compose':>9}  {'p99':>9}"
+          f"  {'vs 1 run':>9}  {'us per extra run':>17}")
+    print("  " + "-" * 70)
+    base = None
+    for runs in DEFAULT_RUNS:
+        row = _worker(args.count, runs)
+        if row is None:
+            continue
+        if base is None:
+            base = row["compose"]
+        delta = row["compose"] - base
+        each = delta * 1000.0 / max(row["emitted"] - 1, 1)
+        print(
+            f"  {runs:>7,}  {row['emitted']:>8,}  {row['compose']:8.2f}m"
+            f"  {row['p99']:8.2f}m  {delta:+8.2f}m"
+            + (f"  {each:>16.2f}" if row["emitted"] > 1 else f"  {'--':>16}")
+        )
     print()
     return 0
 

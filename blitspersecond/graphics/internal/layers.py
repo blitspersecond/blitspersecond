@@ -39,7 +39,7 @@ class Layers:
     needs no line here -- and there is no import cycle through `graphics` to
     defer around. Keep it that way: building belongs to the thing being built.
 
-    The design record is `bps/reference/layers.md`.
+    The design record is `bps/reference/graphics/layers.md`.
     """
 
     def __init__(self):

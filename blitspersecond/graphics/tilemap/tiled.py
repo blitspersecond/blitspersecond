@@ -3,7 +3,7 @@
     island = TiledFile("island.tmx").tilemap("blue_island")
     bps.layers.add(island)
 
-`bps/reference/tmx.md` is the authority: the accepted profile, every refusal
+`bps/reference/graphics/tmx.md` is the authority: the accepted profile, every refusal
 and why, the global-id resolution, and the costs.
 
 **BPS is not a second Tiled.** It accepts the subset that maps exactly onto
@@ -139,7 +139,7 @@ class TiledFile(CacheableResource):
     shared mutable world, and a `TileMap` IS a `Layer`, so handing the same one
     back twice makes adding it to the draw order twice easy to write. Identity
     belongs to the FILE, which is cached; the world you mint from it is yours.
-    See `bps/reference/tmx.md`, "Minting is not interned".
+    See `bps/reference/graphics/tmx.md`, "Minting is not interned".
     """
 
     _size: Size

@@ -1,3 +1,44 @@
+"""The optional frame-pacing capture: one row per submitted frame.
+
+Off is the normal case. `BPS_FRAMEPACE_CSV` switches it on, and while it is
+off the loop pays a predictable `None` check at each instrumentation point and
+nothing else. Presentation reaches this through the `FramePacingSink` protocol
+in `internal/pacing/sink.py`, so nothing under `internal/` imports a recorder.
+
+**Preallocated, never grown.** A 150,000-row buffer is claimed up front --
+about 40 minutes at 60fps -- so that recording a frame cannot allocate inside
+the loop it is measuring. `BPS_FRAMEPACE_CAPACITY` moves the bound. Rows past
+it are COUNTED and reported rather than growing the buffer, because a capture
+that quietly reallocates has measured its own allocator.
+
+`BPS_FRAMEPACE_DURABLE` adds a memory-mapped sidecar, which is what makes a
+capture survive a compositor killing the process before it can shut down
+cleanly: `util/capture_frame_pacing.py` recovers the completed rows into CSV
+after the child exits. It adds no per-frame CSV formatting or append write to
+the measured path.
+
+`FORMAT` is written into the header, and every row repeats `target_fps`,
+`refresh_hz`, `cadence` and the presentation path -- a capture is comparable
+against another only if it says what produced it, and it must stay
+self-describing once moved off that machine.
+
+`util/frame_pacing.py` reads this and documents what each column means.
+`bps/reference/engine/pacing.md` says what the numbers have to be.
+
+**An append buffer, not a ring.** Capacity exhaustion is explicit because the
+beginning of a run is the part worth keeping -- startup is where priming and
+first-frame faults show -- and a ring would silently overwrite exactly that.
+Each complete row is published in one assignment, then its recoverable count,
+so a recovered sidecar never holds a half-written row.
+
+**A background writer is deliberately not the default.** Measured over 100,000
+rows: about 2.15us per frame in memory, 2.28us with the durable mmap -- roughly
+0.027% of a 120Hz period. A worker would still leave timestamp capture on the
+presentation thread while adding queue synchronisation, GIL wakeups, and a
+crash-recovery gap for undrained events. The sink boundary leaves room for a
+streaming backend later without `PresentationSession` knowing.
+"""
+
 from __future__ import annotations
 
 import csv

@@ -7,7 +7,7 @@ atlas must hold at least that many cells. A charset therefore DECLARES its own
 cell size, because an image of a grid does not carry its grid.
 
 Why that constraint is a count rather than the 16x16 shape this module used to
-assert: `bps/reference/console.md`, "Not a 16x16 charset".
+assert: `bps/reference/graphics/console.md`, "Not a 16x16 charset".
 """
 
 from __future__ import annotations

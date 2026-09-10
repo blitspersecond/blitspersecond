@@ -23,7 +23,7 @@ class Tile:
 
     Carries no rectangle, no size and no buffer -- all three are arithmetic
     from the owner and the index. Why that holds, and what it buys, is in
-    `bps/reference/tiles.md`, "Stamping a cell".
+    `bps/reference/graphics/tiles.md`, "Stamping a cell".
     """
 
     __slots__ = ("_owner", "_index")

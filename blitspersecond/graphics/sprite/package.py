@@ -7,9 +7,10 @@ this and loses nothing.
 
 **Validation is the point.** The format's invariants become errors with names
 in them -- which tileset, which assembly, which frame -- so a bad export fails
-here, loudly, rather than as garbage pixels three subsystems later. See
-`docs/bps/SPRITE_FORMAT.md` for the format itself; this module is the only
-thing that enforces it, so the two are meant to be read together.
+here, loudly, rather than as garbage pixels three subsystems later. This
+module is the only thing that enforces the format; the format itself, every
+refusal by name and why each rule exists, is
+`bps/reference/graphics/sprite-package.md`.
 
 Nothing here touches GL. It reads JSON, resolves paths and builds `Atlas`
 objects over `PixelBuffer`s, all of which work without a window.
@@ -40,7 +41,7 @@ _HEX_RGBA = re.compile(r"^#[0-9a-fA-F]{8}$")
 TRANSPARENT_INDEX = 0
 
 #: The synthetic tileset every grid sheet carries. Named rather than derived
-#: from the filename so `sprite.palettes[...]` reads the same whatever the
+#: from the filename so `sprite.palette_index[...]` reads the same whatever the
 #: image is called -- and a grid sheet has exactly one.
 GRID_TILESET = "sheet"
 
@@ -72,18 +73,20 @@ def _rect(raw, where: str, signed: bool) -> Rect:
     return Rect(x, y, w, h)
 
 
-def _palette(raw, where: str) -> Palette:
+def _palette(raw, where: str) -> np.ndarray:
     """One authored colour table.
 
     Enforces the all-or-nothing transparency law at load: alpha is `00` at
     index 0 and `ff` everywhere else, nothing between. A mid-table transparent
     entry or a translucent colour is a bad export, not a feature -- BPS has no
-    palette-space alpha, and fades come from the presentation's colour
-    registers instead.
+    palette-space alpha, and a fade is a dimmer ROW of the bank.
 
-    `Palette` re-derives alpha from the index anyway, so this check exists to
-    make a disagreeing file fail loudly rather than quietly mean something
-    else.
+    A bank pins index 0's alpha on every write road anyway, so this check
+    exists to make a disagreeing file fail loudly rather than quietly mean
+    something else.
+
+    Returns `(n, 3)` uint8 for the caller to assign into a row: a palette is
+    not a thing you hold, it is a row of a bank.
     """
     if not isinstance(raw, (list, tuple)) or not raw:
         raise ValueError(f"{where}: expected a non-empty colour list")
@@ -101,9 +104,6 @@ def _palette(raw, where: str) -> Palette:
                 f"all-or-nothing (00 at index {TRANSPARENT_INDEX}, ff elsewhere)"
             )
         flat.extend(int(colour[j : j + 2], 16) for j in (1, 3, 5))
-    # An (n, 3) array, not a table: the caller assigns it into a row of the
-    # tileset's bank. A palette is not a thing you hold any more, it is a row
-    # of one.
     return np.array(flat, dtype=np.uint8).reshape(-1, 3)
 
 
@@ -179,7 +179,7 @@ def _tileset(name: str, raw: dict, base: str) -> SpriteTileset:
     except ValueError as error:
         raise ValueError(f"{where}: {error}") from None
     return SpriteTileset(
-        atlas=atlas, palettes=bank, default_palette=default
+        atlas=atlas, palette=bank
     )
 
 
@@ -221,7 +221,7 @@ def _assembly(name: str, raw: dict, tilesets: Dict[str, SpriteTileset]) -> Assem
             # uses in 3237 parts and failing to find a case for it.
             raise ValueError(
                 f"{pwhere}: per-part 'palette' was removed -- selection is per "
-                f"presentation, per tileset (sprite.palettes[{tileset_name!r}]), "
+                f"presentation, per tileset (sprite.palette_index[{tileset_name!r}]), "
                 f"and a part wanting its own is a sprite of its own, which is a "
                 f"layer of its own"
             )
@@ -393,6 +393,10 @@ def read_grid(filename: str, width: int, height: int, ox: int, oy: int) -> Built
     # carry a table -- it reports what the file held, and the bank is this
     # sheet's. A file with no embedded palette leaves row 0 as the system
     # palette, which draws in real colours rather than in nothing.
+    #
+    # `active` is left where a fresh bank puts it, row 0, which is the only
+    # row a grid road fills -- there is no package here to declare a
+    # `default_palette` and nothing else to point at.
     bank = PaletteBank()
     embedded = buffer.embedded_palette
     if embedded is not None:
@@ -420,7 +424,7 @@ def read_grid(filename: str, width: int, height: int, ox: int, oy: int) -> Built
     named = Atlas(buffer, {str(i): atlas.rect(i) for i in range(len(atlas))})
     tilesets = {
         GRID_TILESET: SpriteTileset(
-            atlas=named, palettes=bank, default_palette=0
+            atlas=named, palette=bank
         )
     }
     # A grid sheet has exactly one tileset, so there is nothing to choose.

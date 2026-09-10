@@ -2,7 +2,7 @@
 
 This pillar PUSHES rather than pulls: the planes are not derived on read,
 because what a read would derive is the live image rather than the painted
-one. See `bps/reference/collision.md`, "When a question is answered". The
+one. See `bps/reference/graphics/collision.md`, "When a question is answered". The
 planes are now preallocated and repacked at the commit, over the band of cell
 rows `_touch` marked, so the tests that matter are about *when* a change
 reaches the bits as much as about the bits themselves.

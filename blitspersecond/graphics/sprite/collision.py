@@ -4,57 +4,24 @@ One packed plane per sprite layer, composed from the presentations that carry
 a `collide` bit. The layout and the question are `graphics.collision`'s; what
 is here is how a population of poses becomes one bitmap.
 
-**Composed, not retained.** A tilemap scrolls a contiguous grid in lockstep,
-so it keeps its plane and slides it; a sprite is at a coordinate and every
-presentation may move independently, so there is nothing to slide and the
-plane is rebuilt. That is the same split the two pillars make on the draw
-side, and it is why this file has no apron arithmetic, no drift and no
+**Composed, not retained.** A tilemap scrolls a contiguous grid in lockstep so
+it keeps its plane and slides it; a sprite is at a coordinate and every
+presentation moves independently, so there is nothing to slide and the plane
+is rebuilt. That is why this file has no apron arithmetic, no drift and no
 `translate`.
 
-## Three levels of participation, and they are not the same question
+**`visible` is never consulted here.** An invisible slot still occupies space,
+and `collide` is all-or-nothing across a multipart pose.
 
-    can it collide at all      the sheet is indexed, so always -- the two
-                               loaders refuse anything else, which is why
-                               `Sprite._collision_refusal` returns None
-    is the layer in play       `Layer.collidable`, the fast-track switch
-    does THIS quad             `collide`, per slot
+**Named planes belong to the primary alone**; every slot stamps the
+silhouette. A named plane is authored geometry that must land in a SPECIFIC
+target, so N presentations would mean N x K rect stamps into fragmented
+planes -- where the silhouette is one composition into one bitmap, which is
+what makes a population affordable.
 
-The last one is why a ghost trail can be the loudest thing on screen and
-contribute nothing, and why a cloaked sprite hits without being drawn.
-**`visible` is never consulted here.** An invisible slot still occupies space.
-
-## Named planes are filled rectangles, and that is all they are
-
-An assembly authors `attack`, `body_hurt`, `push` and so on as **AABBs** in
-its local frame. They get one plane each, and composing one is filling its
-rects in -- axis-aligned, so there is no geometry here at all, just a solid
-pattern of the right size stamped through the same `local_rect` the art goes
-through.
-
-**Nothing downstream knows they were rectangles.** A query is a bitwise
-intersection over packed planes, so a box plane and a pixel silhouette answer
-the same way and cost the same; the boxes are never consulted as boxes, never
-used to cull, and never turned back into geometry. That is what lets
-`attack` against a tilemap's terrain be the same question as `attack` against
-another sprite's `body_hurt`.
-
-**They belong to the primary alone.** A named plane is authored per-assembly
-geometry that must land in a SPECIFIC target, so N presentations would mean
-N x K rect stamps into fragmented planes; the silhouette is one composition
-into one bitmap, which is what makes a population affordable. Kris,
-2026-09-01: *"the special case collisions - hurt boxes etc will have to be a
-property only of index 0; the mask based ones can continue to ride the normal
-path."*
-
-## One stamp shape
-
-Reference had two -- word-slice strokes for a rich sprite's handful of parts,
-a many-position scatter for a dense population -- and its own docstring gives
-the reason: *"Routing those through the many-placement scatter path costs more
-setup than collision work."* That was true of a NumPy scatter and is not true
-of a compiled one. Measured on one 16x16 placement: 8.52us for the slice
-strokes against 0.42us for `stamp_many` at N=1, so the scatter is cheaper
-before there is anything to batch. The split was an artefact of the tool.
+Why the boxes are never consulted as boxes, the three levels of participation
+and what each is for, and the one-stamp-shape measurement:
+`bps/reference/graphics/sprites.md`, "Collision".
 """
 
 from __future__ import annotations

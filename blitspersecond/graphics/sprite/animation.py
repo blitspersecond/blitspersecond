@@ -2,44 +2,23 @@
 
     chun.play("walk")
 
-That is the whole of animation from a game's side. A clip advances itself on
-the fixed tick from there, and nothing needs calling per frame to keep it
-running.
+A clip advances itself on the fixed tick from there, and nothing needs calling
+per frame to keep it running.
 
-## Clip and Animation are two different things, deliberately
-
-A `Clip` is DATA on the sheet -- a named sequence of `(assembly,
-duration_ticks)`, authored and immutable. An `Animation` is a CURSOR into one:
-which frame, how long it has been held, whether it has finished. Calling both
-"animation" is how a reader stops being sure which one advances.
-
-## `play()` is the only verb, and it is four things at once
-
-Start, cancel, interrupt and reissue. There is no `stop()`, no `restart()` and
-no `resume()`, because each would be `play()` with a different name and a game
-would then have to decide which it meant. Reissuing the frame you are on is
-hitstop, because setting a frame restarts its hold.
-
-The evidence for that shape came from the prototype: `play()` appears four
-times and is always conditional, while the per-tick update appeared exactly
-once, unconditional, immediately followed by `sprite.assembly = anim.assembly`
--- two lines that never varied. Those two lines are now the engine's, which is
-what `Sprite.play` buys.
-
-## Ticks are the only unit
+**A `Clip` is DATA on the sheet** -- a named sequence of `(assembly,
+duration_ticks)`, authored and immutable. **An `Animation` is a CURSOR** into
+one: which frame, how long it has been held, whether it has finished. Calling
+both "animation" is how a reader stops being sure which one advances.
 
 `duration_ticks` is an integer count of fixed simulation ticks. Milliseconds
-never enter: a clip advances on the fixed-step loop or not at all, and the
-milliseconds an authoring tool exports are a preview concern that stops at the
-loader.
+never enter -- a clip advances on the fixed-step loop or not at all.
 
-## Unbound is a real road
+Constructing one directly is a real road, not a leftover: it gives a cursor
+nothing advances for you, which is what a game driving several over one sheet
+wants without a layer per cursor.
 
-Constructing one directly gives a sequencer nothing advances for you -- you
-call `update()` yourself and read `assembly` off it. That is deliberate rather
-than a leftover: a game driving several cursors over one sheet (a paper-doll,
-a UI flourish, a replay scrubbing backwards) wants the cursor without wanting
-a layer per cursor.
+Why `play()` is the only verb, what hitstop is, and where this runs in the
+frame: `bps/reference/graphics/sprites.md`, "Animation".
 """
 
 from __future__ import annotations

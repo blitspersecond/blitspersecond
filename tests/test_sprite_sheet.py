@@ -57,12 +57,14 @@ def test_fumiko_loads_whole() -> None:
     # assert. What is still checkable, and is the actual claim, is that
     # fumiko's four LANDED: rows 0..3 differ from each other and from the
     # system palette every bank comes up with, and row 4 is untouched.
-    bank = tileset.palettes
+    bank = tileset.palette
     assert len(bank) == 256
     authored = {bank.texels[row].tobytes() for row in range(4)}
     assert len(authored) == 4, "the four tables are not four tables"
     assert tuple(bank[4][1]) == (255, 255, 255, 255), "row 4 is not still WHITE"
-    assert tileset.default_palette == 0
+    # The package's `default_palette` lands on the bank's own register --
+    # a tileset has no second field for it.
+    assert tileset.palette.active == 0
     assert len(sheet.assemblies) == 32
     assert all(len(a.parts) == 1 for a in sheet.assemblies.values())
     assert len(sheet.clips) == 8
@@ -144,10 +146,10 @@ def test_the_same_package_gives_the_same_sheet() -> None:
 
 def test_a_tileset_holds_its_palettes_as_one_bank() -> None:
     """The bank is the unit the GPU stores -- one 256x256 table with a row
-    per palette, which is what keeps `sprite.palettes[...] = 3` a row NUMBER
+    per palette, which is what keeps `sprite.palette_index[...] = 3` a row NUMBER
     rather than a bind. Every bank is that shape, so a row number is always
     valid and no caller has to ask how many there are."""
-    bank = SpriteSheet(FUMIKO).tilesets["character"].palettes
+    bank = SpriteSheet(FUMIKO).tilesets["character"].palette
     assert isinstance(bank, PaletteBank)
     assert len(bank) == 256
     assert bank.texels.shape == (256, 256, 4)
@@ -166,14 +168,14 @@ def test_copy_owns_its_palettes_but_shares_its_pixels() -> None:
     assert twin is not sheet
     assert twin.tilesets["character"].atlas is sheet.tilesets["character"].atlas
 
-    original = sheet.tilesets["character"].palettes[0]
-    copied = twin.tilesets["character"].palettes[0]
+    original = sheet.tilesets["character"].palette[0]
+    copied = twin.tilesets["character"].palette[0]
     assert copied is not original
     # A new bank as well as new tables: a bank owns its GPU table, so a twin
     # sharing one would share the upload too.
-    assert twin.tilesets["character"].palettes is not sheet.tilesets[
+    assert twin.tilesets["character"].palette is not sheet.tilesets[
         "character"
-    ].palettes
+    ].palette
     copied[5] = (255, 0, 255)
     assert original[5] != copied[5]
 

@@ -47,7 +47,7 @@ All three pillars fill their planes at the commit, through
 `Layer._settle_collision`, so a question answers about the frame that was
 painted. How each one fills is that pillar's business and its own chapter.
 
-Reference: `bps/reference/collision.md`, which owns the layout, the costs,
+Reference: `bps/reference/graphics/collision.md`, which owns the layout, the costs,
 the query surface and the case for compiling the kernel.
 """
 

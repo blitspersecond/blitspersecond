@@ -74,8 +74,10 @@ class Metrics(metaclass=SingletonMeta):
         self._frame_ms = self.gauge(
             "engine.frame.ms",
             "Wall seconds between successive game ticks: the engine clock "
-            "itself. Should sit on the authored period -- 16.667ms at 60fps "
-            "-- with only scheduler resolution around it, because the pacer "
+            "itself. Should sit on the PACED period with only scheduler "
+            "resolution around it -- 16.667ms at 60fps, or a hair more where "
+            "the pacer re-timed its second to suit the panel (16.683ms on "
+            "59.94Hz; see internal/pacing/accepted_rate.py) -- because it "
             "anchors each tick to the frame's own evenly-spaced deadline. A "
             "spread of several ms means ticks have picked up the display "
             "grid's quantisation, which is a defect: see display.frame.ms "
@@ -114,9 +116,10 @@ class Metrics(metaclass=SingletonMeta):
         self._presents = self.counter(
             "display.presents",
             "Presentations completed during one game frame. On a 144Hz "
-            "display running a 60fps simulation this reads 2 or 3 -- with "
-            "independent timebases the pattern is a phase accident, not a "
-            "fixed cycle, so read the distribution and not the peak.",
+            "display running a 60fps simulation this reads 2 or 3 in a "
+            "repeating cycle -- 3,2,3,2,2, which is what 'the first slot at "
+            "or after the deadline' produces rather than anything stored. "
+            "Read the distribution and not the peak.",
         )
         # Named `display.frames.*` in full: a bare "dropped" on a metrics
         # object reads as dropped frames, and there is already a different

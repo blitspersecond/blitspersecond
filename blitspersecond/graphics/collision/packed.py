@@ -9,7 +9,7 @@ viewer is its inverse rather than a second piece of arithmetic that has to
 agree with the first.
 
 Why the word is a DWORD, and why the screen being 640 wide is the reason:
-`bps/reference/collision.md`, "One bit per pixel". The size is a constant
+`bps/reference/graphics/collision.md`, "One bit per pixel". The size is a constant
 here rather than a literal spelled across three pillars, so this is the only
 file that would decide a different one.
 

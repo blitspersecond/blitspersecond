@@ -2,68 +2,29 @@
 
     ghosts = chun.before.extend(4)      # a trail, drawn behind
     smear  = chun.after.append()        # drawn in front
-    ghosts[0].alpha = 0.4
+    ghosts[0].palette_index["character"] = 3     # a dimmer row: a trail fades
 
-One sprite, N drawings of it. A shadow trail, a tail's segments, twenty-five
-thousand bullets. They are ONE identity -- one texture, one draw call, one
-answerable collision question -- so they are not sprites, and they do not get
-a layer each.
+One sprite, N drawings of it. They are ONE identity -- one texture, one draw
+call, one answerable collision question -- so they are not sprites and do not
+get a layer each.
 
 ## Identity and draw order are two different things
 
-**A slot id says WHICH presentation. A chain says WHERE it draws.** They are
-deliberately not the same number.
+**A slot id says WHICH presentation. A chain says WHERE it draws.**
 
     q q q q Q q q q q
     |_____| ^ |_____|
      before |  after
           slot 0
 
-**That is ONE sequence, not three.** Every position in it is an ordinary quad
-drawn in an ordinary order; one of them is also the sprite. `before` and
-`after` are not containers -- they are what "earlier than slot 0" and "later
-than slot 0" are called, and they only exist because the order is read
-relative to that one position. `Sprite.presentations` puts the sequence back
-together and is the honest picture of it:
-
-    for slot in (*self._before, PRIMARY, *self._after)
-
-It is STORED pre-split because slot 0 is exactly where a bulk gather has to
-break anyway: it is the one position that may expand to several quads, cross
-to another tileset and hold a multipart pose. A single order array would have
-to find that position and split around it every frame. Two arrays are that
-split, kept rather than rediscovered -- an encoding, not a second idea.
-
-Slot 0 is also the only position with anything attached: the clip cursor, the
-per-tileset palette registers, the colour registers, and (later) named
-collision planes. Everything else about it is a row in the same arrays every
-other presentation uses.
-
-An earlier design made the index carry both -- signed, ascending, 0 in the
-middle -- and it cost more than it saved. Moving a presentation in the draw
-order meant moving its state; the sign had to mean "behind" as well as
-"identity"; and every question about growing or reordering turned into a
-question about renumbering. Kris: *"the index never needed to be identity and
-draw order. Stable identity is valuable; draw order being separately mutable
-is valuable."* Split, both are easy.
+**That is ONE sequence, not three**, and it is STORED pre-split because slot 0
+is exactly where a bulk gather has to break anyway: it is the one position
+that may expand to several quads and cross to another tileset. A single order
+array would have to find that position and split around it every frame. Two
+arrays are that split, kept rather than rediscovered -- so do not merge them.
 
 A slot id is stable for the presentation's life. Reordering never touches it,
 and never touches the state arrays.
-
-## The order is an array, not a linked list
-
-Each chain is an `int32` array of slot ids in draw order. `append`, `prepend`,
-`insert_before`, `insert_after` and `remove` are ordinary array operations.
-
-A linked list was considered and is the wrong shape here: it optimises for
-frequent mutation and rare traversal, and this is the exact opposite. Every
-frame walks the whole order; almost nothing ever reorders. An array is a
-gather -- `position[order]` -- with nothing to chase, and the order needs no
-separate materialisation step to be usable.
-
-The `O(n)` memmove that `insert` and `remove` cost is paid only when the draw
-order actually changes, which for a trail is at setup and for a swarm is
-never.
 
 ## Liveness is NOT linkage
 
@@ -71,15 +32,12 @@ never.
     append / remove     authoring the order. Setup, or a rare change.
 
 **A dead bullet is a parked slot, not a removed one.** Reaping by `remove()`
-would be 1500 relinks a tick and would destroy the thing the arrays exist
-for; reference reaps with `alive[i] = False` and respawns into the same slot
-with `flatnonzero(~alive)`. The two mechanisms stay distinct because the cheap
-one reads like the obvious one, and reaching for the wrong one costs a lot
-with nothing announcing it.
+is an O(n) memmove per corpse and destroys the thing the arrays exist for;
+reap with `visible[dead] = False` and respawn into `flatnonzero(~visible)`.
+The two stay distinct because the cheap one has to read like the obvious one,
+and reaching for the wrong one costs a lot with nothing announcing it.
 
 ## What the primary has that the others do not
-
-Three things, each arrived at from its own evidence, all landing on slot 0:
 
 | the primary only | every presentation |
 |---|---|
@@ -87,17 +45,13 @@ Three things, each arrived at from its own evidence, all landing on slot 0:
 | multipart assemblies | visible, `collide` |
 | named collision planes | mask stamping |
 
-**The primary carries what is per-identity and authored; every presentation
-carries what is per-presentation and uniform in shape.** The multipart
-restriction is the one that pays for the others: with it, every instanced
-presentation is exactly one quad, so four of them and twenty-five thousand are
-the same shape and there is one representation rather than two.
-
 Instanced presentations are additionally pinned to `sheet.primary_tileset`,
-which makes the whole block one texture under one palette -- so the renderer
-is: walk the before chain, emit the primary's parts, walk the after chain,
-with no sort, no coalescing decision, and one genuine interruption when a
-multipart primary crosses to another texture.
+which makes the whole block one texture under one bank. **The multipart
+restriction is what pays for that**: every instanced presentation is exactly
+one quad, so four and twenty-five thousand are the same shape.
+
+Why the split, what a linked list would cost here, and how a population is
+edited: `bps/reference/graphics/sprites.md`, "Presentations".
 """
 
 from __future__ import annotations
@@ -149,12 +103,12 @@ class Slots:
         "assembly",
         "visible",
         "collide",
-        "palette",
+        "palette_index",
     )
 
-    def __init__(self, default_palette: int, capacity: int = 8) -> None:
+    def __init__(self, default_index: int, capacity: int = 8) -> None:
         self._capacity = max(2, int(capacity))
-        self._allocate(self._capacity, default_palette)
+        self._allocate(self._capacity, default_index)
         # Free ids ASCENDING, in an array rather than a list, so a bulk take
         # is a slice instead of 25,000 `pop()` calls -- and so a fresh swarm
         # gets CONTIGUOUS ids, which keeps its gather sequential.
@@ -167,7 +121,7 @@ class Slots:
         self.visible[PRIMARY] = True
         self.collide[PRIMARY] = True
 
-    def _allocate(self, n: int, default_palette: int) -> None:
+    def _allocate(self, n: int, default_index: int) -> None:
         self.position = np.zeros((n, 2), dtype=np.int32)
         self.orientation = np.zeros(n, dtype=np.uint8)
         self.assembly = np.full(n, NO_ASSEMBLY, dtype=np.int32)
@@ -175,7 +129,7 @@ class Slots:
         # screen. The primary is the one exception; a lone sprite draws.
         self.visible = np.zeros(n, dtype=bool)
         self.collide = np.zeros(n, dtype=bool)
-        self.palette = np.full(n, default_palette, dtype=np.int32)
+        self.palette_index = np.full(n, default_index, dtype=np.int32)
 
     @property
     def capacity(self) -> int:
@@ -192,7 +146,7 @@ class Slots:
             )
         return slot
 
-    def take(self, count: int, palette: int, assembly: int) -> np.ndarray:
+    def take(self, count: int, palette_index: int, assembly: int) -> np.ndarray:
         """`count` fresh slot ids, grown into if the free list is short.
 
         **Seeded from the primary, which is the template.** A presentation is
@@ -223,7 +177,7 @@ class Slots:
             # times on the way up. Still at least a doubling, so a caller
             # appending one at a time keeps amortised growth.
             needed = self._capacity + (count - self._free.size)
-            self._grow(palette, max(needed, self._capacity * 2))
+            self._grow(palette_index, max(needed, self._capacity * 2))
         taken, self._free = self._free[:count], self._free[count:]
         # A contiguous take seeds by SLICE, not by fancy index. Ids come off
         # an ascending free array, so a fresh population is contiguous and
@@ -243,7 +197,7 @@ class Slots:
         self.assembly[where] = assembly
         self.visible[where] = False
         self.collide[where] = False
-        self.palette[where] = palette
+        self.palette_index[where] = palette_index
         return taken
 
     def give_back(self, slot: int) -> None:
@@ -268,7 +222,7 @@ class Slots:
             (np.array([slot], dtype=np.int32), self._free)
         )
 
-    def _grow(self, default_palette: int, new: int) -> None:
+    def _grow(self, default_index: int, new: int) -> None:
         """Grow to `new`, keeping every id on its own row.
 
         Growth copies rather than reindexes, so a slot id survives it and
@@ -281,9 +235,9 @@ class Slots:
             self.assembly,
             self.visible,
             self.collide,
-            self.palette,
+            self.palette_index,
         )
-        self._allocate(new, default_palette)
+        self._allocate(new, default_index)
         for name, previous in zip(
             (
                 "position",
@@ -291,7 +245,7 @@ class Slots:
                 "assembly",
                 "visible",
                 "collide",
-                "palette",
+                "palette_index",
             ),
             keep,
         ):
@@ -425,7 +379,7 @@ class Chain:
         sprite = self._sprite
         return sprite._slots.take(
             count,
-            sprite._slot0_palettes[sprite.sheet.primary_tileset],
+            sprite._slot0_palette_index[sprite.sheet.primary_tileset],
             sprite._inheritable_assembly(),
         )
 
@@ -548,20 +502,20 @@ class Presentations:
 
     @property
     def color(self) -> np.ndarray:
-        """Gone. A swarm has no colour of its own -- see `palettes`."""
+        """Gone. A swarm has no colour of its own -- see `palette_index`."""
         raise AttributeError(
             "presentations have no colour registers -- the sprite's apply to "
             "every drawing of it. To vary colour ACROSS a population, vary "
-            "`palettes`: the register is a row of the tileset's bank, so "
+            "`palette_index`: the register is a row of the tileset's bank, so "
             "different rows are different tables and cost a number rather "
             "than a blend. A fade wants dimmed rows generated once at load."
         )
 
     @property
-    def palettes(self) -> np.ndarray:
+    def palette_index(self) -> np.ndarray:
         """`(n,)` int32 view of each one's palette register, for the sheet's
         primary tileset -- the only one an instanced presentation draws."""
-        return self._sprite._slots.palette[self._span()]
+        return self._sprite._slots.palette_index[self._span()]
 
     @contextmanager
     def edit(self):
@@ -595,35 +549,49 @@ class Presentations:
         return f"<Presentations {len(self)} slots, {shape}>"
 
 
-class _Channel:
-    """One colour register -- a 0.0..1.0 multiplier on a channel.
+class _NoTint:
+    """`red`, `green` and `blue`, removed 2026-09-09, kept as refusals.
 
-    A descriptor rather than three near-identical property pairs, so the clamp,
-    the dirty mark and the reasoning are written once. What the registers ARE
-    is documented on `Presentation.red`, which is the one a reader reaches
-    first.
+    Per-sprite RGB multipliers over whatever the palette produced. They went
+    for the reason alpha did: **recolouring is a palette job and never a pixel
+    one**, and a bank makes every effect they served reachable as a row -- a
+    dimmer trail, a hit flash, a costume. Keeping both would have left two
+    mechanisms for one intent, and the multiplier was the one that could not
+    say what colour it was producing.
 
-    **These are the SPRITE's registers, reachable through any of its
-    presentations, and there is one set.** They were per presentation until
-    2026-09-02. Reading or writing one through an instanced slot reaches the
-    same three floats slot 0 reaches, because a presentation is another
-    drawing of one sprite and a tint is a fact about the sprite.
+    The register survives below them as a whole-PASS tint on `SpriteBatch`,
+    driven by nothing, for a post-process over a layer. It is not addressable
+    from here and is not per sprite.
+
+    Refusals rather than deletions, on the `_NoAlpha` precedent: the old
+    spelling is in shipped examples, and a bare `AttributeError` would be
+    accepted by nothing and explain nothing.
     """
 
-    def __init__(self, index: int, doc: str) -> None:
-        self._index = index
-        self.__doc__ = doc
+    def __init__(self, channel: str) -> None:
+        self._channel = channel
+        self.__doc__ = f"Gone -- {channel} was a multiplier. See the error."
 
-    def __get__(self, presentation: "Presentation", owner=None) -> float:
-        if presentation is None:
-            return self  # type: ignore[return-value]
-        return float(presentation._sprite._color[self._index])
-
-    def __set__(self, presentation: "Presentation", value: float) -> None:
-        presentation._sprite._color[self._index] = min(
-            max(float(value), 0.0), 1.0
+    def _refuse(self):
+        raise AttributeError(
+            f"sprites have no {self._channel} register: recolouring is a "
+            f"palette job, not a pixel one. A sprite draws through a row of "
+            f"its palette bank, so every tint the multipliers served is a "
+            f"row -- and a row can say what colour it produces, where a "
+            f"multiplier could only darken what was already there.\n"
+            f"  to recolour one sprite     `sprite.palette_index[tileset] = row`\n"
+            f"  to fade a trail            a dimmer row per ghost\n"
+            f"  to build the row           `bank[row] = bank[source]`, then\n"
+            f"                             operators, at load"
         )
-        presentation._sprite._dirty = True
+
+    def __get__(self, presentation, owner=None):
+        if presentation is None:
+            return self
+        self._refuse()
+
+    def __set__(self, presentation, value) -> None:
+        self._refuse()
 
 
 class _NoAlpha:
@@ -662,7 +630,7 @@ class Presentation:
     """One drawing of a sprite: where it is, how it is turned, what pose.
 
         chun[-1].position = (160, 200)
-        chun[-1].alpha = 0.4
+        chun[-1].visible = False
 
     Minted on access rather than stored, so `chun[-1]` is always a live view
     of slot -1 and never a stale copy. Holding one is holding an index.
@@ -822,8 +790,8 @@ class Presentation:
     # -- what it is drawn with ---------------------------------------------
 
     @property
-    def palettes(self) -> PaletteRegisters:
-        """Palette selection: `chun.palettes["character"] = 3`.
+    def palette_index(self) -> PaletteRegisters:
+        """Palette selection: `chun.palette_index["character"] = 3`.
 
         Slot 0 has one register per tileset the sheet draws, because slot 0
         may present art from any of them. An instanced slot draws only the
@@ -832,35 +800,9 @@ class Presentation:
         """
         return PaletteRegisters(self._sprite, self._slot)
 
-    red = _Channel(
-        0,
-        """Red multiplier, 0.0..1.0 -- one of three colour registers.
-
-        `red`/`green`/`blue` toward 0 fade toward black and unevenly tint.
-        They multiply whatever the palette produced, so they are a
-        presentation decision laid over a colour decision, not a second
-        palette.
-
-        **They belong to the SPRITE, not to one presentation** (changed
-        2026-09-02). Writing one through any presentation writes the sprite's,
-        because a tint is a fact about the thing being drawn rather than about
-        one drawing of it -- and because a per-presentation colour is what
-        makes a material vary inside a population, which cost a run per
-        change to draw and a pass over the whole population to find.
-
-        This is where a trail's fade USED to come from. It comes from the
-        palette bank now: a dimmer row per ghost, generated once at load,
-        selected with `palettes`. That is a number rather than a blend, it is
-        what the hardware did, and it does not vary the material.
-
-        **Not free at the draw, but nearly.** Colour is a per-run value, so a
-        sprite whose registers differ from its neighbours' is a separate run
-        -- one `glVertexAttrib4f` and one draw call, measured at 6.4us. What
-        it is not is a texture bind.
-        """,
-    )
-    green = _Channel(1, "Green multiplier, 0.0..1.0. See `red`.")
-    blue = _Channel(2, "Blue multiplier, 0.0..1.0. See `red`.")
+    red = _NoTint("red")
+    green = _NoTint("green")
+    blue = _NoTint("blue")
     alpha = _NoAlpha()
 
     # -- being seen, and being there ---------------------------------------

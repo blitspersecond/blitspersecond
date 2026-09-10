@@ -15,7 +15,7 @@ stops sharing.
 Index 0 is the engine-wide hole and its alpha is pinned to 0 on every write
 road. Every other index honours exactly what you wrote.
 
-**`bps/reference/palette.md` is the chapter**: the register, the modify path, the
+**`bps/reference/graphics/palette.md` is the chapter**: the register, the modify path, the
 upload, the shader's alpha floor, every limit and every refusal by name.
 """
 

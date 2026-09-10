@@ -12,7 +12,7 @@ A program has ONE uniform state, so anything per-instance -- the palette row,
 any tint -- is set per draw and never once at build.
 
 Compiled here rather than fetched from a shared cache. Why the engine has no
-such cache: `bps/reference/console.md`, "One quad to the screen".
+such cache: `bps/reference/graphics/console.md`, "One quad to the screen".
 """
 
 from typing import Optional

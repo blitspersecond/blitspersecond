@@ -16,16 +16,23 @@ A closed set rather than an int, for two reasons:
   and the engine has no standing to have an opinion about which of them a game
   wants. But an author reaching for 37 has misunderstood what this is, and a
   closed set says so at the call site.
-There USED to be a second reason, and it was the stronger one: a tick-to-
-present ratio whose exact denominator is ``panel / gcd(rate, panel)`` grows
-without bound as panel rates climb, so a closed set was what kept the matrix
-enumerable against real hardware. That argument died with the presentation
-cadence -- nothing divides ticks into presentation slots any more, and the
-clock would hold 37fps as readily as 60. The set is now an authoring
-judgement rather than a technical constraint, which is a weaker footing and
-should be recognised as such rather than defended with the old reason. See
-`docs/bps/DECOUPLED_PRESENTATION.md`, and the board card "Let the game author
-declare its tick rate", whose denominator analysis this retires.
+* **The pattern stays short on every panel.** The pacer keeps the tick and
+  slot grids commensurate with a ratio of ``rate / round(panel)``, and that
+  ratio's denominator -- ``panel / gcd(rate, panel)`` -- is how many slots the
+  visible pattern takes to repeat. It grows without bound as panel rates
+  climb, and a rate sharing no factor with the panel repeats no sooner than
+  the panel rate itself: seconds rather than milliseconds.
+
+  Every member of this set repeats within **333ms** on every panel the engine
+  knows of, and most within 100ms. **That is the test a candidate rate has to
+  pass**, and it is the one technical constraint the set still carries.
+  Whether a pattern of seconds is perceptible is not measured -- its ticks are
+  spread evenly rather than concentrated -- so run the check before widening
+  the set rather than reading it as a verdict. See
+  `internal/pacing/accepted_rate.py` and `bps/reference/engine/pacing.md`.
+
+The board card "Let the game author declare its tick rate" carries the rest of
+the question.
 
 15, 20, 30 and 60 are the classic divisions of 60 -- one tick per 4, 3, 2 and
 1 slots on a 60Hz panel -- and predate all of this by decades.

@@ -27,9 +27,8 @@ class SpriteTileset(NamedTuple):
     ordinary indexed image carries ONE palette; a sprite tileset carries a
     bank of them -- Chun-Li has 28 per image, six costume swaps and
     twenty-odd flash and effect tables -- and which one a presentation draws
-    through is a register it selects at runtime. `SPRITES.md` calls that a
-    logical material view: *"the same R8 index texture read through a
-    different `Palette` uniform -- never duplicated pixels."*
+    through is a register it selects at runtime -- the same index texture read
+    through a different row, never duplicated pixels.
 
     A `PaletteBank` rather than a tuple of them, because the bank is what
     the GPU stores: one 256x256 texture, one row per member, so the register
@@ -41,15 +40,21 @@ class SpriteTileset(NamedTuple):
     tables here are what the artist meant. The grid road is the one exception
     and it inverts this in exactly one place -- see `package.py`.
 
-    Why a record rather than three parallel dicts on the sheet: the palette
-    register is keyed by tileset name (`sprite.palettes["character"] = 3`), so
+    **The package's `default_palette` is not a field here.** It is the row
+    a fresh register starts on, and `PaletteBank.active` already is that row
+    -- so it is loaded into the bank and read back off it. A field beside the
+    bank holding the same number is two places to say one thing, and `copy()`
+    carries the register across, so the twin starts where the original did
+    without this record doing anything about it.
+
+    Why a record rather than two parallel dicts on the sheet: the palette
+    register is keyed by tileset name (`sprite.palette_index["character"] = 3`), so
     a caller that has the name wants the cutting and the bank together, and
     keying two dicts the same way is the shape that drifts.
     """
 
     atlas: Atlas
-    palettes: PaletteBank
-    default_palette: int
+    palette: PaletteBank
 
 
 class SpritePart(NamedTuple):
@@ -155,7 +160,7 @@ class SpriteSheet(CacheableResource):
     `ResourceManager` held one shared spec that per-sheet mutation must not
     contaminate. There is no `ResourceManager`; interning by path is the
     sharing, `copy()` is the escape, and the second type had nothing left to
-    do. See `SPRITE_PORT.md` F4.
+    do.
     """
 
     @classmethod
@@ -289,8 +294,7 @@ class SpriteSheet(CacheableResource):
         twin._tilesets = {
             name: SpriteTileset(
                 atlas=tileset.atlas,
-                palettes=tileset.palettes.copy(),
-                default_palette=tileset.default_palette,
+                palette=tileset.palette.copy(),
             )
             for name, tileset in self._tilesets.items()
         }

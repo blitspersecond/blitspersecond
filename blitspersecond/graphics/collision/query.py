@@ -18,7 +18,7 @@ class CollisionQuery:
     coincident on screen, which is a semantic and not an implementation
     detail. The answer is a bool; detail comes from asking a narrower
     question, never from a richer return. Why, and what a box costs:
-    `bps/reference/collision.md`, "Asking".
+    `bps/reference/graphics/collision.md`, "Asking".
 
     Three things here are load-bearing rather than incidental:
 

@@ -1,38 +1,30 @@
 """The frame pacer: one question, asked once per presentation slot.
 
 **Is this slot the one the pending frame belongs on?** Yes, and it goes up
-and the engine is called for the next one. No, and it is held. That is the
-whole algorithm. There is no cadence table, no rational, and nothing
-computed ahead of time -- the familiar 3,2,3,2,2 at 60fps on a 144Hz panel is
-what that question ANSWERS, not what it consults.
+and the engine is called for the next one. No, and it is held.
 
 A frame belongs on the first slot at or after its deadline, and its deadline
 is `origin + frame * step` -- exact, from the engine's own frame count. Two
-properties fall out of that and the engine depends on both:
+properties fall out of that, and editing anything here means keeping both:
 
 * **Never early.** A frame cannot be shown before its deadline, so the game
   can never run fast, and a frame the engine finished early is HELD rather
   than shown into the previous frame's slot.
-* **The engine gets the whole gap.** The engine is called immediately after
-  the swap, so its budget is the interval to the next slot it must make --
-  13.89 to 20.83ms at 60-on-144, never the 1.39ms of slack that hitting an
-  ideal instant would leave it.
+* **The pacer decides WHEN a tick happens and never HOW MANY.** Both of this
+  module's sleeps release ticks, which makes it the engine's clock in
+  practice -- but `clock.frame` advances once per pass and the wait is
+  computed from a quantity with no panel term in it. A withheld present
+  cannot withhold simulation, and re-coupling those is the one change this
+  file must never accept.
 
-Overrun needs no rule. If the engine runs past the slot its frame was due
-on, that slot's answer was simply "not ready"; the next slot answers yes and
-the origin re-anchors to where the frame actually landed. The cycle restarts
-from there, which hands the recovering frame the FRONT gap -- `ceil(refresh /
-rate)`, provably the largest gap in the schedule, so the frame most likely to
-be in trouble gets the most room. Time lost stays lost: the engine measures
-in frames, and a slowdown is affordable where a compressed frame is not.
+`step` is the PACED step, which is not always `1/rate`: on a panel whose rate
+does not divide the authored one it is re-timed so the two grids stay
+commensurate. See `accepted_rate.py` -- the simulation is untouched, and what
+moves is how long one second lasts.
 
-This replaced a presentation-locked cadence that GRANTED ticks, where a
-withheld present withheld simulation and a compositor charging an extra
-refresh for a narrowly missed vblank ran the game at 75% speed. Nothing here
-can do that: the pacer decides when a frame is SHOWN and never how many times
-the engine runs. See `docs/bps/DECOUPLED_PRESENTATION.md`.
+The whole design, the measurements, and the alternatives it refuses:
+`bps/reference/engine/pacing.md`.
 """
-
 from collections import deque
 from math import ceil, isfinite
 from time import perf_counter, perf_counter_ns, sleep
@@ -40,6 +32,7 @@ from typing import TYPE_CHECKING
 
 from blitspersecond.system import Logger
 
+from .accepted_rate import RATE_TOLERANCE, AcceptedRate, accept_rate
 from .health import FlipHealth, PresentationMonitor
 from .path import detect_presentation_path
 from .sink import FramePacingSinkFactory
@@ -121,7 +114,15 @@ class PresentationSession:
     ) -> None:
         self._display = display
         self._logger = logger
+        # The authored step, and the fallback. The simulation is 1/60 and that
+        # never changes; what moves is how long the pacer makes one second
+        # last, so that ticks and slots stay commensurate. See
+        # `accepted_rate.py`.
+        self._desired_rate = target_rate
+        self._desired_step = step
         self._step = step
+        self._accepted: AcceptedRate | None = None
+        self._reported_accepted: float | None = None
 
         refresh_rate = display.refresh_rate
         # A reported mode is only trustworthy if it is finite and at least
@@ -173,6 +174,20 @@ class PresentationSession:
         self._recent_work: deque[float] = deque(maxlen=_RESERVE_WINDOW)
         self._late = 0
 
+        # The re-timed rate rides on the grid line rather than getting one of
+        # its own: two adjacent "Pacing ..." lines said the same thing twice,
+        # and the reasoning belongs in `bps/reference/engine/pacing.md`.
+        accepted = self._accepted
+        # Only when it was actually adopted. A rate outside tolerance is
+        # refused and the authored step stands, so reporting it here would
+        # name a rate nothing is ticking at.
+        retimed = (
+            f", ticking at {accepted.rate:.3f}fps ({accepted.error:+.2%})"
+            if accepted is not None
+            and accepted.within_tolerance
+            and not accepted.exact
+            else ""
+        )
         if self._uses_dwm_clock:
             from .dwm import DWM_SUBMIT_LEAD
 
@@ -182,13 +197,13 @@ class PresentationSession:
             logger.info(
                 f"Pacing frames against DWM's {self._refresh_rate:.6f}Hz "
                 f"composition clock ({DWM_SUBMIT_LEAD * 1000:.3f}ms before "
-                f"vblank; configured mode {configured})."
+                f"vblank; configured mode {configured}){retimed}."
             )
         else:
             logger.info(
                 f"Pacing frames against a {self._refresh_rate:.3f}Hz "
                 f"notional slot grid "
-                f"({'configured' if refresh_rate else 'assumed'})."
+                f"({'configured' if refresh_rate else 'assumed'}){retimed}."
             )
 
     # -- the grid ------------------------------------------------------------
@@ -215,29 +230,16 @@ class PresentationSession:
         """The first slot boundary at or after `after`.
 
         On Win32 this is DWM's absolute QPC vblank grid, shifted earlier by
-        the measured submission lead.  Its period is live rather than the
-        configured mode's nominal value, so it neither starts on DWM's latch
-        boundary nor walks onto it over a long run.
+        the measured submission lead. Elsewhere the period comes from the
+        panel and **the phase is arbitrary** -- wherever `perf_counter` zero
+        fell, with no relationship to a real retrace.
 
-        Elsewhere this is a NOTIONAL grid. Its period comes from the panel;
-        its phase is wherever `perf_counter` zero happened to fall and has no
-        relationship to a real vertical retrace. It does not need one: the
-        cadence is carried by the INTERVALS, so two submits two notional slots
-        apart are two real periods apart, whatever the grids' offset.
-
-        There is no way to do better on this path in any case. GLX's
-        `glXGetSyncValuesOML` looked like a vblank clock and is not: polled
-        460 times across 0.5s without swapping, UST and MSC each returned a
-        single distinct value (Mesa/radeonsi, XWayland, 2026-08-27). Both are
-        tied to swaps, so neither locates a retrace.
-
-        A consequence worth keeping in mind rather than acting on: if this
-        grid happens to sit ON the real one, ordinary timing jitter would push
-        individual frames across a boundary and they would land a slot early
-        or late intermittently. That shows up as intervals off the 2/3
-        pattern in `display.frame.ms` -- and the fix, if it ever appears, is
-        to shift this grid by an arbitrary fraction of a period. Not measured
-        as a problem: p99 20.878 against a 20.833 expectation, no outliers.
+        That is sufficient rather than a compromise, and the reasoning is
+        worth having before changing it: the target is the interval between
+        two vblanks, not an instant, so equal spacing puts submits in
+        successive real intervals whatever the offset. `_watch_phase` handles
+        the one case where an arbitrary phase can still be wrong. See
+        `bps/reference/engine/pacing.md`, "The slot grid is notional".
         """
         return self._phase + ceil(
             (after - self._phase) / self._period - 1e-9
@@ -251,25 +253,15 @@ class PresentationSession:
     def wait_for(self, frame: int) -> None:
         """Sleep until it is time to put `frame` on screen.
 
-        The target is the frame's slot MINUS the latch margin, because the
-        compositor stops accepting content for a slot some way before the
-        vblank itself. Submitting at the boundary would hand the frame to the
-        FOLLOWING slot -- a whole schedule silently one slot late, with every
-        submission-side metric reading identically clean.
+        **No spin, and no submission lead on this path.** Both follow from
+        the target being an interval rather than an instant: `sleep` lands
+        within 0.080ms of where it is asked to, which is two orders of
+        magnitude finer than a slot, so sharpening it buys accuracy against a
+        requirement that does not exist. The only lead anywhere is Win32's,
+        folded into the phase by `dwm.py`.
 
-        **No spin.** `sleep` is a high-resolution wait on both platforms of
-        interest, and burning a core to sharpen it bought accuracy that was
-        already there. Measured on Linux/CPython 3.14: waking lands within
-        0.080ms of target worst case, and the submit still arrives 0.906ms
-        (p50) ahead of its slot out of the 1ms budget -- only ~90us of margin
-        is lost to wake error plus the work in between. The spin cost 13.4%
-        of a core against 1.9% without it, for no measurable accuracy.
-        Python has used a high-resolution waitable timer on Windows since
-        3.11, so the same should hold there; it has not been measured.
-
-        This also drops the wake rate from the PANEL rate to the FRAME rate
-        -- one wake per frame rather than one per slot to poll. At 60fps on a
-        144Hz panel, 60 wakes a second rather than 144.
+        Wakes at the FRAME rate rather than the panel rate, because the slot
+        is computed rather than polled for.
 
         Returns immediately when the slot has already passed, which is the
         overrun case: the frame goes up at once and `anchor` restarts the
@@ -299,34 +291,25 @@ class PresentationSession:
     def wait_before_tick(self, frame: int) -> None:
         """Sleep until the engine needs to start building `frame`.
 
-        Without this the engine runs the instant the previous frame goes up,
-        finishes in a fraction of its budget, and the composed frame then
-        sits in the back buffer for the rest of the interval -- measured at
-        p50 13.9ms and p90 20.8ms on a 144Hz panel, essentially a whole frame
-        of input-to-photon latency spent waiting.
+        Starting late is what keeps input sampled close to the moment the
+        frame is shown. It is a trade, not a free win: the engine gets the
+        reserve rather than the interval to the next slot, and a frame that
+        overruns the reserve slips one. `late` counts how often that bet was
+        wrong.
 
-        Starting late instead means input is sampled close to the moment the
-        frame is shown. **This deliberately gives up the whole-gap budget**
-        the engine otherwise has: it now gets the reserve, and a frame that
-        overruns the reserve slips a slot. That is a real trade and not a
-        free win -- the reserve is what buys it back, and `late` counts how
-        often the bet was wrong.
+        **The target comes from the frame's DEADLINE, never from its slot.**
+        Deadlines are evenly spaced by construction; slots alternate two and
+        three. Taking the slot makes the pump inherit that alternation, which
+        is the game clock itself running unevenly -- measured swinging
+        between 13.84 and 20.89ms. This is the single easiest thing to get
+        wrong in this file and it reads as a harmless simplification.
 
-        **Anchored to the frame's DEADLINE, not to its slot.** The deadline
-        is `origin + frame * step`, evenly spaced by construction, so the
-        engine is pumped at even 16.67ms intervals. Anchoring to the slot
-        instead makes the pump inherit the grid's 2-and-3 alternation --
-        measured as a tick interval swinging between 13.84 and 20.89ms, which
-        is the game clock itself running unevenly. Sampling input on an even
-        cadence matters more than the frame's remaining wait, and that wait
-        cannot be made constant anyway: a frame can only be shown on a slot,
-        and the slots are not evenly spaced against the tick rate.
-
-        The reserve must therefore cover the work AND the latch margin, since
-        a deadline landing exactly on a slot leaves no slack between them.
+        The reserve must cover the work and whatever the sleep overshoots by,
+        which is why it is a doubled worst case rather than a tight estimate.
 
         Does not sleep for less than `_SLEEP_FLOOR`; below that the wake
-        costs more than the wait is worth.
+        costs more than the wait is worth. Why this trade is worth making, and
+        what it costs: `bps/reference/engine/pacing.md`.
         """
         start_by = self.deadline(frame) - self.reserve
         remaining = start_by - perf_counter()
@@ -505,6 +488,46 @@ class PresentationSession:
         off_pattern = getattr(self, "_off_pattern", None)
         if off_pattern is not None:
             off_pattern.clear()
+        self._accept_rate()
+
+    def _accept_rate(self) -> None:
+        """Re-time the deadline grid so it stays commensurate with the slots.
+
+        Called from `_synchronise_grid`, so every route that settles a refresh
+        rate re-times with it -- construction, a window moving to another
+        output, and a resume.
+
+        **This changes the pacer's step and never the clock's.** A game
+        authored at 60 ticks a second still gets exactly sixty ticks in every
+        one of its seconds; on a 59.94Hz panel that second takes 1001ms of
+        wall time instead of 1000. `pace` reports the difference, which is
+        what it is for.
+
+        An accepted rate outside tolerance is refused rather than used: the
+        authored step goes back, which is the behaviour without any of this,
+        so a panel this cannot help is left exactly as it was.
+        """
+        accepted = accept_rate(self._desired_rate, self._refresh_rate)
+        self._accepted = accepted
+        self._step = (
+            accepted.step if accepted.within_tolerance else self._desired_step
+        )
+        if self._reported_accepted == accepted.rate:
+            return
+        self._reported_accepted = accepted.rate
+        if not accepted.within_tolerance:
+            self._logger.warning(
+                f"No rate within {RATE_TOLERANCE * 100:.0f}% of "
+                f"{accepted.desired:.0f}fps divides a {accepted.refresh:.3f}Hz "
+                f"panel (nearest {accepted.rate:.3f}fps, {accepted.error:+.2%}); "
+                f"pacing at {accepted.desired:.0f}fps and accepting a periodic "
+                f"repeat."
+            )
+
+    @property
+    def accepted(self) -> AcceptedRate | None:
+        """The rate this panel is being paced at, and how far off it is."""
+        return self._accepted
 
     # -- instrumentation hooks ----------------------------------------------
 

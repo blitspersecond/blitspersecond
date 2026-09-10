@@ -52,14 +52,14 @@ def test_every_view_writes_through_to_the_state(bullets: Sprite) -> None:
     swarm.orientation[:] = int(Orientation.FLIP_H)
     swarm.visible[:] = True
     swarm.collide[3] = True
-    swarm.palettes[:] = 0
+    swarm.palette_index[:] = 0
     swarm.assemblies[:] = bullets.assembly_id("pink")
 
     assert swarm[5].x == 15
     assert swarm[5].orientation is Orientation.FLIP_H
     assert swarm[5].visible is True
     assert swarm[3].collide is True and swarm[4].collide is False
-    assert swarm[5].palettes[bullets.sheet.primary_tileset] == 0
+    assert swarm[5].palette_index[bullets.sheet.primary_tileset] == 0
     assert swarm[5].assembly == "pink"
 
 
@@ -80,7 +80,7 @@ def test_the_views_are_numpy_views_not_copies(bullets: Sprite) -> None:
         swarm.assemblies,
         swarm.visible,
         swarm.collide,
-        swarm.palettes,
+        swarm.palette_index,
     ):
         assert view.base is not None
 
@@ -90,7 +90,7 @@ def test_there_is_no_colour_view_and_it_says_where_to_go(bullets: Sprite) -> Non
     broadcast, which would have read as a per-presentation array and silently
     swallowed every write to it -- the same failure `_span` raises over."""
     swarm = bullets.after.extend(4)
-    with pytest.raises(AttributeError, match="vary `palettes`"):
+    with pytest.raises(AttributeError, match="vary `palette_index`"):
         swarm.color
 
 

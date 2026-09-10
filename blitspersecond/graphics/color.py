@@ -2,7 +2,7 @@
 
 Outside the palette package because it depends on nothing there: a buffer or
 an atlas can name a colour without importing tables. Documented with them
-anyway, at `bps/reference/palette.md`, because that is where a reader looks.
+anyway, at `bps/reference/graphics/palette.md`, because that is where a reader looks.
 """ 
 
 from __future__ import annotations

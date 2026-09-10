@@ -40,9 +40,10 @@ models actually did.
 
 The package ships four tables, one per sister, and they are costumes rather
 than shades. So this generates the shades: six per sister, each pulled further
-toward her signature colour and darker than the last, appended to the bank at
-load with `PaletteBank.extend`. A ghost then costs one register write, exactly
-like a costume swap, because that is what it now is.
+toward her signature colour and darker than the last, written into spare rows
+of the bank at load -- `bank[row] = bank[costume]`, then the operators. A ghost
+then costs one register write, exactly like a costume swap, because that is
+what it now is.
 
 Pulling toward her colour rather than only darkening is what makes the trail
 read as a silhouette of HER rather than as a dim copy: the palette's variety
@@ -172,7 +173,7 @@ def main() -> None:
 
         # The register, not the pixels. Her sisters on the other rows are
         # reading different tables out of the same tileset.
-        sprite.palettes["character"] = palette
+        sprite.palette_index["character"] = palette
 
         # Her six shades, derived once into the spare rows named above. Step
         # 1 is the faintest change and step GHOSTS is the deepest, so the list
@@ -191,7 +192,7 @@ def main() -> None:
         # her sister two layers up sees these rows too. That is deliberate and
         # it is the same law pixels follow: `bank.copy()` is how a holder that
         # wants its own colours stops sharing.
-        bank = sheet.tilesets["character"].palettes
+        bank = sheet.tilesets["character"].palette
         shades = []
         for step in range(1, GHOSTS + 1):
             row = SHADE_ROW + step - 1
@@ -215,7 +216,7 @@ def main() -> None:
             # distance along the chain IS age, and the deepest shade goes at
             # the far end. Read the index backwards rather than reversing the
             # list: the chain's order is the thing being expressed.
-            ghost.palettes["character"] = shades[GHOSTS - 1 - index]
+            ghost.palette_index["character"] = shades[GHOSTS - 1 - index]
             ghost.collide = False
 
         start = float(left + (row - 1) * STAGGER)

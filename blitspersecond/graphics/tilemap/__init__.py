@@ -1,7 +1,7 @@
 """The tilemap: a grid of cells indexing one sheet, with a camera onto a
 world larger than the screen.
 
-`bps/reference/tiles.md` is the authority on this pillar -- the contract, the
+`bps/reference/graphics/tiles.md` is the authority on this pillar -- the contract, the
 costs, what refuses, and why the camera splits the way it does.
 
 The contract everything here follows from:

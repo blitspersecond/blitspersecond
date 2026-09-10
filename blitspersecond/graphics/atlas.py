@@ -348,7 +348,7 @@ class Atlas:
 
         Eagerly, to avoid a CLUSTER rather than to save one rect's 8us: a
         scene bringing two hundred new poses into view in one frame would pack
-        them all in that frame. `bps/reference/atlas.md` has the figures, and
+        them all in that frame. `bps/reference/graphics/atlas.md` has the figures, and
         the whole-sheet `packbits` form that was measured and rejected.
         """
         for key in self.keys():
@@ -394,7 +394,7 @@ class Atlas:
         transparent, and `PixelBuffer.mask` says so if asked of a direct one.
 
         Why it lives here rather than in collision, and what sharing it buys:
-        `bps/reference/atlas.md`, "Solidity: one rect, turned, packed".
+        `bps/reference/graphics/atlas.md`, "Solidity: one rect, turned, packed".
         """
         source = self._buffer.mask
         if not self._primed:
@@ -439,7 +439,7 @@ class Atlas:
             named.rect("blue")  the same question, keyed by name
 
         Two questions about one rect, and which you want depends on whether
-        you compose on the CPU or on the GPU -- see `bps/reference/atlas.md`,
+        you compose on the CPU or on the GPU -- see `bps/reference/graphics/atlas.md`,
         "What comes out of a rect".
         """
         x, y, w, h = self._rects[self._row(key)]

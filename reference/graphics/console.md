@@ -2,7 +2,7 @@
 
 The console is a 256-glyph, byte-addressed character engine that is also a
 layer. This page is how it works, why it is shaped this way, and what it
-deliberately does not do. The [guide's console page](../guide/console.md)
+deliberately does not do. The [guide's console page](../../guide/console.md)
 teaches the surface; this one assumes you have read it.
 
 It is one class answering to two audiences. Reach for `cell`, `glyph` and

@@ -18,7 +18,7 @@ the stage is shared with the sprite pillar, where a tileset carries a bank.
 policy.** Solidity is derived from palette index 0 meaning transparent, so an
 RGBA sheet has nothing to derive a mask from. A tilemap asked for both refuses
 at construction rather than carrying an always-empty plane -- do not "fix"
-that refusal into a silent fallback. See `bps/reference/tiles.md`, "One bind,
+that refusal into a silent fallback. See `bps/reference/graphics/tiles.md`, "One bind,
 one draw call".
 
 Both programs are module-level and built on first use. Lazy because compiling

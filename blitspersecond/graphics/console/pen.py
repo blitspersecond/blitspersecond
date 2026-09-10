@@ -5,12 +5,12 @@
 # It lives here, with the glyph grid it stamps into, because a pen writes
 # GLYPHS -- four slots because a glyph has four planes -- and nothing in tile
 # or sprite has ever mentioned one. Two earlier addresses (`colors`, then
-# `graphics.common`) are recorded in `bps/reference/console.md`.
+# `graphics.common`) are recorded in `bps/reference/graphics/console.md`.
 #
 # The decisions this file embodies -- why facing is on the instrument, why
 # there is one pen class and not two, why slots go by number, the two roads
 # through `paint`, why a pen binds to a SIZE, and why the system pen is
-# (0, 1, 0, 0) -- are in `bps/reference/console.md`, "The pen". Do not
+# (0, 1, 0, 0) -- are in `bps/reference/graphics/console.md`, "The pen". Do not
 # re-derive them here; several are reversals and the net position is only
 # stated there.
 

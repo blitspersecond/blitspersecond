@@ -4,7 +4,7 @@ Internal because **you never name any of this.** It is reached by writing
 a colour, and its whole job is that a bad one is refused where it was
 written rather than resolved into the wrong picture three subsystems away.
 
-Every refusal, by name and with its message: `bps/reference/palette.md`.
+Every refusal, by name and with its message: `bps/reference/graphics/palette.md`.
 """
 
 from __future__ import annotations

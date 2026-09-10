@@ -189,9 +189,9 @@ window-sized viewport on its way out. Nothing that composes needs to know a
 window exists.
 
 **The empty case is exactly a clear and a swap**, deliberately. The
-frame-pacing figures in [DECOUPLED_PRESENTATION.md](../../docs/bps/DECOUPLED_PRESENTATION.md)
-were all measured against a clear-and-swap, and they stay comparable only
-while a game with no layers still costs that and nothing more.
+frame-pacing figures in [pacing.md](../engine/pacing.md) were all measured
+against a clear-and-swap, and they stay comparable only while a game with no
+layers still costs that and nothing more.
 
 Each layer syncs its own GPU state and issues its own draw. The compositor
 sequences the pass; it does not render — see [Not a renderer](#not-a-renderer).

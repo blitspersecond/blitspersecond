@@ -70,7 +70,7 @@ class TileMap(Layer):
         island.tile[42]     one cell of the SHEET  -> a Tile
         island.cell[x, y]   one cell of the WORLD  -> (Tile, Orientation)
 
-    `bps/reference/tiles.md` is the authority: the contract, the costs, what
+    `bps/reference/graphics/tiles.md` is the authority: the contract, the costs, what
     refuses, the camera split, and what this pillar is not.
 
     Three rules that constrain edits here:
@@ -139,7 +139,7 @@ class TileMap(Layer):
         # no placements yet, and cleared by whichever of the two roads fills
         # it: the refill, when it paints a whole window, or `_rebuild_collision`
         # when there was nothing for the refill to do. See
-        # `bps/reference/collision.md`, "When a question is answered".
+        # `bps/reference/graphics/collision.md`, "When a question is answered".
         #
         # Only a tick can set it and only the commit reads it, so the two
         # never interleave -- the plane is built after the game's code has
@@ -172,12 +172,12 @@ class TileMap(Layer):
         # a table on the image would make them share it with no road to part.
         # The other 255 rows are the system palette until something fills
         # them, and moving `palette.active` is how a map changes scheme.
-        self._palettes = PaletteBank()
+        self._palette = PaletteBank()
         embedded = self._tileset.buffer.embedded_palette
         if embedded is not None:
-            self._palettes.texels[0, : len(embedded), :3] = embedded
-            self._palettes.texels[0, 0, 3] = 0
-            self._palettes.dirty = True
+            self._palette.texels[0, : len(embedded), :3] = embedded
+            self._palette.texels[0, 0, 3] = 0
+            self._palette.dirty = True
 
         # The camera. `_scroll` is where the game is looking, in world pixels
         # and free to be fractional. The other three describe THE FRAME THAT
@@ -255,7 +255,7 @@ class TileMap(Layer):
             level.wrap = (True, False)      # and a level that loops
 
         Off by default on both axes. Per axis because the useful worlds need
-        them different -- see `bps/reference/tiles.md`, "Worlds with no edges".
+        them different -- see `bps/reference/graphics/tiles.md`, "Worlds with no edges".
 
         This costs nothing to have on. The world is not copied, tiled or
         grown: a wrapped axis stops clamping the visible window, and the cells
@@ -734,13 +734,13 @@ class TileMap(Layer):
         map's bank to another and they share it, deliberately; `copy()` is how
         one of them stops.
         """
-        return self._palettes
+        return self._palette
 
     @palette.setter
     def palette(self, value: PaletteBank) -> None:
         if not isinstance(value, PaletteBank):
             raise TypeError(f"expected PaletteBank, got {type(value)}")
-        self._palettes = value
+        self._palette = value
 
     @property
     def scroll(self) -> Tuple[float, float]:
@@ -759,7 +759,7 @@ class TileMap(Layer):
 
         **A camera, not a move.** `Console.scroll` shifts its contents and
         blanks the gap; this moves a view over a world that is already there.
-        Same word, different extents; `bps/reference/tiles.md` says why each
+        Same word, different extents; `bps/reference/graphics/tiles.md` says why each
         is right for its pillar.
         """
         return self._scroll
@@ -1144,12 +1144,12 @@ class TileMap(Layer):
         program["sprite_texture"] = 0
         if self._tileset.buffer.mode == "P":
             # Palette RAM on unit 1, as a texture rather than a uniform
-            # array: see `bps/reference/palette.md`. The upload happens here, at
+            # array: see `bps/reference/graphics/palette.md`. The upload happens here, at
             # the head of the composite, so it cannot land mid-pass and
             # disturb the unit the sheet is bound to. Unit 0 is left active
             # because the batch binds the sheet there.
             program["palette_texture"] = 1
-            table = self._palettes.texture
+            table = self._palette.texture
             glActiveTexture(GL_TEXTURE1)
             glBindTexture(table.target, table.id)
             glActiveTexture(GL_TEXTURE0)
@@ -1168,7 +1168,7 @@ class TileMap(Layer):
             self._tileset.buffer.texture,
             self._count,
             translate=(-float(fx), -float(fy)),
-            palette_row=self._palettes.active,
+            palette_row=self._palette.active,
         )
 
     def __repr__(self) -> str:

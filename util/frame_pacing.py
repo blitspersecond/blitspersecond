@@ -1,5 +1,106 @@
 #!/usr/bin/env python3
-"""Interpret BPS, MangoHud, PresentMon, and legacy BPS pacing captures."""
+"""Interpret BPS, MangoHud, PresentMon, and legacy BPS pacing captures.
+
+`bps/reference/engine/pacing.md` says what the numbers have to BE -- the
+thresholds and what a healthy run reads. This says how to get them out of a
+file. `capture_frame_pacing.py` is the other half, and takes the capture.
+
+Auto-detects `bps-frame-pacing-v1` CSV, Gamescope's coarse `-T` FIFO log,
+MangoHud versioned or plain CSV, PresentMon CSV, and the older
+`framepace_probe.py` NPZ. Gamescope's first FPS value is discarded here:
+upstream begins its prior-sample time at zero, so that sample is invalid.
+
+    venv/bin/python util/frame_pacing.py --refresh 120 \
+        captures/20260729-090000/bps-frame-pacing.csv \
+        captures/20260729-090000/python3.14_2026-07-29_09-00-00.csv
+
+**Multiple inputs stay separate in the report, deliberately.** Joining them row
+by row would fuse samples taken on unrelated clocks at unrelated rates.
+`--normalized result.csv` emits one long-form table for plotting and still
+names the source and measurement domain of every series.
+
+Use MangoHud's raw timestamped CSV, never its `_summary.csv` -- the summary has
+already thrown away the frame stream this reads.
+
+Startup and shutdown are included by default; trimming is explicit so that it
+is visible and repeatable:
+
+    venv/bin/python util/frame_pacing.py --refresh 119.88 \
+        --trim-start 120 --trim-end 30 capture.csv
+
+Refresh-slot analysis rounds each interval to the nearest refresh period and
+reports the slot-count distribution with its residual. **There is deliberately
+no universal "stutter score".** A two-slot interval is evidence of a missed or
+intentionally repeated opportunity only within the measurement domain named
+beside it, and the domains do not agree: BPS and MangoHud see submissions,
+PresentMon's `MsBetweenDisplayChange` sees the display, and nothing on Linux
+sees the panel at all.
+
+What the BPS columns mean -- one row per submitted foreground frame. A hidden
+or backgrounded iteration submits nothing and leaves a GAP rather than a
+misleading zero-work row:
+
+    elapsed_ms           iteration start, relative to recorder creation
+    frame_interval_ms    start-to-start app-loop interval
+    present_interval_ms  completion-to-completion submission interval
+    ticks, recomposed    simulation work, and whether the framebuffer changed
+    dispatch_ms          window event dispatch
+    simulation_ms        lifecycle, input snapshots, and the game tick
+    prepare_ms           composition and post-processing
+    wait_ms              after preparation, excluding the measured swap --
+                         normally the deadline wait
+    swap_ms              `Display.swap_duration`
+    deadline_error_ms    signed error immediately before a paced present
+    flip_health          the post-swap health-monitor verdict
+    presentation_path    the launch-time client/compositor path, including the
+                         launcher-recorded Gamescope outer backend
+
+`target_fps`, `refresh_hz` and `cadence` repeat in every row so a capture stays
+self-describing once moved off the machine that produced it.
+
+`pacing_mode` is the constant `slot` and `cadence` the constant `decoupled` in
+v1. Both should go in v2, along with explicit slip and reschedule facts -- and
+any loader must keep reading v1, or every capture already taken becomes
+unreadable.
+
+Reading a diagnosis:
+
+    high simulation_ms or prepare_ms     app work before submission
+    high wait_ms, stable intervals       expected -- that is the deadline wait
+    high swap_ms                         the window system withheld the app. It
+                                         does NOT say whether anything was shown
+    BPS stable, PresentMon unstable      the discrepancy is downstream of us
+    PresentMon stable, MangoHud noisy    the hook is measuring a different
+                                         boundary, or perturbing it
+    X Present UST/MSC                    usable only if the capture shows them
+                                         advancing per completion. An extension
+                                         version is not evidence of anything
+    CPU/GPU load                         sampled telemetry, not a duration
+                                         attributable to any one frame
+
+PresentMon fields, used separately and never joined by row number -- startup
+boundaries and event filtering differ:
+
+    MsBetweenPresents                    submission interval
+    MsBetweenDisplayChange (non-NA)      displayed-content interval
+    MsInPresentAPI                       time in the presentation API
+    MsUntilDisplayed, MsRenderPresentLatency   presentation latency
+    PresentMode, rows without a display change   delivery context and
+                                         undisplayed submissions
+
+Keep the raw files, the exact command, the display mode, windowed or
+fullscreen, VRR state, compositor and session type, and stdout/stderr
+together. That evidence outlives a screenshot of an average FPS counter.
+Paired files under `artifacts/framepacing/` are accepted directly and make
+useful regression fixtures.
+
+Formats parsed here are documented by their authors:
+MangoHud logging <https://github.com/flightlessmango/MangoHud#hud-configuration>
+and its 0.8.4 field order
+<https://github.com/flightlessmango/MangoHud/blob/v0.8.4/src/logging.cpp>;
+PresentMon metrics
+<https://github.com/GameTechDev/PresentMon/blob/main/README-CaptureApplication.md>.
+"""
 
 from __future__ import annotations
 

@@ -72,7 +72,7 @@ class Layer:
         Translucency is a per-LAYER effect and this is where it lives: a
         see-through overlay, an additive flash, a fog sheet. Not a way to fade
         one sprite among many; that is a palette row. See
-        `bps/reference/layers.md`.
+        `bps/reference/graphics/layers.md`.
         """
         return self._blend
 

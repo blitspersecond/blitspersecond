@@ -18,17 +18,38 @@ def _win32_refresh_rate(screen: Any) -> float | None:
     return query_refresh_rate(screen.get_display_id())
 
 
-def get_refresh_rate(screen: Any) -> float | None:
-    """Return the active screen's rate, preferring Win32's rational value.
+def _xrandr_refresh_rate(screen: Any) -> float | None:
+    """Query the CRTC's unrounded rate without importing X11 elsewhere."""
+    from .xrandr import query_refresh_rate
 
-    Pyglet's Win32 ``ScreenMode.rate`` comes from integer
-    ``DEVMODE.dmDisplayFrequency`` and truncates modes such as 120000/1001 to
-    119.  Other platforms, and Win32 API failures, retain pyglet's existing
-    mode-rate behaviour.
+    return query_refresh_rate(screen)
+
+
+def get_refresh_rate(screen: Any) -> float | None:
+    """Return the active screen's rate, preferring an unrounded source.
+
+    Pyglet reports an integer on both platforms that matter, by two different
+    routes, and both lose the part that decides whether the tick and slot
+    grids stay commensurate:
+
+    * Win32 ``ScreenMode.rate`` comes from integer
+      ``DEVMODE.dmDisplayFrequency``, which truncates 120000/1001 to 119.
+    * X11 ``ScreenMode.rate`` is ``round(dotClock / (hTotal * vTotal))``,
+      which reports a 59.91781Hz panel as 60.
+
+    A backend failure on either falls back to pyglet's mode rate, which is the
+    rounded value and no worse than having no backend at all.
     """
     if sys.platform == "win32":
         try:
             rate = _win32_refresh_rate(screen)
+        except (AttributeError, ImportError, OSError):
+            rate = None
+        if _usable(rate):
+            return float(rate)
+    elif sys.platform.startswith("linux"):
+        try:
+            rate = _xrandr_refresh_rate(screen)
         except (AttributeError, ImportError, OSError):
             rate = None
         if _usable(rate):

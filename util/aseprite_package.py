@@ -3,9 +3,9 @@
 
     util/aseprite_package.py assets/fumiko/fumiko.aseprite
 
-Aseprite is the authoring surface, never the runtime representation
-(docs/SPRITES.md). This is the import direction: a `.aseprite` file becomes
-the indexed PNG plus the `.sprite.json` the engine loads.
+Aseprite is the authoring surface, never the runtime representation. This is
+the import direction: a `.aseprite` file becomes the indexed PNG plus the
+`.sprite.json` the engine loads.
 
 Aseprite's own CLI does the packing, and does it better than we would --
 `--sheet` writes a strip that preserves INDEXED mode and the transparent
@@ -30,7 +30,7 @@ real game (the Chun-Li package), and `--plane`, which puts one naive box over
 the drawn extent so the named-plane machinery can be exercised at all.
 
 One palette, because a document has one. Fumiko's four hair colours were
-folded in from separate PNGs by hand, and a second pass over `palettes` is how
+folded in from separate PNGs by hand, and a second pass over `palette_index` is how
 that is done.
 
 Untagged frames named `frame-N`. An authoring document says what a run of
@@ -53,8 +53,8 @@ from PIL import Image
 
 #: One game tick at the engine's default rate. Aseprite stores milliseconds
 #: because it previews on a wall clock; packages store ticks because games
-#: run on a fixed step, and the conversion is the tool's job (SPRITES.md:
-#: "Milliseconds are a preview/export concern, never source timing").
+#: run on a fixed step, and the conversion is the tool's job: milliseconds are
+#: a preview and export concern and never reach the runtime.
 DEFAULT_FPS = 60
 
 

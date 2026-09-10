@@ -180,13 +180,20 @@ def test_a_parked_presentation_draws_nothing(window, bullets: Sprite) -> None:
     assert int(cols.min()) == 45  # the primary alone, art inset by one
 
 
-def test_the_colour_registers_reach_the_gpu(window, bullets: Sprite) -> None:
-    """Multiplied over whatever the palette produced, so zeroing two channels
-    leaves only the third -- which proves the attribute ARRIVED rather than
-    that the plan did something clever with it."""
+def test_a_palette_row_recolours_what_is_drawn(window, bullets: Sprite) -> None:
+    """What the colour registers used to prove, through the road that replaced
+    them: the sprite draws through a row of its bank, so writing a different
+    row changes the pixels that land.
+
+    Zeroing two channels of the ROW leaves only the third, which proves the
+    register arrived rather than that the plan did something clever with it.
+    """
     bullets.assembly = "blue"
     bullets.position = (32, 32)
-    bullets.green = bullets.blue = 0.0
+    row = bullets.sheet.tilesets[bullets.sheet.primary_tileset].palette.current
+    for index in range(1, 256):
+        colour = row[index]
+        row[index] = (colour.red, 0, 0)
     pixels = _compose(window, bullets)
     drawn = pixels[_lit(pixels)]
     assert drawn.size, "nothing was drawn at all"
@@ -265,7 +272,7 @@ def test_a_bank_is_one_texture_with_a_row_each(window, fumiko: Sprite) -> None:
     shade goes now that nothing grows.
     """
     window.switch_to()
-    bank = fumiko.sheet.tilesets["character"].palettes
+    bank = fumiko.sheet.tilesets["character"].palette
     assert len(bank) == 256
     table = bank.texture
     assert (table.width, table.height) == (256, 256)
@@ -291,8 +298,8 @@ def test_each_palette_register_draws_its_own_row(window, fumiko: Sprite) -> None
     fumiko.position = (16, 16)
 
     seen = []
-    for row in range(len(tileset.palettes)):
-        fumiko.palettes["character"] = row
+    for row in range(len(tileset.palette)):
+        fumiko.palette_index["character"] = row
         pixels = _compose(window, fumiko)
         # No flip. Row 0 of a readback is the bottom of the framebuffer, and
         # this pass draws the art bottom-up into it -- the present pass owns
@@ -301,7 +308,7 @@ def test_each_palette_register_draws_its_own_row(window, fumiko: Sprite) -> None
         # bullet's symmetric circle cannot.
         drawn = pixels[16 : 16 + rect.height, 16 : 16 + rect.width, :3]
         assert np.array_equal(
-            drawn[opaque], _resolved(tileset.palettes, row, source)[opaque]
+            drawn[opaque], _resolved(tileset.palette, row, source)[opaque]
         )
         seen.append(drawn[opaque].copy())
 
@@ -319,10 +326,10 @@ def test_a_costume_swap_is_a_row_not_a_bind(window, fumiko: Sprite) -> None:
     ghost.assembly = "idle-0"
     ghost.position = (0, 16)
     ghost.visible = True
-    ghost.palettes["character"] = 1
+    ghost.palette_index["character"] = 1
     fumiko.assembly = "idle-0"
     fumiko.position = (36, 16)
-    fumiko.palettes["character"] = 3
+    fumiko.palette_index["character"] = 3
     fumiko._sync()
 
     runs = fumiko._plan.runs
@@ -395,15 +402,15 @@ def test_a_spare_row_written_after_drawing_still_draws(window, fumiko: Sprite) -
     """
     fumiko.assembly = "idle-0"
     fumiko.position = (16, 16)
-    fumiko.palettes["character"] = 0
+    fumiko.palette_index["character"] = 0
     before = _compose(window, fumiko)
     assert _lit(before).any(), "nothing was drawn at all"
 
-    bank = fumiko.sheet.tilesets["character"].palettes
+    bank = fumiko.sheet.tilesets["character"].palette
     spare = 40
     bank[spare] = bank[0]
     bank[spare].duotone((255, 40, 40), 1.0).darken(0.5)
-    fumiko.palettes["character"] = spare
+    fumiko.palette_index["character"] = spare
     after = _compose(window, fumiko)
 
     # The sheet is interned and the bank is shared, deliberately: this sprite

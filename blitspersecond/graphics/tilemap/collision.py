@@ -3,7 +3,7 @@
 One persistent bit-packed plane per collidable map, stamped as quads are
 placed and translated destructively as the camera moves. The layout and the
 question are `graphics.collision`'s; what is here is the tile pillar's own way
-of filling one, argued in `bps/reference/tiles.md`, "The mask fills as the
+of filling one, argued in `bps/reference/graphics/tiles.md`, "The mask fills as the
 quads do".
 
 **Push, not pull.** The mask is written when content changes and never rebuilt

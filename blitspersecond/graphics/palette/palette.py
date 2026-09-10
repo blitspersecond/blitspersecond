@@ -2,7 +2,7 @@
 
 Bound, not a value: this holds a bank and a row number rather than a slice, so
 it stays valid for the life of the bank and a write reaches the table. The
-operator vocabulary and its costs: `bps/reference/palette.md`.
+operator vocabulary and its costs: `bps/reference/graphics/palette.md`.
 """
 
 from __future__ import annotations

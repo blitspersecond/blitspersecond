@@ -6,7 +6,7 @@ flag dirty. **Alpha never appears here**: it is decided by the index, so the
 hole survives every operator without any of them knowing about it.
 
 No `Operator` base class: arity is what the signature says. Costs, and why
-`duotone` and `blend` are two operators rather than one: `bps/reference/palette.md`.
+`duotone` and `blend` are two operators rather than one: `bps/reference/graphics/palette.md`.
 """
 
 from __future__ import annotations

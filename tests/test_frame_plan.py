@@ -186,7 +186,7 @@ def test_differing_palette_rows_cut_runs(fumiko: Sprite) -> None:
     ghosts = fumiko.before.extend(4)
     for n, ghost in enumerate(ghosts):
         ghost.assembly = "idle-0"
-        ghost.palettes["character"] = n
+        ghost.palette_index["character"] = n
         ghost.visible = True
     fumiko.assembly = "idle-0"
     fumiko._sync()
@@ -197,7 +197,7 @@ def test_adjacent_equal_palette_rows_merge(fumiko: Sprite) -> None:
     ghosts = fumiko.before.extend(4)
     for ghost in ghosts:
         ghost.assembly = "idle-0"
-        ghost.palettes["character"] = 2
+        ghost.palette_index["character"] = 2
         ghost.visible = True
     fumiko.assembly = "idle-0"
     fumiko._sync()
@@ -214,9 +214,9 @@ def test_a_material_is_never_merged_across_a_gap(fumiko: Sprite) -> None:
     for ghost in ghosts:
         ghost.assembly = "idle-0"
         ghost.visible = True
-    ghosts[0].palettes["character"] = 0
-    ghosts[1].palettes["character"] = 1
-    ghosts[2].palettes["character"] = 0
+    ghosts[0].palette_index["character"] = 0
+    ghosts[1].palette_index["character"] = 1
+    ghosts[2].palette_index["character"] = 0
     fumiko._sync()
     assert len(fumiko._plan.runs) == 3
 

@@ -75,10 +75,10 @@ def test_the_sprites_attributes_are_the_primary(bullets: Sprite) -> None:
     presentation -- two stores kept in step would pass a laxer check."""
     bullets.position = (160, 200)
     bullets.orientation = Orientation.FLIP_H
-    bullets.red = 0.5
+    bullets.visible = False
     assert bullets.primary.position == Location(160, 200)
     assert bullets.primary.orientation is Orientation.FLIP_H
-    assert bullets.primary.red == pytest.approx(0.5)
+    assert bullets.primary.visible is False
 
 
 def test_writing_the_primary_moves_the_sprite(bullets: Sprite) -> None:
@@ -247,7 +247,7 @@ def test_a_new_presentation_is_seeded_from_the_primary(bullets: Sprite) -> None:
     assert ghost.position == Location(40, 50)
     assert ghost.orientation is Orientation.FLIP_H
     tileset = bullets.sheet.primary_tileset
-    assert ghost.palettes[tileset] == bullets.palettes[tileset]
+    assert ghost.palette_index[tileset] == bullets.palette_index[tileset]
 
 
 def test_the_palette_register_is_seeded_too(tmp_path: Path) -> None:
@@ -255,9 +255,9 @@ def test_the_palette_register_is_seeded_too(tmp_path: Path) -> None:
     per-tileset dict rather than in the slot array, so it is the one value
     the pool cannot read for itself."""
     sprite = Sprite(SpriteSheet(_multipart_package(tmp_path, palettes=3)))
-    sprite.palettes["main"] = 2
+    sprite.palette_index["main"] = 2
     ghost = sprite.before.append()
-    assert ghost.palettes["main"] == 2
+    assert ghost.palette_index["main"] == 2
 
 
 def test_a_pose_the_presentation_could_not_accept_is_not_seeded(
@@ -390,7 +390,7 @@ def test_clearing_an_instanced_pose_is_always_allowed(tmp_path: Path) -> None:
 
 def test_the_primary_has_a_register_per_tileset(tmp_path: Path) -> None:
     sprite = Sprite(SpriteSheet(_multipart_package(tmp_path)))
-    assert set(sprite.palettes) == {"main", "fx"}
+    assert set(sprite.palette_index) == {"main", "fx"}
 
 
 def test_an_instanced_presentation_has_only_the_primary_register(
@@ -400,9 +400,9 @@ def test_an_instanced_presentation_has_only_the_primary_register(
     raises rather than accepting a write that would mean nothing."""
     sprite = Sprite(SpriteSheet(_multipart_package(tmp_path)))
     ghost = sprite.before.append()
-    assert set(ghost.palettes) == {"main"}
+    assert set(ghost.palette_index) == {"main"}
     with pytest.raises(KeyError) as excinfo:
-        ghost.palettes["fx"] = 0
+        ghost.palette_index["fx"] = 0
     assert "primary tileset" in str(excinfo.value)
 
 
@@ -410,10 +410,10 @@ def test_presentations_carry_their_own_registers(grid: Sprite) -> None:
     """The trail's whole effect is each ghost differing, so these must not
     share storage."""
     ghosts = grid.before.extend(2)
-    grid.palettes["sheet"] = 0
-    ghosts[0].palettes["sheet"] = 0
-    ghosts[1].palettes["sheet"] = 0
-    assert ghosts[0].palettes["sheet"] == 0
+    grid.palette_index["sheet"] = 0
+    ghosts[0].palette_index["sheet"] = 0
+    ghosts[1].palette_index["sheet"] = 0
+    assert ghosts[0].palette_index["sheet"] == 0
 
 
 # -- handles are views ---------------------------------------------------

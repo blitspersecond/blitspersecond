@@ -2,7 +2,7 @@
 
 Why 256 fixed, why one texture rather than one per palette, what the upload
 costs, and why sprites carry their own register instead of using `active`:
-`bps/reference/palette.md`.
+`bps/reference/graphics/palette.md`.
 """
 
 from __future__ import annotations
@@ -103,9 +103,13 @@ class PaletteBank:
         A register, not a property of the colours: moving it changes no table
         and does not dirty the bank.
 
-        **Everything holding this bank shares it.** A sprite does not use it --
-        two sprites over one sheet must point at different rows -- and carries
-        its own instead. `bps/reference/palette.md`.
+        **Everything holding this bank shares it.** A console and a tilemap
+        draw through it directly. A sprite does not -- two sprites over one
+        interned sheet must point at different rows -- so it reads this ONCE,
+        as the row a fresh register starts on, and carries its own from
+        there. That is what a package's `default_palette` becomes: this,
+        rather than a second field beside the bank saying the same number.
+        `bps/reference/graphics/palette.md`.
         """
         return self._active
 
@@ -148,7 +152,7 @@ class PaletteBank:
         **Read this at the head of a layer's composite.** An upload lands on
         whatever texture unit is active, so one arriving mid-pass disturbs the
         unit the art is bound to. Why a texture and not a uniform, and what
-        the upload costs: `bps/reference/palette.md`.
+        the upload costs: `bps/reference/graphics/palette.md`.
         """
         if self._texture is None:
             self._texture = Texture.create(
@@ -190,7 +194,7 @@ class PaletteBank:
         The escape from a bank that arrived shared: a sheet is interned, so
         two sprites over one sheet draw through one bank and a write by either
         reaches the other. This is a call rather than something the engine
-        does for you, so the moment it happens is in the code. `bps/reference/palette.md`.
+        does for you, so the moment it happens is in the code. `bps/reference/graphics/palette.md`.
         """
         twin = PaletteBank.__new__(PaletteBank)
         twin._table = self._table.copy()

@@ -48,7 +48,7 @@ class Sprite(Layer):
 
         chun = Sprite(SpriteSheet("chun-li.sprite.json"))
         bps.layers.add(chun)
-        chun.assembly = "stance-01"
+        chun.play("walk")
         chun.position = (160, 200)
 
     ## There is exactly one Sprite per layer
@@ -67,34 +67,22 @@ class Sprite(Layer):
     palette register.
 
     **Spend a layer to gain an answerable identity.** A fireball in flight
-    gets its own, because "did the fireball hit" has its own subject. That is
-    self-limiting in an honest way, and it is why `Console` and `TileMap` are
-    the same shape: reference had a `SpriteLayer` holding N `Sprite`
-    instances, and fusing them is the third and last time this tree makes that
-    collapse.
+    gets its own, because "did the fireball hit" has its own subject.
 
     ## What is drawn many times is not many sprites
 
-    A shadow trail, Dobkeratops's tail segments, twenty-five thousand bullets:
-    one identity, many quads. Those are **presentations** of one sprite, not
-    sprites, and they arrive at the next step. What this class holds today is
-    one presentation's worth of state, and that surface does not change when
-    the rest lands -- `chun.position = (160, 200)` is what a lone sprite's
-    author writes and will keep writing.
+    A shadow trail, a tail's segments, twenty-five thousand bullets: one
+    identity, many quads. Those are **presentations** of this sprite, held in
+    `before` and `after` -- see `presentation.py`. This class's own attributes
+    ARE its primary presentation, not a copy kept in step with one, so a lone
+    sprite reads as though presentations do not exist.
 
-    ## What it owns, and what a presentation owns
+    The **sheet** and the **origin** are the sprite's, always. The **clip** is
+    the sprite's because only the primary has a cursor. Pose, position,
+    orientation, the palette register and the two intent bits have a value per
+    presentation.
 
-    The **sheet**, the **origin** and (later) the **clip** are the sprite's,
-    in every case. Pose, position, orientation, palette registers, colour
-    registers and the two intent bits are **presentation-addressable** -- they
-    have a value per presentation, and where they physically live is the next
-    step's business. See `SPRITE_PORT.md` F5.
-
-    ## It does not draw yet
-
-    `_composite` is the base class's no-op. Adding one to a draw order is
-    legal and shows nothing, exactly as `TileMap` did between its shell and
-    its draw.
+    Every limit and refusal by name: `bps/reference/graphics/sprites.md`.
     """
 
     def __init__(self, sheet: SpriteSheet, tag: Optional[str] = None) -> None:
@@ -136,15 +124,14 @@ class Sprite(Layer):
         # One slot to begin with, and it is slot 0. A sprite with no
         # presentations is not a thing, so this is the floor rather than a
         # default -- see `presentation.py`.
-        self._default_palette = sheet.tilesets[
+        self._default_index = sheet.tilesets[
             sheet.primary_tileset
-        ].default_palette
-        self._slots = Slots(self._default_palette)
+        ].palette.active
+        self._slots = Slots(self._default_index)
         #: The sprite's colour registers: RGB multipliers over whatever the
         #: palette produced. ONE set per sprite, reached through any of its
         #: presentations -- see `Presentation.red`. There is no alpha: a
         #: pixel is drawn or discarded.
-        self._color = np.ones(3, dtype=np.float32)
         # Draw order, kept apart from identity: two arrays of slot ids with
         # the primary implicitly between them. See `presentation.py`.
         self._before = np.empty(0, dtype=np.int32)
@@ -157,8 +144,8 @@ class Sprite(Layer):
         # then the sheet's own bank is what draws -- so unextended siblings
         # share a bank object, and a bank owns its texture, so they share its
         # upload and its bind too.
-        self._slot0_palettes = {
-            name: tileset.default_palette
+        self._slot0_palette_index = {
+            name: tileset.palette.active
             for name, tileset in sheet.tilesets.items()
         }
         self._origin = Location(0, 0)
@@ -474,7 +461,7 @@ class Sprite(Layer):
         # outlive a pass, so the row another layer left behind is not known
         # to be this layer's first row.
         bound_row = None
-        for buffer, bank, row, colors, first, count in plan.runs:
+        for buffer, bank, row, first, count in plan.runs:
             # Touch the texture BEFORE binding either unit: `.texture` on a
             # buffer and on a bank both upload into whatever unit is active, so
             # they must not run between the unit assignments inside `draw_run`.
@@ -483,7 +470,6 @@ class Sprite(Layer):
                 texture,
                 bank.texture,
                 row,
-                colors,
                 first,
                 count,
                 bound_texture,
@@ -766,11 +752,12 @@ class Sprite(Layer):
         planes turn with the art: draw and planes share one formula precisely
         so they cannot drift.
 
-        **A caveat that lands with the draw, not here.** `applies_to` says a
-        rectangular source may only take the four shape-preserving
-        orientations -- but its reasoning is about a cell returning to its
-        grid and overflowing its neighbours, and a sprite has neither. Sprites
-        turn arbitrary rectangles routinely. See `SPRITE_PORT.md` F7.
+        **`applies_to` does not apply here.** It says a rectangular source
+        may only take the four shape-preserving orientations, and its
+        reasoning is about a cell returning to its grid and overflowing its
+        neighbours -- which a sprite has neither of. Sprites turn arbitrary
+        rectangles routinely. See `graphics/orientation.py`, which states the
+        rule as a question about the SLOT rather than about the source.
         """
         return self.primary.orientation
 
@@ -790,13 +777,13 @@ class Sprite(Layer):
         sheet share the bank and the texture while pointing their own
         registers wherever they like.
         """
-        return self._sheet.tilesets[tileset].palettes
+        return self._sheet.tilesets[tileset].palette
 
     @property
-    def palettes(self) -> PaletteRegisters:
-        """Per-tileset palette selection: `chun.palettes["character"] = 3`.
+    def palette_index(self) -> PaletteRegisters:
+        """Per-tileset palette selection: `chun.palette_index["character"] = 3`.
 
-        Defaults come from each tileset's `default_palette`, so a player's
+        Defaults come from each tileset's bank register, so a player's
         colour pick sets the character register while effects stay pinned.
         """
         return PaletteRegisters(self, PRIMARY)

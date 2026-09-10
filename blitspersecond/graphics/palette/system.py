@@ -73,7 +73,7 @@ def _default_row() -> np.ndarray:
     There is no `system_palette()` to call -- a bank comes up holding this, so
     a console or a blank canvas writes in real, named colours from the moment
     it exists. Why the tail is black and opaque rather than transparent:
-    `bps/reference/palette.md`.
+    `bps/reference/graphics/palette.md`.
     """
     row = np.zeros((SIZE, 4), dtype=np.uint8)
     # Opaque FIRST, for the whole row: the tail above 16 is black-opaque, not

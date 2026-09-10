@@ -17,11 +17,11 @@ that exists and lends it out as `bps.layers`, a getter with no setter.
 
 A palette table is NOT here: colour belongs to the layer drawing the art, so
 a `PaletteBank` owns its own 256x256 texture and uploads it -- see
-`graphics.palette` and `bps/reference/palette.md`. Shader PROGRAMS are not
+`graphics.palette` and `bps/reference/graphics/palette.md`. Shader PROGRAMS are not
 shared the way a bank is -- each
 engine compiles its own.
 
-The design record is `bps/reference/layers.md`.
+The design record is `bps/reference/graphics/layers.md`.
 """
 
 from .layer import Layer

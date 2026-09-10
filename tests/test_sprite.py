@@ -72,8 +72,8 @@ def test_two_sprites_over_one_sheet_are_two_identities(sheet: SpriteSheet) -> No
     p1, p2 = Sprite(sheet), Sprite(sheet)
     assert p1 is not p2
     assert p1.sheet is p2.sheet
-    p1.palettes["character"] = 3
-    assert p2.palettes["character"] == 0
+    p1.palette_index["character"] = 3
+    assert p2.palette_index["character"] == 0
 
 
 def test_the_sheet_has_no_setter(chun: Sprite) -> None:
@@ -268,8 +268,7 @@ def test_a_sprite_turns_rectangular_art(chun: Sprite) -> None:
     """Fumiko's cells are 24x32. `applies_to` would forbid a quarter turn of
     those -- but its reasoning is about a cell returning to its grid and
     overflowing its neighbours, and a sprite has neither. See
-    SPRITE_PORT.md F7; this pins the intended behaviour before the draw
-    exists to demonstrate it."""
+    `graphics/orientation.py`, which owns that rule."""
     chun.orientation = Orientation.ROT_90
     assert chun.orientation is Orientation.ROT_90
 
@@ -278,15 +277,15 @@ def test_a_sprite_turns_rectangular_art(chun: Sprite) -> None:
 
 
 def test_registers_seed_from_each_tilesets_default(chun: Sprite) -> None:
-    assert chun.palettes["character"] == 0
-    assert set(chun.palettes) == {"character"}
-    assert "character" in chun.palettes and len(chun.palettes) == 1
+    assert chun.palette_index["character"] == 0
+    assert set(chun.palette_index) == {"character"}
+    assert "character" in chun.palette_index and len(chun.palette_index) == 1
 
 
 def test_an_unknown_tileset_raises_naming_the_sheets(chun: Sprite) -> None:
     for action in (
-        lambda: chun.palettes["nope"],
-        lambda: chun.palettes.__setitem__("nope", 0),
+        lambda: chun.palette_index["nope"],
+        lambda: chun.palette_index.__setitem__("nope", 0),
     ):
         with pytest.raises(KeyError) as excinfo:
             action()
@@ -300,43 +299,44 @@ def test_a_palette_out_of_range_raises(chun: Sprite, index: int) -> None:
     register that silently did nothing would be art in the wrong colours with
     nothing reporting it."""
     with pytest.raises(ValueError, match="out of range"):
-        chun.palettes["character"] = index
+        chun.palette_index["character"] = index
 
 
 def test_registers_are_not_a_dict_subclass(chun: Sprite) -> None:
     """Reference subclassed `dict`, which left `update()` and friends as
     unguarded doors -- a register set through one would skip both the range
     check and the dirty mark."""
-    assert not isinstance(chun.palettes, dict)
-    assert not hasattr(chun.palettes, "update")
+    assert not isinstance(chun.palette_index, dict)
+    assert not hasattr(chun.palette_index, "update")
 
 
-# -- colour registers --------------------------------------------------
+# -- colour registers, removed ------------------------------------------
 
 
 @pytest.mark.parametrize("channel", ["red", "green", "blue"])
-def test_colour_registers_default_to_one_and_clamp(
-    chun: Sprite, channel: str
-) -> None:
-    assert getattr(chun, channel) == 1.0
-    setattr(chun, channel, 0.25)
-    assert getattr(chun, channel) == 0.25
-    setattr(chun, channel, 5.0)
-    assert getattr(chun, channel) == 1.0
-    setattr(chun, channel, -3.0)
-    assert getattr(chun, channel) == 0.0
+def test_there_are_no_colour_registers(chun: Sprite, channel: str) -> None:
+    """Removed 2026-09-09. RGB multipliers over whatever the palette produced
+    were a second recolouring mechanism beside the bank, and the weaker one:
+    a multiplier can only darken what is already there, where a row says what
+    colour it produces.
+
+    Refusals rather than deletions, so the old spelling explains itself. Read
+    as well as written, because `if sprite.red < 1` is as likely as the
+    assignment and an `AttributeError` on the read is just as mute.
+    """
+    for attempt in (lambda: getattr(chun, channel), lambda: setattr(chun, channel, 0.5)):
+        with pytest.raises(AttributeError, match="palette job"):
+            attempt()
 
 
-def test_the_channels_are_independent(chun: Sprite) -> None:
-    """`approx` because the registers are held at float32 -- the precision
-    they are sent at. A register that read back as an exact Python float
-    would be storing something the GPU never sees."""
-    chun.red = 0.1
-    chun.green = 0.2
-    chun.blue = 0.3
-    assert (chun.red, chun.green, chun.blue) == pytest.approx(
-        (0.1, 0.2, 0.3), rel=1e-6
-    )
+def test_the_refusal_names_the_road_out(chun: Sprite) -> None:
+    """A refusal that does not say what to do instead is an error message
+    twice: once for the caller and once for whoever reads the traceback."""
+    with pytest.raises(AttributeError) as raised:
+        chun.red = 0.5
+    message = str(raised.value)
+    assert "palette_index[tileset]" in message
+    assert "dimmer row" in message
 
 
 def test_there_is_no_alpha_register(chun: Sprite) -> None:
@@ -389,7 +389,7 @@ def test_collide_dirties_the_masks_alone(chun: Sprite) -> None:
         lambda s: setattr(s, "assembly", "walk-0"),
         lambda s: setattr(s, "origin", (2, 2)),
         lambda s: setattr(s, "orientation", Orientation.FLIP_H),
-        lambda s: s.palettes.__setitem__("character", 1),
+        lambda s: s.palette_index.__setitem__("character", 1),
     ],
 )
 def test_moving_the_pose_dirties_both(chun: Sprite, write) -> None:

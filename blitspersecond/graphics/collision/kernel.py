@@ -12,7 +12,7 @@ the draw side: two statements of one transform drift, and they drift
 invisibly.
 
 **Compiling is the exception in this engine, not the habit**, and the case for
-these two is written out in `bps/reference/collision.md` ("Why this is
+these two is written out in `bps/reference/graphics/collision.md` ("Why this is
 compiled") rather than assumed here. The short of it: `collide_any` is
 compiled so that a per-plane offset costs nothing, because in NumPy it does
 not and the tool would then have chosen a design where the mask moves with the
@@ -113,7 +113,7 @@ def collide_any(a, a_x, a_y, b, b_x, b_y, x0, x1, y0, y1):
 # is what a silhouette IS. So the unbuffered path is compulsory, and NumPy's
 # is `np.bitwise_or.at` -- a scalar read-modify-write loop through the ufunc
 # protocol, which is where 95% of the pre-compile cost went. See
-# `bps/reference/collision.md` for the measurements.
+# `bps/reference/graphics/collision.md` for the measurements.
 @njit(cache=True)
 def stamp_many(store, pattern, xs, ys):
     """OR one packed pattern into `store` at every `(x, y)` in `xs`, `ys`.

@@ -1,15 +1,8 @@
 """The sprite pillar's shader program: many quads, many materials, one pass.
 
-`quads.vert` + `indexed.frag`. The vertex stage is this pillar's OWN as of
-2026-09-02: it reads no vertex attributes at all and rebuilds each quad from
-a buffer texture indexed by `gl_VertexID / 4`. The tilemap and console keep
-`default.vert`.
-
-A shader storage buffer was built alongside it and removed on the same day: it
-does the same job, needs GL 4.3 -- above the rest of this engine and above
-macOS at 4.1 -- and measured about 1% ahead with the ranges overlapping. Kris:
-*"I don't think the complexity of maintaining two paths warrants the marginal
-performance gain"*. The figures are on the board card.
+`quads.vert` + `indexed.frag`. The vertex stage is this pillar's OWN: it reads
+no vertex attributes at all and rebuilds each quad from a buffer texture
+indexed by `gl_VertexID / 4`. The tilemap and console keep `default.vert`.
 
 Why these live beside the code that issues them rather than in a keyed
 `Shader.get(vert, frag)` cache is argued at length in
@@ -18,30 +11,17 @@ Why these live beside the code that issues them rather than in a keyed
 ## One program, not two
 
 The tilemap carries an `indexed`/`direct` pair because a tile sheet may be
-RGBA -- fog, cloud, high-colour backdrops, which nothing asks collision
-questions about. **A sprite sheet is indexed by construction.** A package's
-tilesets are validated indexed at load, and the grid road refuses a
-non-indexed image outright and points it at the tile pillar. So there is no
-branch here and nothing to choose: unit 0 carries palette indices, unit 1 the
-tileset's whole bank as a 256x256 table the `PaletteBank` owns and uploads,
-and `palette_row` says which row of it to read.
+RGBA. **A sprite sheet is indexed by construction** -- a package's tilesets
+are validated indexed at load, and the grid road refuses a non-indexed image
+outright and points it at the tile pillar. So there is no branch here: unit 0
+carries palette indices, unit 1 the tileset's whole bank as a 256x256 table,
+and `run_palette_row` says which row to read.
 
-That is not a limitation being accepted quietly. Palette indices are what make
-the pillar's colour model work at all -- per-presentation palette registers, a
-recolourable character with pinned effects, a mirror match costing one sheet.
-An RGBA sprite would have none of it.
+`run_palette_row` is set per RUN; `run_colors` is set once per PASS and
+nothing drives it -- see `SpriteBatch.begin`.
 
-## What is per draw here
-
-`run_colors` and `run_palette_row` are uniforms set per RUN. They were generic
-vertex attributes until this pillar stopped having vertex attributes at all;
-same shape, same cost, one ctypes call each.
-
-Only the row is really per run. Colour belongs to the SPRITE since the tier
-collapse, so a chain carries one value and cannot cut a run with it -- see
-`Presentation.red`. The row can: a costume swap between two presentations used
-to be a second texture on unit 1 and is a number now, because the bank they
-both belong to is one table.
+Why an RGBA sprite would lose the pillar's colour model, and why the SSBO
+path did not ship: `bps/reference/graphics/sprites.md`, "The draw".
 """
 
 from typing import Optional

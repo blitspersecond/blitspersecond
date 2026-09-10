@@ -228,7 +228,7 @@ class Report:
         pace = self.pace()
         if pace is not None:
             logger.info(
-                f"Pace: {pace * 100:.2f}% "
+                f"Pace: {pace * 100:.3f}% "
                 f"(game time delivered per unit of wall time)"
             )
         for summary in summaries:
