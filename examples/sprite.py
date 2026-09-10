@@ -195,11 +195,11 @@ def main() -> None:
         bank = sheet.tilesets["character"].palette
         shades = []
         for step in range(1, GHOSTS + 1):
-            row = SHADE_ROW + step - 1
-            bank[row] = bank[palette]
-            bank[row].duotone(signature, step / GHOSTS)
-            bank[row].darken(DEEPEST * step / GHOSTS)
-            shades.append(row)
+            shade = SHADE_ROW + step - 1
+            bank[shade] = bank[palette]
+            bank[shade].duotone(signature, step / GHOSTS)
+            bank[shade].darken(DEEPEST * step / GHOSTS)
+            shades.append(shade)
 
         # The trail. Allocated once and never grown: what changes per tick is
         # the CONTENTS of these four, not how many there are or where they sit
