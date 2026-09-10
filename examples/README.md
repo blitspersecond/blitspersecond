@@ -1,8 +1,16 @@
 # Examples
 
-These are polished, maintained demonstrations of the current public API. Each
-one should be suitable for support by the eventual manual, rather than merely
-being a large program that happens to exercise the engine.
+These are polished, maintained demonstrations of the current public API.
+
+**An example earns its place by being driven by a page in `bps/guide/`.** Not
+by covering a pillar, and not by being a large program that happens to
+exercise the engine — a demo with no page teaching from it is one nobody is
+reading and nobody notices has broken. Exercising a subsystem is what the
+`testsuite` fixtures are for, and they are measured against the screen rather
+than read.
+
+So a pillar with no guide page has no example here yet, and that is the
+correct state rather than a gap.
 
 - `console.py` — the smallest complete console-input program
 - `pen.py` — flat pens, facing, and where a gradient comes from
@@ -11,7 +19,6 @@ being a large program that happens to exercise the engine.
   direct cell writes and runs, and a console layered over the top
 - `gamepad.py` — move a sprite through the direct gamepad surface, off a
   bare image read as a sprite grid
-- `sprite.py` — play a clip from a sprite package, and turn around
 - `tmx.py` — load a compatible TMX map and stamp its island onto a
   tile layer
 
