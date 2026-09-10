@@ -165,7 +165,7 @@ class PresentationSession:
         self._monitor = PresentationMonitor()
         self._health = FlipHealth.OK
         self._promoted = False
-        self._slipped = 0
+        self._overran = 0
         self._last_shown = 0.0
         self._interval = 0.0
         self._last_slot_index = None
@@ -272,7 +272,7 @@ class PresentationSession:
             sleep(remaining)
 
     def anchor(self, frame: int, shown: float) -> None:
-        """Re-anchor the grid when a frame landed later than it was due.
+        """Re-anchor the grid when the engine overran a frame's window.
 
         Restarts the cycle from where the frame actually went up, rather than
         leaving every subsequent deadline in the past -- which would make the
@@ -281,7 +281,7 @@ class PresentationSession:
         """
         ideal = self.deadline(frame)
         if shown > ideal + self._period:
-            self._slipped += 1
+            self._overran += 1
             self._origin = shown - frame * self._step
 
     def observe_work(self, seconds: float) -> None:
@@ -348,15 +348,16 @@ class PresentationSession:
         """
         return self._phase_shifts
 
-    def _watch_phase(self, slot_index: int, slipped: bool) -> None:
+    def _watch_phase(self, slot_index: int, overran: bool) -> None:
         """Notice frames landing on the wrong vblank, and move if enough do.
 
         The intended gap between two presents is known exactly -- it is the
         difference between their slot indices. If the measured interval is
         most of a slot away from that, the frame went somewhere we did not
         send it, and sitting within jitter of a real boundary is the reason
-        that happens. A slipped frame is excluded: that gap is late because
-        the engine overran, which is a different fault and already counted.
+        that happens. An OVERRUN frame is excluded: that gap is late because
+        the engine took too long, which is a different fault and already
+        counted. This is a deliberate correction; an overrun is a failure.
         """
         if self._uses_dwm_clock:
             # This grid has an external phase reference.  Moving it in
@@ -364,7 +365,7 @@ class PresentationSession:
             # DWM supplied and recreate the periodic queue-depth shuffle.
             return
         previous, self._last_slot_index = self._last_slot_index, slot_index
-        if previous is None or slipped or not self._interval:
+        if previous is None or overran or not self._interval:
             return
         expected = (slot_index - previous) * self._period
         self._off_pattern.append(
@@ -397,9 +398,16 @@ class PresentationSession:
         return self._interval
 
     @property
-    def slipped(self) -> int:
-        """Frames shown later than the slot they were due on."""
-        return self._slipped
+    def overran(self) -> int:
+        """Frames the engine failed to present inside their budgeted window.
+
+        The frame went up more than a panel period after its deadline
+        because building it took too long, so the previous frame stayed on
+        screen for an extra window. **A fault, not a manoeuvre** --
+        `phase_shifts` is the deliberate one, and the two read alike only if
+        this is misnamed.
+        """
+        return self._overran
 
     @property
     def promoted(self) -> bool:
@@ -567,11 +575,11 @@ class PresentationSession:
         presented_ns = (
             perf_counter_ns() if self._frame_pacing is not None else 0
         )
-        slipped_before = self._slipped
+        overran_before = self._overran
         self.anchor(frame, shown)
         self._watch_phase(
             round((self.slot_for(frame) - self._phase) / self._period),
-            self._slipped != slipped_before,
+            self._overran != overran_before,
         )
 
         swap_elapsed = self._display.swap_duration

@@ -18,13 +18,13 @@ on it.
                   Imports nothing from `time`, which is the test of whether
                   the engine really does measure in frames.
   loop.py         the machine loop: every subsystem serviced in one
-                  controlled order, once per presentation slot.
+                  controlled order, once per TICK -- never once per slot.
   lifecycle.py    the state machine -- CREATED through STOPPED, plus the
                   backgrounding axis that is deliberately not a state.
   events.py       the bus: window and engine facts cross subsystem seams here.
   display.py      Display: an engine's logical screen, realised on a
                   physical one.
-  framebuffer.py  the seam. The engine composes into `next` and flags it
+  framebuffer.py  the seam. The engine composes into `pending` and flags it
                   complete; pacing promotes it when a slot is right for it.
                   Neither side owns the handoff, so it sits above both
                   rather than inside either.
@@ -52,7 +52,7 @@ from .clock import Clock
 from .events import EventBus
 from .lifecycle import EngineState, Lifecycle
 from .loop import Loop
-from .framebuffer import Framebuffer, FramebufferPair
+from .framebuffer import Framebuffer, FrameHandoff
 from .window import Surface
 from .pacing.health import FlipHealth, PresentationMonitor
 from .pacing.path import PresentationPath, detect_presentation_path
@@ -66,7 +66,7 @@ __all__ = [
     "EventBus",
     "FlipHealth",
     "Framebuffer",
-    "FramebufferPair",
+    "FrameHandoff",
     "Lifecycle",
     "Loop",
     "PresentationMonitor",

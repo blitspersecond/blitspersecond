@@ -30,6 +30,32 @@ if TYPE_CHECKING:
     from ..blitspersecond import BlitsPerSecond
 
 
+#: The pacing tallies worth publishing, as (metric attribute, session
+#: attribute). All three rise; none of them is reachable without this.
+_PACING_FAULTS = (
+    ("frames_overran", "overran"),
+    ("starts_late", "late"),
+    ("phase_shifts", "phase_shifts"),
+)
+
+
+def _publish_pacing(metrics, presentation, previous: dict) -> dict:
+    """Push this frame's share of each cumulative pacing tally.
+
+    The session counts totals for the run; a `Counter` wants what happened
+    in THIS frame, and a frame nobody reported reads as absent rather than
+    as zero. So only a rise is pushed, which keeps a clean run silent
+    instead of filling the stream with zeroes.
+    """
+    for metric_name, session_name in _PACING_FAULTS:
+        total = getattr(presentation, session_name)
+        risen = total - previous[session_name]
+        if risen:
+            getattr(metrics, metric_name).push(risen)
+            previous[session_name] = total
+    return previous
+
+
 def _frame(engine, clock, metrics, display, layers, inputs) -> None:
     """One frame, end to end: prepare, run the game, commit.
 
@@ -48,9 +74,9 @@ def _frame(engine, clock, metrics, display, layers, inputs) -> None:
       metrics and input both stamp the frame now closing.
     * **Composition happens once per TICK, never per slot**, so `compose.ms`
       does not depend on the panel.
-    * **This runs AFTER the present, which is what makes `pending` free.** By
-      the time COMMIT resolves it, it is the buffer that just stopped being
-      shown, so nobody holds one across a present that could exchange them.
+    * **This runs AFTER the present, which is what keeps one buffer enough.**
+      COMMIT always writes a target whose read has already been issued.
+      Composing first would write over the frame about to be shown.
 
     The loop names the two compositor calls and no per-layer step; which
     layers are prepared and which are drawn is `Layers`'s.
@@ -90,10 +116,7 @@ def _frame(engine, clock, metrics, display, layers, inputs) -> None:
     # COMMIT. The compositor writes the buffer the display handed over; the
     # display decides when that counts as a finished frame.
     layers.commit(display.pending)
-    if display.frame_complete():
-        # The previous frame was overwritten before it was ever shown.
-        # Expected below the crossover; above it, an overrun.
-        metrics.frames_dropped.push()
+    display.frame_complete()
     metrics.compose_ms.push(layers.commit_duration * 1000.0)
 
 
@@ -144,6 +167,7 @@ class Loop:
 
         presentation.start()
         last_tick = 0.0
+        faults = {session_name: 0 for _, session_name in _PACING_FAULTS}
         # Frame one is composed before the loop can show anything: the pacer
         # holds it until its deadline, which is one full step in. That is the
         # ceiling prime, and it arrives out of the arithmetic rather than
@@ -198,9 +222,11 @@ class Loop:
                     if not lifecycle.backgrounded:
                         stalled = presentation.present(clock.frame)
                         metrics.presents.push()
-                        if not presentation.promoted:
-                            metrics.frames_repeated.push()
                         metrics.swap_ms.push(display.swap_duration * 1000.0)
+                        # Session tallies are cumulative; a counter wants
+                        # this frame's share, so push the rise and nothing
+                        # when there is none.
+                        faults = _publish_pacing(metrics, presentation, faults)
                         if presentation.interval:
                             # Screen-to-screen. Bimodal by design -- frames
                             # land on slots -- and deliberately NOT the same

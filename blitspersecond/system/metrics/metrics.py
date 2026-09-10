@@ -126,17 +126,25 @@ class Metrics(metaclass=SingletonMeta):
         # quantity here that the same word fits -- pushes lost to a full
         # staging buffer, now `observations_dropped`. Two unrelated things
         # sharing one short word is how a reader trusts the wrong number.
-        self._frames_dropped = self.counter(
-            "display.frames.dropped",
-            "Frames composed but never shown -- the engine overwrote a "
-            "finished frame before display promoted it. Decimation by "
-            "discard, expected only below the crossover.",
+        self._frames_overran = self.counter(
+            "display.frames.overran",
+            "Frames the engine failed to present inside their budgeted "
+            "window: the frame went up more than a panel period after its "
+            "deadline because building it took too long, so the previous "
+            "frame stayed on screen for an extra window. A fault.",
         )
-        self._frames_repeated = self.counter(
-            "display.frames.repeated",
-            "Presentations that re-showed the held frame because no new one "
-            "was ready. Expected and healthy above the crossover: at 60fps "
-            "on 144Hz roughly three presents in five carry no new content.",
+        self._starts_late = self.counter(
+            "display.starts.late",
+            "Times the engine was called with no reserve left before its "
+            "slot -- the pacer's estimate of how long a frame takes was "
+            "short. The leading indicator of an overrun.",
+        )
+        self._phase_shifts = self.counter(
+            "display.phase.shifts",
+            "Times the slot grid was nudged a quarter period off a suspected "
+            "vblank boundary. A handful over a session is the mechanism "
+            "working; frequent shifting means the refresh rate we were told "
+            "is not the rate the panel runs at.",
         )
 
     # -- declaration ---------------------------------------------------------
@@ -231,7 +239,7 @@ class Metrics(metaclass=SingletonMeta):
         Non-zero means some hot path is pushing far more per frame than the
         buffer was sized for, so the readings themselves are incomplete --
         a fault in the instrument, not in what it measures. Frames the engine
-        composed and never showed are `display.frames.dropped`, which is an
+        failed to present in time are `display.frames.overran`, which is an
         entirely different fact about an entirely different thing.
         """
         return self._buffer.dropped
@@ -271,9 +279,13 @@ class Metrics(metaclass=SingletonMeta):
         return self._presents
 
     @property
-    def frames_dropped(self) -> Counter:
-        return self._frames_dropped
+    def frames_overran(self) -> Counter:
+        return self._frames_overran
 
     @property
-    def frames_repeated(self) -> Counter:
-        return self._frames_repeated
+    def starts_late(self) -> Counter:
+        return self._starts_late
+
+    @property
+    def phase_shifts(self) -> Counter:
+        return self._phase_shifts

@@ -243,7 +243,7 @@ def test_absolute_dwm_phase_is_never_nudged_by_interval_heuristic(monkeypatch):
 
     for index in range(20):
         session._interval = session._period * 4
-        session._watch_phase(index, slipped=False)
+        session._watch_phase(index, overran=False)
 
     assert session._phase == dwm.phase
     assert session.phase_shifts == 0
