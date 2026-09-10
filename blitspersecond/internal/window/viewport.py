@@ -1,12 +1,11 @@
 """WHERE the internal screen lands on a real window.
 
-The spatial question, and the easy one; `internal.pacing` is the temporal
-counterpart (when to tick, when to swap) and is where the difficulty lives.
+One caller today: the present pass, mapping out to window pixels. The
+pointer reads back through this same function when it lands, so that the two
+directions cannot disagree about where the picture is.
 
-Consumed in both directions -- `framebuffer` maps the internal screen OUT to
-window pixels, `input.kbm.mouse_handler` maps a pointer position BACK IN. One
-function owns the mapping so those two can never disagree about where the
-picture is.
+The geometry, the refusals, and why it never shrinks:
+`bps/reference/engine/display.md`.
 """
 
 from dataclasses import dataclass
@@ -31,8 +30,8 @@ def integer_viewport(
 ) -> PresentationViewport:
     """Return a centred integer-scaled viewport inside the window.
 
-    Presentation never shrinks the internal framebuffer: a surface smaller
-    than the logical render target cannot provide an integer pixel mapping.
+    Never shrinks: a surface smaller than the logical target has no integer
+    pixel mapping, so it refuses rather than picking a fractional one.
     """
 
     if min(internal_width, internal_height, window_width, window_height) <= 0:

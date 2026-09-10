@@ -98,7 +98,7 @@ Measured on XWayland/GNOME, 144Hz panel, 60fps authored, 300 frames.
 | `display.frame.ms` | avg 16.675, p50 13.909, p90 20.847, max 20.904 |
 | tick to photon | p50 4.433, p90 7.220, max 7.278ms — about one slot period |
 | pace | 100.00% |
-| second framebuffer | about 1MB at 640x360 |
+| the compose target | one buffer, about 1MB at 640x360 |
 
 A figure near 13% of a core means something is spinning; nothing here should.
 The Windows equivalents are not measured — see *Still open*.
@@ -107,12 +107,23 @@ The Windows equivalents are not measured — see *Still open*.
 
 | | |
 |---|---|
-| `display.frames.repeated` | a present re-showed the held frame. **Reads zero in normal operation** — see *Still open*. It can only rise after a tick that returned early because the display closed |
-| `display.frames.dropped` | a finished frame was overwritten unshown. **Reads zero in normal operation** — it can only rise while backgrounded, where presents stop and ticks continue |
-| `slipped` | the frame went up later than the slot it was due on |
-| `late` | the engine was called with no reserve left before its slot |
-| `phase_shifts` | the slot grid was nudged off a suspected vblank boundary. A handful over a long session is the mechanism working; a **rising** count means the refresh rate we were told is not the rate this panel runs at |
+| `display.frames.overran` | the engine failed to get the frame up inside its budgeted window, so the previous frame stayed on screen an extra window. **The fault a player can see** |
+| `display.starts.late` | the engine was called with no reserve left before its slot: the pacer's estimate of frame cost was short |
+| `display.phase.shifts` | the slot grid was nudged a quarter period off a suspected vblank boundary. A handful over a long session is the mechanism working; a **rising** count means the refresh rate we were told is not the rate this panel runs at |
 | `engine.frame.ms` spread | several ms means ticks have picked up the slot grid's quantisation. That is a defect, and `display.frame.ms` is the quantity that is supposed to be uneven |
+
+**`late` and `overran` are prediction and outcome, and are independent.**
+`late` is counted before a frame is built, when the moment to start had
+already passed; `overran` after it is shown. Late without overran is a
+pessimistic reserve — tight, but sufficient. Overran without late is a spike
+the reserve cannot predict, because it is built from recent work. Read
+together they say which of the two you have, which is why the instruments
+list them adjacent.
+
+`overran` records a failure and `phase.shifts` records a deliberate
+manoeuvre. They are counted separately and a phase shift explicitly excludes
+an overrun frame, because a gap caused by the engine taking too long is not
+evidence about where the vblank is.
 
 ### What a healthy run reads
 
@@ -131,7 +142,7 @@ and `util/capture_frame_pacing.py` takes one; both carry their own procedure.
 | deadline error p99 | `deadline_error_ms` | below one slot period plus wake jitter. It includes the intended snap from the deadline to a later slot |
 | present intervals | `present_interval_ms` | on the expected slot gaps, holding the paced long-term mean |
 | CPU, whole process | MangoHud, Task Manager | near 2% of a core. Near 13% means something is spinning |
-| `dropped`, `repeated` | counters | zero, and that says nothing either way — see *Still open* |
+| `overran`, `late` | counters | zero. A clean run pushes nothing, so absent is the healthy reading |
 
 **75% of target is the signature to know.** It is what presentation timing
 leaking into simulation timing looks like, and it is the one number that means
@@ -425,11 +436,12 @@ path.
 Present promotes the newest finished frame, draws it, and swaps, in one call.
 
 **Promotion is deliberately late** — immediately before the draw, never at the
-moment the engine flags a frame complete. Promoting early costs up to a full
-engine frame of latency, because a finished frame would then wait for the
-*next* present rather than the current one. Single-threaded, late promotion is
-free and strictly better, which makes it a rule rather than a preference; it is
-invisible until someone measures input lag.
+moment the engine flags a frame complete. With one compose target and this
+call order it costs nothing either way: present precedes compose within an
+iteration, so a frame flagged at the end of one is shown on the next whichever
+arrangement is used. The rule stands because it is free and because a loop
+shaped differently would need it, not because it buys anything today.
+[display.md](display.md) traces it.
 
 **The loop presents once per tick, not once per slot.** That is what keeps the
 wake rate at the frame rate, and it decides both sides of the crossover:
@@ -439,14 +451,15 @@ wake rate at the frame rate, and it decides both sides of the crossover:
 | panel faster than engine | the extra slots are the panel re-scanning what it already holds. The engine never sees them and never presents into them |
 | engine faster than panel | presents arrive faster than the panel can show them and the compositor discards the surplus. A producer running at the authored rate never batches, so every tick still gets freshly pumped input |
 
-**Neither of those is the buffer pair holding or dropping a frame**, and the
-pair's `promote`/`complete` alternate strictly because of this call order —
-which is why its two counters read zero. See *Still open*.
+**Neither of those is the handoff holding or dropping a frame**, and its
+`promote`/`complete` alternate strictly because of this call order — which is
+why its two counters read zero. See *Still open*.
 
-Nothing in the engine reasons about which of the two buffers it holds, because
-nothing holds one across a present: the pacer swaps and only then issues the
-tick, so the tick resolves `display.pending` fresh and always gets the buffer
-that just stopped being shown.
+There is one compose target, not a pair, and this call order is what makes
+one enough: the pacer presents and only then issues the tick, so a compose
+always follows the present that read the buffer it is about to write.
+[display.md](display.md) owns the handoff, and states the edit that would
+need a second buffer.
 
 The swap is measured on its own, excluding compose and the post-process draw,
 so composition cost cannot masquerade as a presentation stall. With client
@@ -639,23 +652,6 @@ to remove a problem that has not been demonstrated.
 
 ## Still open
 
-**`dropped` and `repeated` cannot rise in normal operation.** The loop
-presents exactly once per tick, so `FramebufferPair.promote` and `.complete`
-alternate strictly: `complete` always sets `ready`, and `promote` always
-consumes it. Replaying that call order gives 1000 promotions out of 1000
-presents and no drops. `dropped` can only rise while backgrounded, `repeated`
-only after a tick that returned early on a closed display — so both read zero
-on every ordinary run, and have on every run ever taken. Either the loop should
-poll slots so they mean what their descriptions say, or they describe a design
-the loop no longer has and should go.
-
-The inversion is worth stating plainly: **the two pacing counters that are
-published cannot rise, and the three that do rise are published nowhere.**
-`slipped`, `late` and `phase_shifts` are session properties reaching neither
-the report nor the shutdown log. On the board as *Replace dropped and repeated
-with metrics that can rise*, with missed windows and reschedules as the
-candidates.
-
 **The phase counter is not yet graded.** `MsBetweenDisplayChange` can separate
 a real straddle from a measurement artefact — if those +6ms intervals are real,
 the panel changed a whole vblank later than intended, and if they are not, the
@@ -702,6 +698,6 @@ reaching the physical display is still unmeasured. Native Xorg is not a target
 — path detection describes it, which is not a support promise.
 
 **The capture format is still v1.** `pacing_mode` is always `"slot"` and
-`cadence` always `"decoupled"`; both should go, and slip, drop, repeat and
+`cadence` always `"decoupled"`; both should go, and overrun, late and
 phase-shift facts should arrive, as v2. Loaders must retain v1 support or every
 existing capture becomes unreadable.

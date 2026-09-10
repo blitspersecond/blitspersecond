@@ -1,11 +1,9 @@
 """WHERE the picture lands: the OS window, and the mapping onto it.
 
-  surface.py   the pyglet window, and the sole producer of raw OS events --
-               teed onto the EventBus so nothing outside this package ever
+  surface.py   the one window, and the sole producer of raw OS events --
+               teed onto the EventBus so nothing outside this package
                depends on the concrete Surface.
-  viewport.py  the centred integer enlargement that carries the internal
-               screen onto whatever size the window happens to be, mapped in
-               both directions so input can come back the other way.
+  viewport.py  the centred integer enlargement, mapped in both directions.
 """
 
 from .surface import Surface

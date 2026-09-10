@@ -196,11 +196,12 @@ layers still costs that and nothing more.
 Each layer syncs its own GPU state and issues its own draw. The compositor
 sequences the pass; it does not render — see [Not a renderer](#not-a-renderer).
 
-**`pending` is read, never kept.** There are two buffers, alive for the
-process, and a present that promotes exchanges the two references. The order
-makes that moot rather than dangerous: the pacer swaps and only then issues
-the tick, so `commit` resolves the property fresh and always gets the buffer
-that just stopped being shown.
+**`pending` is read, not kept.** It resolves to the one compose target, alive
+for the process, and the compositor never learns whether or when what it wrote
+is shown. Keeping the reference is harmless; resolving it fresh is simply how
+`commit` is written. What the display does with the buffer afterwards, and the
+ordering that lets there be only one, are in
+[display.md](../engine/display.md).
 
 ## Blend is a layer's, and it is off
 

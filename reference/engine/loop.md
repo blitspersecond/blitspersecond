@@ -179,15 +179,17 @@ loop is where the decision lives: a compositor asked to draw per slot would
 bill at panel rate, and a game's frame cost would depend on the monitor it was
 run on.
 
-## The tick runs after the present, which is what makes `pending` free
+## The tick runs after the present, which is what keeps one buffer enough
 
-The pacer swaps and *then* issues the tick. So by the time COMMIT resolves
-`display.pending`, it is the buffer that just stopped being shown.
+The pacer presents and *then* issues the tick. So COMMIT always writes a
+buffer whose read has already been issued.
 
-Nobody reasons about which of the two buffers they hold, because nobody holds
-one across a present that could exchange them. That is a structural property
-rather than a discipline — there is no window in which the wrong answer is
-reachable.
+With a single compose target that ordering is not a convenience, it is the
+correctness condition. Composing first would write over the frame about to be
+shown; composing on another thread would let the write land while the draw is
+still reading. Nobody reasons about buffer identity because there is nothing
+to reason about — `display.pending` resolves to the same object every time —
+and [display.md](display.md) states what a second buffer would defend.
 
 It also gives the engine the whole interval to the next slot it must make,
 rather than the sliver of slack before an ideal instant. Everything the engine

@@ -1,3 +1,10 @@
+"""The one window, and the sole producer of raw OS events.
+
+Why the window model is pyglet's and the event loop is not, what the tee
+guarantees, and what this class decides on its own:
+`bps/reference/engine/display.md`.
+"""
+
 import pyglet
 import sys
 from typing import Optional
@@ -38,18 +45,16 @@ class Surface(pyglet.window.Window):
         self._refresh_check_needed = False
 
         screen = pyglet.display.get_display().get_default_screen()
-        # DwmGetCompositionTimingInfo has exposed only one NULL-HWND desktop
-        # clock since Windows 8.1.  The reference capture establishes that
-        # clock for the primary output; a same-rate secondary is not enough
-        # evidence that it shares the same phase, particularly across adapters.
+        # One NULL-HWND desktop clock, established for the PRIMARY output; a
+        # same-rate secondary is not evidence of shared phase.
         self._dwm_clock_eligible = self._tracks_window_output and bool(
             getattr(screen, "is_primary", False)
         )
         if False:  # FIXME force windowed: display.fullscreen:
-            # "Fullscreen" is deliberately borderless at the active desktop
-            # mode. Passing fullscreen=True together with BPS's logical size
-            # makes pyglet call ChangeDisplaySettingsEx on Windows, selecting
-            # an exclusive low-resolution mode. BPS never owns display modes.
+            # Borderless at the active desktop mode. Never fullscreen=True
+            # with a logical size: that makes pyglet call
+            # ChangeDisplaySettingsEx and take an exclusive low-res mode.
+            # BPS never owns display modes.
             width = screen.width
             height = screen.height
             style = self.WINDOW_STYLE_BORDERLESS
@@ -67,30 +72,11 @@ class Surface(pyglet.window.Window):
             style=style,
             fullscreen=False,
             visible=visible,
-            # Off by default. Began as an XWayland measure -- Mutter charges
-            # a full extra refresh for a narrowly missed vblank -- and became
-            # the rule when simulation stopped being paced by the swap.
-            #
+            # Off on every path: the simulation is not paced by the swap.
             # `BPS_VSYNC=1` turns it back on, and exists because a blocking
-            # flip returns AT a vblank and is therefore a free phase
-            # reference on platforms without a compositor clock.
-            #
-            # MEASURED 2026-08-27, Win32/WGL under DWM: it does nothing here.
-            # pyglet applies it (`window.vsync` reads True) but `swap.ms` is
-            # unchanged at 0.032ms, because the present mode is "Composed:
-            # Copy with GPU GDI" -- DWM composites on its own vblank and the
-            # client SwapBuffers returns immediately. There is no blocking
-            # swap to be had on this path, so no phase reference from it. BPS
-            # now obtains that reference from `DwmGetCompositionTimingInfo`;
-            # its SDK structure requires four-byte packing (the earlier
-            # natural-alignment probe was rejected with size-mismatch HRESULT
-            # 0x88980090).
-            #
-            # Kept switchable because native X11 genuinely does block, and
-            # that path is still unvalidated. DWM's clock gives BPS an honest
-            # period and prevents phase drift; it does not make DWM's variable
-            # queue-depth assignment deterministic for an irregular 2/3
-            # client submission stream.
+            # flip returns AT a vblank and is a free phase reference on
+            # platforms that genuinely block. It does nothing under DWM --
+            # see `display.md` before spending time on it.
             vsync=environment_flag("BPS_VSYNC"),
             config=pyglet.gl.Config(double_buffer=True),
         )
@@ -101,10 +87,8 @@ class Surface(pyglet.window.Window):
         self.switch_to()  # activate the context early
         pyglet.gl.gl_info.set_active_context()  # now GL is safe
 
-        # Query the screen pyglet actually selected for this window. Win32's
-        # legacy pyglet mode rate is integer-only, so the helper prefers the
-        # active display path's rational rate there. Other backends and Win32
-        # query failures retain pyglet's existing mode-rate behaviour.
+        # Win32's legacy pyglet mode rate is integer-only, so the helper
+        # prefers the active display path's rational rate there.
         self._refresh_rate = get_refresh_rate(self.screen)
         self._refresh_check_needed = False
 
@@ -126,12 +110,11 @@ class Surface(pyglet.window.Window):
     def poll_refresh_rate(self, *, force: bool = False) -> float | None:
         """Return the Win32 window's current output rate when it needs a check.
 
-        ``Window.screen`` is fixed at construction. Win32's
-        ``get_window_screen()`` instead uses ``MonitorFromWindow``, which is
-        the operating system's current monitor assignment for this HWND.
-        Ordinary moves and ``WM_DISPLAYCHANGE`` mark the cached rate dirty;
-        foreground restoration forces a check in case a change happened while
-        event delivery was unavailable.
+        `Window.screen` is fixed at construction and answers where the window
+        STARTED. `get_window_screen()` uses `MonitorFromWindow`, which is the
+        OS's current assignment for this HWND -- that is why it is asked
+        instead. `force` covers a change made while event delivery was
+        unavailable.
         """
         if not self._tracks_window_output:
             return None
@@ -173,13 +156,13 @@ class Surface(pyglet.window.Window):
         """Tee every event this Surface dispatches onto the EventBus.
 
         The Surface stays the sole producer of raw OS events; observers
-        (input, audio, ...) subscribe to the bus instead of to the Surface,
-        so nothing outside `display/` depends on the concrete Surface.
+        subscribe to the bus, so nothing outside this package depends on the
+        concrete Surface.
 
-        Signature mirrors BaseWindow.dispatch_event(*args) -- args[0] is the
-        event type. The queue-drain path (dispatch_pending_events) calls
-        EventDispatcher.dispatch_event directly, bypassing this override, so
-        the tee fires exactly once per event.
+        **The queue-drain path (`dispatch_pending_events`) calls
+        `EventDispatcher.dispatch_event` directly and bypasses this
+        override**, which is what makes the tee fire exactly once. Teeing
+        from the drain path as well doubles every queued event.
         """
         super().dispatch_event(*args)
         if self._events is not None and args and args[0] in self._events.event_types:
@@ -205,10 +188,9 @@ class Surface(pyglet.window.Window):
     def close(self):
         """Close the surface itself only.
 
-        The surface does NOT own the EventLoop or the frame schedule, so it does
-        not touch them here -- it just flags itself closed and releases the GL
-        surface. BlitsPerSecond (which created the loop) observes `closed` and
-        performs loop teardown. See BlitsPerSecond._shutdown.
+        Marks itself closed and releases the GL surface. It does NOT own the
+        EventLoop or the frame schedule and does not touch them;
+        `BlitsPerSecond` observes `closed` and tears the loop down.
         """
         if not self._closed:
             self._closed = True
