@@ -165,7 +165,7 @@ class Layers:
         An empty draw order costs exactly the clear, so a game that has added
         no layers costs one clear and a swap. Deliberate rather than
         incidental: the frame-pacing numbers in
-        `docs/bps/DECOUPLED_PRESENTATION.md` were all measured against a
+        `bps/reference/engine/pacing.md` were all measured against a
         clear-and-swap, and stay comparable only while the no-layer case
         still IS one.
         """

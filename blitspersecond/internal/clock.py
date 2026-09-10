@@ -1,24 +1,17 @@
 """The simulation clock: what a frame IS.
 
-The engine measures in elapsed FRAMES, not seconds. A second is sixty frames,
-and it is sixty frames whatever the hardware did to earn them. `time` is
-`frame * step`, exactly, on every platform and in every run -- so a replay of
-the same inputs produces the same numbers, and nothing a scheduler does can
-change what a tick was worth.
+A rate and a count of completed ticks, with `time` derived as `frame * step`
+on every read. `frame` is the only state.
 
-**This module imports nothing from `time`, and that is the point.** Deciding
-WHEN to tick is the pacer's problem; a clock that needed a wall clock to say
-what a frame is would not be measuring in frames. Everything the scheduling
-half used to hold -- the origin, the deadline, the snap grid, the spin, the
-overrun rule -- lives with the thing that owns the presentation grid, because
-that is the only place with the information to make those decisions.
+**This module imports nothing from `time`, and that is the test.** Deciding
+WHEN to tick belongs to the pacer, which owns the presentation grid and is
+the only thing with the information to make that call; a clock that needed a
+wall clock to say what a frame is would not be measuring in frames. One grep
+says whether that still holds.
 
-What survives here is the ledger, and the engine owns it because the engine
-is what a frame count means. Display realises pictures on a panel and audio
-feeds a device-paced worker; both are consumers of this count rather than
-sources for it, which is what lets an engine-owned clock be the neutral
-arbiter two real-time domains can reference. See
-`docs/bps/DECOUPLED_PRESENTATION.md`.
+`bps/reference/engine/clock.md` is the authority -- the frame as the unit of
+time, who owns 60 and in what order it is read, why `time` is derived rather
+than accumulated, and what the count does and does not guarantee.
 """
 
 from blitspersecond.common import fps
@@ -56,11 +49,9 @@ class Clock:
     def time(self) -> float:
         """Nominal simulation time in seconds: `frame * step`, exactly.
 
-        Not measured, and deliberately not measurable. Two runs that tick the
-        same number of times report the same time here whatever the wall
-        clock did in between, which is what makes it safe for game logic that
-        expects to be reproducible. If you want to know how long something
-        really took, ask metrics.
+        Not measured, and deliberately not measurable -- derived on every
+        read so the count stays the only state. For how long something really
+        took, ask metrics.
         """
         return self._frame * self._step
 

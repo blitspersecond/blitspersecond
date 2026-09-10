@@ -5,11 +5,10 @@ the whole point: it must classify from launch facts alone, without opening a
 second display to look. In particular a client inside Gamescope cannot
 discover Gamescope's outer backend, so the launcher records it.
 
-It no longer DECIDES anything. It used to settle two things nothing
-downstream could recover -- whether to request vsync, and whether to start on
-a deadline grid -- and both went when every path moved to the deadline grid
-with vsync off; see `docs/bps/DECOUPLED_PRESENTATION.md`. What it produces
-now is description, for the log and for frame-pacing capture headers.
+**It DECIDES nothing.** Every path presents on a deadline grid with vsync
+off, so neither of the two things a classification could once settle is a
+choice any more; see `bps/reference/engine/pacing.md`. What it produces is
+description, for the log and for frame-pacing capture headers.
 
 NOTE (2026-08-25): these encode what the reference implementation decided,
 which is reference-code history rather than a re-verified fact. The

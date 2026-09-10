@@ -11,12 +11,11 @@ class FlipHealth(Enum):
 class PresentationMonitor:
     """Classify each flip() duration to spot withheld presentations.
 
-    This used to answer a much larger question -- whether the swap was pacing
-    the loop at all -- because simulation timing was derived from
-    presentation timing. It is not any more: the engine holds the authored
-    rate on its own clock and every path presents on a deadline grid, so a
-    swap that returns instantly is the normal case rather than evidence of
-    anything. See `docs/bps/DECOUPLED_PRESENTATION.md`.
+    **A swap that returns instantly is the normal case, not a signal.** The
+    engine holds the authored rate on its own clock and every path presents on
+    a deadline grid, so nothing here may be read as evidence that the swap is
+    pacing the loop -- that direction is `bps/reference/engine/pacing.md`,
+    "Not a blocking swap".
 
     What remains is the one direction that still matters. A compositor may
     withhold presentations entirely when a window is occluded or minimised --

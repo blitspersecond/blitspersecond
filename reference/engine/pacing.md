@@ -366,6 +366,14 @@ looks like a vblank clock and is not: polled 460 times across 0.5s *without
 swapping*, UST and MSC each returned a single distinct value (Mesa/radeonsi,
 XWayland). Both are tied to swaps, so neither locates a retrace.
 
+The X Present extension is the other candidate and is not one portable clock
+either. Under direct Mutter XWayland it produced 123 completion events but only
+**two distinct UST/MSC pairs** in 1.035s — stale, and unusable for grading
+delivery. Under Gamescope's private XWayland stream the same probe produced 176
+distinct pairs for 176 events in 2.929s, a 16.652ms mean over 175 flip
+completions. So the one path that does report a usable stream reports the
+*inner* compositor's delivery, which is not what reaches the panel.
+
 **Equal spacing is therefore sufficient.** The period comes from the panel; the
 phase is wherever `perf_counter` zero happened to fall. Two submits two
 notional slots apart are two real periods apart, so they land in successive
@@ -619,6 +627,16 @@ cadence or steals the uninterrupted work interval from the game. The engine
 thread is woken once per frame, and the frames in between are the compositor's
 business.
 
+### Not on a thread of its own
+
+Presentation on its own thread is the shape this problem seems to want: a
+blocking swap could then coexist with a free-running simulation, and the pacer
+would not have to be right about anything. **GL contexts are thread-affine**,
+so the swap cannot move without the context moving, and the context is what the
+compositor draws through. Everything on this page is single-threaded, and the
+sleep costs 2.1% of one core — which is the budget a thread would be spending
+to remove a problem that has not been demonstrated.
+
 ## Still open
 
 **`dropped` and `repeated` cannot rise in normal operation.** The loop
@@ -667,11 +685,12 @@ dragged window is then paced for the wrong grid, which reintroduces the beat at
 about one frame every 22 seconds. On the board as *Re-pace when a window moves
 output on Linux*.
 
-**Two figures disagree for sustained overload.** The measurement section
-records a 33.652ms tick interval at 29.72fps for 25ms frames; the scenario list
-records 34.722ms at 28.80fps for the same case. Both appear in
-`docs/bps/DECOUPLED_PRESENTATION.md` and only one can describe the tick
-interval. Re-measure rather than choose.
+**Two figures disagree for sustained overload.** Every frame doing 25ms of
+work against a 16.667ms step is recorded both as a 33.652ms tick interval at
+29.72fps and as 34.722ms at 28.80fps. Only one can describe the tick interval,
+and the difference is the gap between "two slots plus the overrun" and "exactly
+two slots" — which is the whole question of whether degradation is proportional
+or quantised. Re-measure rather than choose.
 
 **The published figures assume a trivial workload.** They were taken with a
 game loop of 0.014ms and a compose that is a buffer clear. Real graphics change
