@@ -97,9 +97,11 @@ def test_selection_is_case_insensitive_because_proc_and_win32_disagree():
 
 
 def test_steam_is_absent_and_must_stay_absent():
-    # Its virtual pads have empty Uniq AND empty Phys, share a product id, and
-    # multiply -- there is nothing to fingerprint. Rejected at the transport;
-    # a mapper entry here would imply it was supportable.
+    # Steam hides identity: a virtual pad is a proxy standing in front of a
+    # real device and concealing which one, so there is nothing to report
+    # rather than something reported badly. Refusing the vendor is how a
+    # physical pad is seen once, as itself, instead of once directly and again
+    # through a proxy that answers to input and looks like it works.
     assert "28de" not in _VENDORS
     assert not any(key.startswith("28de") for key in _MODELS)
     assert not any(key.startswith("28de") for key in _MODEL_MAPPERS)

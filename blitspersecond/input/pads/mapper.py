@@ -145,10 +145,19 @@ class NintendoMapper(PadMapper):
 # authoritative; it just holds more confident answers about ids that several
 # unrelated devices are all asserting.
 #
-# Steam (0x28de) is absent on purpose and must stay absent: its VIRTUAL pads
-# have empty Uniq AND empty Phys, share a product id, and multiply, so there
-# is nothing to fingerprint. The transport rejects the vendor before anything
-# reaches here.
+# Steam (0x28de) is absent on purpose and must stay absent, and the reason is
+# not that its pads identify themselves badly -- it is that STEAM HIDES
+# IDENTITY. A Steam virtual pad is a proxy standing in front of a real device
+# and concealing which one, so the empty Uniq and empty Phys are not an
+# omission: there is nothing to report, because the thing reporting is
+# synthesised. They also share a product id and multiply.
+#
+# Refusing the vendor is how each physical pad is seen ONCE, as itself, rather
+# than once directly and again through a proxy. A pad counted twice is worse
+# than a pad counted never: the duplicate answers to input, so it looks like it
+# works, and somebody ends up holding one controller that is two seats.
+#
+# The transport rejects the vendor before anything reaches here.
 
 
 #: vendor -> that vendor's label family. Three, because there are three
