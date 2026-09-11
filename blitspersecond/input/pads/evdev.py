@@ -18,6 +18,7 @@ import struct
 from dataclasses import dataclass
 from typing import NamedTuple
 
+from .button import Button
 from .mapper import PadMapper, mapper_for, model_for
 
 _PROCFS = "/proc/bus/input/devices"
@@ -278,6 +279,54 @@ def axis_ranges(fd: int) -> dict[int, AxisRange]:
         )
         ranges[code] = AxisRange(minimum, maximum)
     return ranges
+
+
+# -- the vocabulary, at this transport's boundary ---------------------------
+#
+# `INPUT_STREAM.md`: *"an evdev code and a GameInput bitfield describe the same
+# physical button with different numbers, so both are translated to
+# Button.FACE_SOUTH AT THEIR OWN BOUNDARY, and nothing downstream can tell
+# which platform it is reading."*
+#
+# So this table lives here rather than on `PadMapper`. The reference put it on
+# the mapper and had its Windows transport normalise into evdev codes to reuse
+# it -- which makes one platform's numbering the engine's intermediate, and
+# means a GameInput reading is translated twice to arrive somewhere it could
+# have reached directly. A mapper's job is what a pad CALLS its buttons; what
+# a transport's numbers MEAN is the transport's own business.
+
+BTN_SOUTH = 0x130
+BTN_EAST = 0x131
+BTN_WEST = 0x133
+BTN_NORTH = 0x134
+BTN_TL = 0x136
+BTN_TR = 0x137
+BTN_SELECT = 0x13A
+BTN_START = 0x13B
+
+#: Named so the absence below is visibly deliberate rather than an oversight.
+#: The stick-clicks are never mapped -- see `Button`.
+BTN_THUMBL = 0x13D
+BTN_THUMBR = 0x13E
+
+#: evdev code -> `Button`. Exhaustive: every member of the vocabulary that
+#: arrives as a key appears exactly once, and nothing else is here.
+BUTTONS: dict[int, Button] = {
+    BTN_SOUTH: Button.FACE_SOUTH,
+    BTN_EAST: Button.FACE_EAST,
+    BTN_WEST: Button.FACE_WEST,
+    BTN_NORTH: Button.FACE_NORTH,
+    BTN_TL: Button.LB,
+    BTN_TR: Button.RB,
+    BTN_SELECT: Button.SELECT,
+    BTN_START: Button.START,
+}
+
+#: Trigger AXES that become buttons. `LT` and `RT` do not arrive as keys: a
+#: trigger is an axis, and a threshold turns its travel into edges. Which
+#: threshold is the pad's judgement, not the transport's -- this only says
+#: which axis becomes which button.
+TRIGGERS: dict[int, Button] = {ABS_Z: Button.LT, ABS_RZ: Button.RT}
 
 
 # -- reading ----------------------------------------------------------------

@@ -127,3 +127,43 @@ def test_every_model_mapper_belongs_to_the_vendor_it_is_keyed_under():
     for key, family in _MODEL_MAPPERS.items():
         vendor = key.split(":")[0]
         assert issubclass(family, _VENDORS[vendor]), key
+
+
+# -- the transport's own translation --------------------------------------
+
+from blitspersecond.input.pads.evdev import (
+    BTN_THUMBL,
+    BTN_THUMBR,
+    BUTTONS,
+    TRIGGERS,
+)
+
+
+def test_every_button_in_the_vocabulary_is_reachable_from_a_real_pad():
+    # LT and RT arrive as axes rather than keys, so they are in the trigger
+    # table. Between the two, nothing in Button is unreachable -- a member
+    # nothing maps to would be a control a game can name and never receive.
+    reachable = set(BUTTONS.values()) | set(TRIGGERS.values())
+    assert reachable == set(Button)
+
+
+def test_the_translation_is_one_to_one():
+    # Two codes landing on one Button would make a pad fire the same edge
+    # twice; one code on two Buttons is not expressible but would be worse.
+    assert len(set(BUTTONS.values())) == len(BUTTONS)
+    assert len(set(TRIGGERS.values())) == len(TRIGGERS)
+
+
+def test_the_stick_clicks_are_named_and_deliberately_unmapped():
+    # Named so that their absence reads as a decision. See Button: they are
+    # the one input class never pressed by player agency.
+    assert BTN_THUMBL not in BUTTONS
+    assert BTN_THUMBR not in BUTTONS
+
+
+def test_the_mapper_does_not_own_the_codes():
+    # Translation lives at the transport boundary, so a mapper knows nothing
+    # about evdev. A GameInput mapper would map its own bitfield rather than
+    # pretending to be Linux.
+    assert not hasattr(PadMapper, "BUTTON_MAP")
+    assert not any(isinstance(v, int) for v in XboxMapper.LABELS.values())
