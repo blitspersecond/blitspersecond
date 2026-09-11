@@ -12,7 +12,15 @@ The audit this is being rebuilt from is `docs/bps/PADS_PORT.md`.
 
 from .button import Button
 from .control import Axis, Direction, direction
-from .pad import NEUTRAL_AXES, PadEvent, PadFact, PadScan, PadWindow
+from .pad import (
+    NEUTRAL_AXES,
+    TRIGGER_ON,
+    PadEvent,
+    PadFact,
+    PadIngress,
+    PadScan,
+    PadWindow,
+)
 from .evdev import AxisRange, PadDevice, PadReader, Report, Snapshot, discover, open_pad
 from .mapper import (
     DualSenseMapper,
@@ -35,6 +43,7 @@ __all__ = [
     "PadDevice",
     "PadEvent",
     "PadFact",
+    "PadIngress",
     "PadMapper",
     "PadReader",
     "PadScan",
@@ -42,6 +51,7 @@ __all__ = [
     "Report",
     "Snapshot",
     "SonyMapper",
+    "TRIGGER_ON",
     "XboxMapper",
     "direction",
     "discover",
