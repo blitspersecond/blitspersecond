@@ -9,7 +9,7 @@ The audit this is being rebuilt from is `docs/bps/PADS_PORT.md`.
 """
 
 from .button import Button
-from .evdev import AxisRange, Desync, PadDevice, PadReader, Report, discover, open_pad
+from .evdev import AxisRange, PadDevice, PadReader, Report, Snapshot, discover, open_pad
 from .mapper import (
     DualSenseMapper,
     NintendoMapper,
@@ -23,13 +23,13 @@ from .mapper import (
 __all__ = [
     "AxisRange",
     "Button",
-    "Desync",
     "DualSenseMapper",
     "NintendoMapper",
     "PadDevice",
     "PadMapper",
     "PadReader",
     "Report",
+    "Snapshot",
     "SonyMapper",
     "XboxMapper",
     "discover",

@@ -296,9 +296,9 @@ from blitspersecond.input.pads.evdev import (
     EV_SYN,
     SYN_DROPPED,
     SYN_REPORT,
-    Desync,
     PadReader,
     Report,
+    Snapshot,
 )
 
 BTN_EAST = 0x131
@@ -358,7 +358,10 @@ def test_the_order_of_reports_is_the_path_the_stick_took():
     os.close(writer)
 
 
-def test_a_dropped_run_is_marked_in_place_rather_than_hidden():
+def test_history_before_a_drop_survives_and_everything_after_it_does_not():
+    # A pipe answers ENOTTY to both ioctls, so the snapshot here is the empty
+    # one. What is being asserted is the SHAPE: valid history, then a
+    # wholesale replacement, and nothing in between.
     reader, writer = reader_on_a_pipe()
     os.write(writer, events(
         (EV_KEY, BTN_SOUTH, 1),
@@ -366,31 +369,50 @@ def test_a_dropped_run_is_marked_in_place_rather_than_hidden():
         (EV_KEY, BTN_EAST, 1),       # part of a report that lost its middle
         (EV_SYN, SYN_DROPPED, 0),
         (EV_KEY, BTN_SOUTH, 0),
-        (EV_SYN, SYN_REPORT, 0),
+        (EV_SYN, SYN_REPORT, 0),     # superseded: the snapshot is newer
     ))
-    got = reader.read()
-    assert got == (
+    assert reader.read() == (
         Report(((EV_KEY, BTN_SOUTH, 1),)),
-        Desync(),
-        Report(((EV_KEY, BTN_SOUTH, 0),)),
+        Snapshot(frozenset(), {}),
     )
-    # The half-report that straddled the drop is gone, not emitted incomplete.
     assert reader.drops == 1
     reader.close()
     os.close(writer)
 
 
-def test_a_pad_keeps_working_after_a_drop():
-    # An earlier draft muted the device permanently once desynced, waiting for
-    # a resync that is not built yet. A drop loses state; it must not lose the
-    # pad.
+def test_the_snapshot_is_taken_after_the_drain_not_at_the_drop():
+    # Reports between the drop and now are already reflected in what the
+    # device says is true, so replaying them would apply stale history on top
+    # of current truth. They go.
     reader, writer = reader_on_a_pipe()
     os.write(writer, events((EV_SYN, SYN_DROPPED, 0)))
-    assert reader.read() == (Desync(),)
+    for value in (-32000, -16000, 0):
+        os.write(writer, events((EV_ABS, ABS_X, value), (EV_SYN, SYN_REPORT, 0)))
+    assert reader.read() == (Snapshot(frozenset(), {}),)
+    reader.close()
+    os.close(writer)
+
+
+def test_a_pad_keeps_working_after_a_drop():
+    # An earlier draft muted the device permanently once desynced. A drop
+    # loses state; it must not lose the pad.
+    reader, writer = reader_on_a_pipe()
+    os.write(writer, events((EV_SYN, SYN_DROPPED, 0)))
+    assert reader.read() == (Snapshot(frozenset(), {}),)
 
     os.write(writer, events((EV_KEY, BTN_SOUTH, 1), (EV_SYN, SYN_REPORT, 0)))
     assert reader.read() == (Report(((EV_KEY, BTN_SOUTH, 1),)),)
     assert reader.drops == 1
+    reader.close()
+    os.close(writer)
+
+
+def test_a_snapshot_can_be_asked_for_without_a_drop():
+    # Resume wants exactly this: ticks stopped, the world moved on, and the
+    # question is what is true now rather than what happened.
+    reader, writer = reader_on_a_pipe()
+    assert reader.snapshot() == Snapshot(frozenset(), {})
+    assert reader.drops == 0
     reader.close()
     os.close(writer)
 

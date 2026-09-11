@@ -293,6 +293,9 @@ SYN_DROPPED = 3
 _EVENT = "llHHi"
 _EVENT_SIZE = struct.calcsize(_EVENT)
 
+#: One bit per key through Linux `KEY_MAX` (0x2ff).
+_KEY_BYTES = 0x300 // 8
+
 #: How much to ask for per `read`. Not a limit -- the loop drains to EAGAIN --
 #: just the size of each trip into the kernel.
 _READ_EVENTS = 64
@@ -313,21 +316,24 @@ class Report(NamedTuple):
     events: tuple[tuple[int, int, int], ...]
 
 
-class Desync(NamedTuple):
-    """The kernel dropped events, here, in the order it happened.
+class Snapshot(NamedTuple):
+    """What the device says is true NOW, asked for rather than observed.
 
-    `SYN_DROPPED` means the per-client buffer overflowed: input happened and
-    nobody will ever say what it was. This is emitted INTO the report stream
-    rather than raised or flagged, so a reader sees exactly where its
-    knowledge stops -- reports, then this, then reports again.
+    Emitted in place of the reports that were lost. Where a `Report` says
+    "these changed together", this says "this is the state, never mind how it
+    got here" -- which is all that can honestly be offered after a drop.
 
-    **It is not recoverable here.** The transport knows events were lost; only
-    the layer holding a held-set can care, because the specific danger is a
-    release inside the lost run leaving a button held for good. Resynchronising
-    against the device's current state is the next piece and belongs beside
-    this one; until it exists, this marker is the honest statement that a hole
-    is there.
+    A reader applying this must treat it as REPLACING its knowledge rather
+    than adding to it: a button absent from `buttons` is up, including one it
+    thought was held. That is the whole point. The failure a drop causes is a
+    release landing in the lost run and leaving a button held for good, and
+    only a wholesale replacement fixes it.
     """
+
+    #: Raw evdev codes currently down. Translating them is the pad's job.
+    buttons: frozenset[int]
+    #: Raw axis code -> current value, for the axes the device has.
+    axes: dict[int, int]
 
 
 class PadReader:
@@ -351,7 +357,7 @@ class PadReader:
     to be handled whether or not a thread exists.
     """
 
-    __slots__ = ("_drops", "_fd", "_pending", "ranges")
+    __slots__ = ("_dropped_at", "_drops", "_fd", "_pending", "ranges")
 
     def __init__(self, fd: int, ranges: dict[int, AxisRange]) -> None:
         self._fd = fd
@@ -362,6 +368,8 @@ class PadReader:
         # sequential two things the kernel is saying were simultaneous.
         self._pending: list[tuple[int, int, int]] = []
         self._drops = 0
+        #: Where in this drain the stream stopped being trustworthy.
+        self._dropped_at: int | None = None
 
     @property
     def drops(self) -> int:
@@ -372,13 +380,13 @@ class PadReader:
         """
         return self._drops
 
-    def read(self) -> tuple[Report | Desync, ...]:
+    def read(self) -> tuple[Report | Snapshot, ...]:
         """Drain whatever has arrived since the last call, in order.
 
         Returns complete reports only. Anything after the last `SYN_REPORT`
         stays pending for the next cut.
         """
-        reports: list[Report | Desync] = []
+        reports: list[Report | Snapshot] = []
         while True:
             try:
                 data = os.read(self._fd, _EVENT_SIZE * _READ_EVENTS)
@@ -391,9 +399,19 @@ class PadReader:
             self._frame(data, reports)
             if len(data) < _EVENT_SIZE * _READ_EVENTS:
                 break
+
+        if self._dropped_at is not None:
+            # Everything from the drop onwards is superseded. The snapshot is
+            # taken AFTER the drain, so it already includes whatever those
+            # reports would have said -- keeping them would apply stale
+            # history on top of current truth, in the wrong order.
+            del reports[self._dropped_at:]
+            self._dropped_at = None
+            self._pending.clear()
+            reports.append(self.snapshot())
         return tuple(reports)
 
-    def _frame(self, data: bytes, reports: list[Report | Desync]) -> None:
+    def _frame(self, data: bytes, reports: list[Report | Snapshot]) -> None:
         for offset in range(0, len(data) - _EVENT_SIZE + 1, _EVENT_SIZE):
             # The timeval is unpacked and dropped. Within a frame everything
             # is simultaneous by construction, so a microsecond stamp would be
@@ -405,16 +423,54 @@ class PadReader:
                 if code == SYN_DROPPED:
                     # The partial report this belonged to has a hole in it, so
                     # it is discarded rather than emitted missing its middle.
-                    # The marker goes out in its place, in order.
+                    # Where the stream stopped being trustworthy is recorded;
+                    # the drain replaces everything from here with a snapshot.
                     self._pending.clear()
                     self._drops += 1
-                    reports.append(Desync())
+                    if self._dropped_at is None:
+                        self._dropped_at = len(reports)
                 elif code == SYN_REPORT and self._pending:
                     reports.append(Report(tuple(self._pending)))
                     self._pending.clear()
                 continue
             if kind in (EV_KEY, EV_ABS):
                 self._pending.append((kind, code, value))
+
+    def snapshot(self) -> Snapshot:
+        """Ask the device what is true now.
+
+        `EVIOCGKEY` returns one bit per key for everything currently down, and
+        `EVIOCGABS` carries each axis's current value in its first field. Both
+        are the kernel's own record of device state, so neither depends on
+        having seen the events that produced it -- which is exactly why this
+        is the answer to a drop.
+
+        Also the right thing on a resume, where ticks stopped and the world
+        moved on without anybody watching.
+        """
+        buttons: set[int] = set()
+        keys = bytearray(_KEY_BYTES)
+        try:
+            fcntl.ioctl(self._fd, _read_request(0x18, _KEY_BYTES), keys, True)
+        except OSError:
+            keys = bytearray(_KEY_BYTES)  # answer "nothing held" over guessing
+        for index, byte in enumerate(keys):
+            if byte:
+                buttons.update(
+                    index * 8 + bit for bit in range(8) if byte & (1 << bit)
+                )
+
+        axes: dict[int, int] = {}
+        for code in self.ranges:
+            info = bytearray(_ABSINFO_SIZE)
+            try:
+                fcntl.ioctl(
+                    self._fd, _read_request(0x40 + code, _ABSINFO_SIZE), info, True
+                )
+            except OSError:
+                continue
+            axes[code] = struct.unpack(_ABSINFO, bytes(info))[0]
+        return Snapshot(frozenset(buttons), axes)
 
     def close(self) -> None:
         """Close the node. Safe to call twice."""
