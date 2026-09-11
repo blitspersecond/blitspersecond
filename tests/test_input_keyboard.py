@@ -214,9 +214,18 @@ def test_staging_is_bounded_and_says_how_much_it_lost():
 def test_an_ingress_handler_never_swallows_an_event():
     # A truthy return is EVENT_HANDLED, which would stop the event reaching
     # Lifecycle and any other device on the same bus.
-    events, keyboard = _keyboard()
+    #
+    # The observer is pushed BEFORE the ingress deliberately. Pyglet
+    # dispatches most-recently-pushed first, so an observer pushed after the
+    # ingress runs first and sees the event whether or not the ingress
+    # swallowed it -- which is what this test did until 2026-09-11, and it
+    # would have passed on an engine where the keyboard ate every key.
+    # Pushed first, it sits under the ingress and is reached only if the
+    # ingress falls through.
+    events = EventBus()
     seen = []
     events.push_handlers(on_key_press=lambda symbol, mods: seen.append(symbol))
+    keyboard = KeyboardIngress(events, fps.SIXTY)
 
     events.dispatch_event("on_key_press", key.Q, 0)
 
