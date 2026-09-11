@@ -1,13 +1,16 @@
-from typing import Callable, Optional, cast
+from typing import TYPE_CHECKING, Callable, Optional, cast
 
 
 from blitspersecond.common import SCREEN, SingletonMeta, fps
 from blitspersecond.graphics.internal import Layers
 from blitspersecond.input import InputBoundary
-from blitspersecond.input.kbm import KeyboardIngress
+from blitspersecond.input.kbm import KeyboardIngress, MouseIngress
 from blitspersecond.system import Logger, Config, Metrics
 
 from .internal import Clock, Display, EngineState, EventBus, Lifecycle, Loop
+
+if TYPE_CHECKING:
+    from .internal.window import PresentationViewport
 
 
 #: The rate every game is authored at until there is a config to say
@@ -110,7 +113,11 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         # waiting. Held by the engine because the bus keeps handlers weakly --
         # an ingress nothing references collects, unsubscribes, and takes the
         # keyboard with it in silence.
-        self._input = InputBoundary(events=self._event_bus, rate=self._clock.rate)
+        self._input = InputBoundary(
+            events=self._event_bus,
+            rate=self._clock.rate,
+            viewport=self._present_viewport,
+        )
         # Never None: an unset loop is a do-nothing lambda, so the hot path
         # calls it unconditionally instead of testing it sixty times a second.
         self._loop: Callable[[], None] = _NOTHING
@@ -266,6 +273,28 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         exists is how the last attempt went wrong.
         """
         return self._input.keyboard
+
+    def _present_viewport(self) -> "PresentationViewport":
+        """Where the picture is on the window, for the pointer to read back.
+
+        Resolved when called rather than when wired, which is what lets input
+        be built before warm-up opens the display. Every call happens inside a
+        frame and a frame cannot run without a display: `Loop.run` is the only
+        thing that cuts, and it cannot be entered until the constructor has
+        opened one -- a failed warm-up leaves the process rather than
+        returning. So there is no state where this is asked and cannot answer.
+        """
+        return self._display.viewport  # type: ignore[union-attr]
+
+    @property
+    def mouse(self) -> MouseIngress:
+        """The pointer, settled onto the frame boundary and in screen pixels.
+
+        Deliberately the ingress itself for now, for the same reason
+        `keyboard` is: the query vocabulary is a later piece and waits for a
+        second kind of device to shape it.
+        """
+        return self._input.mouse
 
     @property
     def metrics(self) -> Metrics:

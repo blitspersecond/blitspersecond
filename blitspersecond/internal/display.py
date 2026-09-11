@@ -16,6 +16,7 @@ from .events import EventBus
 from .framebuffer import Framebuffer, FrameHandoff
 from .pacing.session import PresentationSession
 from .window.surface import Surface
+from .window.viewport import PresentationViewport, integer_viewport
 
 
 class Display:
@@ -46,6 +47,22 @@ class Display:
     @property
     def closed(self):
         return self._surface.closed
+
+    @property
+    def viewport(self) -> PresentationViewport:
+        """Where the internal screen currently sits on the window.
+
+        Computed on every read from `surface.get_size()`, never cached: a
+        window that has been resized needs no notification and there is no
+        stale geometry to go wrong. The present pass does the same thing for
+        the outbound direction.
+
+        This is the accessor the pointer reads back through. Both directions
+        go through `integer_viewport`, so they cannot disagree about where the
+        picture is -- and a disagreement there is a cursor that does not land
+        where it points, visible only as a slight, unreproducible offset.
+        """
+        return integer_viewport(self.width, self.height, *self._surface.get_size())
 
     @property
     def refresh_rate(self) -> float | None:

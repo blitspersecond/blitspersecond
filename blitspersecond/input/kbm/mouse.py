@@ -222,6 +222,17 @@ class MouseIngress:
     rather than per event.
     """
 
+    #: The button vocabulary, reachable from the thing you already have:
+    #: `bps.mouse.PRIMARY`. The reference put them on its pointer facet for
+    #: the same reason -- a caller holding the mouse should not have to find
+    #: a second import to say which button. Class attributes, so they cost
+    #: nothing per instance and do not collide with the slots below.
+    PRIMARY = PRIMARY
+    SECONDARY = SECONDARY
+    MIDDLE = MIDDLE
+    BACK = BACK
+    FORWARD = FORWARD
+
     # `__weakref__` is not optional here: the bus stores bound handlers as
     # weak references, and a slotted class without it cannot be referred to
     # weakly at all -- push_handlers raises outright.
