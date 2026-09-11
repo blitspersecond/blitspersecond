@@ -104,20 +104,26 @@ def test_a_stick_is_two_axes_because_that_is_what_the_hardware_says():
     assert {Axis.LEFT_X, Axis.LEFT_Y, Axis.RIGHT_X, Axis.RIGHT_Y} <= set(Axis)
 
 
-def test_a_closed_vocabulary_is_not_a_promise_every_pad_has_all_of_it():
-    # A Hori Fighting Commander has one stick and it is digital: RIGHT_X and
-    # RIGHT_Y have no answer on it, and LEFT_X answers only its extremes.
-    # EVIOCGABS reports that honestly -- an axis the device lacks is absent
-    # from its calibration rather than present and wrong.
+def test_a_pad_does_not_admit_which_controls_it_lacks():
+    # Measured 2026-09-11: a Hori Fighting Commander has ONE stick and it is
+    # digital, and it declares all six axes over exactly the ranges a real
+    # Xbox pad declares. Presenting as an Xbox controller is what makes it
+    # work everywhere, and the claim covers capabilities as much as identity.
     from blitspersecond.input.pads.evdev import AxisRange
 
-    fightpad = {ABS_X: AxisRange(-1, 1)}          # one digital stick, no more
-    assert AXIS_NAMES[ABS_X] in Axis
-    assert fightpad[ABS_X].centred(-1) == -1.0
-    assert fightpad[ABS_X].centred(0) == 0.0
-    assert fightpad[ABS_X].centred(1) == 1.0
-    # And the axes it does not have simply are not there to read.
-    assert all(code not in fightpad for code in (ABS_Z, ABS_RZ))
+    hori = {
+        ABS_X: AxisRange(-32768, 32767),
+        ABS_Z: AxisRange(0, 1023),
+    }
+    xbox = {
+        ABS_X: AxisRange(-32768, 32767),
+        ABS_Z: AxisRange(0, 1023),
+    }
+    assert hori == xbox, "the calibration cannot tell these two pads apart"
+    # So an absent control reads as permanently neutral and nothing can
+    # distinguish that from one at rest. Require-never is design law, not a
+    # check -- there is no test a game could perform first.
+    assert hori[ABS_X].centred(0) == 0.0
 
 
 def test_a_digital_stick_reaches_full_deflection_rather_than_a_fraction():

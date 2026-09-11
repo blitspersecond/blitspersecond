@@ -23,19 +23,29 @@ class Axis(Enum):
     reports 0 or full, so the threshold gives it clean edges, while a
     genuinely analogue trigger gives travel as well.
 
-    **A closed vocabulary is not a promise every pad has all of it.** This is
-    what a pad MAY report; a given pad reports a subset, and the transport
-    knows which -- `EVIOCGABS` answers `EINVAL` for an axis the device does
-    not have, so an absent axis is absent from its calibration rather than
-    guessed at. A Hori Fighting Commander has one stick and it is DIGITAL,
-    reporting only its extremes, so `RIGHT_X` and `RIGHT_Y` have no answer on
-    it at all and `LEFT_X` answers exactly -1, 0 or 1.
+    **A closed vocabulary is not a promise every pad has all of it, and the
+    pad will not tell you which it has.** A Hori Fighting Commander has one
+    stick, and it is digital -- and measured on 2026-09-11 it declares all six
+    axes over exactly the ranges a real Xbox pad declares, sticks at
+    -32768..32767 and triggers at 0..1023. `EVIOCGABS` does not report the
+    absence, because the pad does not admit to it: presenting as an Xbox
+    controller is what makes it work everywhere, and the claim covers
+    capabilities as much as identity.
 
-    `Button` does not have this problem and the asymmetry is real rather than
-    an oversight: the ten buttons ARE the converged form, and a pad missing
-    one would not be a gamepad. The continuous controls are where real
-    hardware varies, which is why a game may read an axis and must never
-    require one.
+    So a control that is not there reads as permanently neutral, and nothing
+    can distinguish that from one at rest. **This is the same law the pointer
+    already states** -- *"window events cannot reveal a button's absence, a
+    mouse only proves buttons by pressing them"* -- and a pad only proves an
+    axis by moving it.
+
+    Which makes REQUIRE-NEVER design law rather than a runtime check: a game
+    may read an axis and must never depend on one, because there is no test
+    it could perform first.
+
+    `Button` does not have the problem and the asymmetry is real: the ten
+    buttons ARE the converged form, and a pad missing one would not be a
+    gamepad. The continuous controls are where hardware varies, and where it
+    also lies.
 
     Sticks are two axes each rather than one vector, because that is what the
     hardware reports. A stick as a deadzoned (x, y) pair is a DERIVED reading:
