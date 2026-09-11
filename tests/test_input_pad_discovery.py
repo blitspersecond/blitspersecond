@@ -164,3 +164,119 @@ def test_an_unreadable_procfs_is_empty_rather_than_an_exception():
 @pytest.mark.parametrize("blocks", [(), (KEYBOARD,), (HEADSET, KEYBOARD)])
 def test_no_pads_is_an_ordinary_answer(blocks):
     assert discover(proc(*blocks) if blocks else "") == {}
+
+
+# -- axis calibration -----------------------------------------------------
+
+import os
+
+from blitspersecond.input.pads.evdev import (
+    ABS_HAT0X,
+    ABS_X,
+    ABS_Z,
+    AXES,
+    AxisRange,
+    _read_request,
+    axis_ranges,
+    open_node,
+)
+
+#: The wired Xbox One pad, read from the hardware on 2026-09-11. Three
+#: different ranges on ONE device, which is the whole reason this exists.
+XBOX_RANGES = {
+    ABS_X: AxisRange(-32768, 32767),
+    ABS_Z: AxisRange(0, 1023),
+    ABS_HAT0X: AxisRange(-1, 1),
+}
+
+
+def test_a_stick_is_neutral_in_the_middle_and_reaches_one_either_way():
+    stick = XBOX_RANGES[ABS_X]
+    assert stick.centred(0) == 0.0
+    assert stick.centred(-32768) == -1.0
+    assert stick.centred(32767) == 1.0
+
+
+def test_the_midpoint_is_integer_so_a_byte_ranged_stick_rests_at_zero():
+    # 0..255 is the other common stick encoding and its neutral is 128. A
+    # floating midpoint would be 127.5 and put every such pad permanently
+    # off-centre.
+    assert AxisRange(0, 255).centred(128) == 0.0
+    assert AxisRange(-32768, 32767).centred(0) == 0.0
+
+
+def test_the_halves_scale_separately_because_they_are_not_the_same_size():
+    # A signed range has one more step below the midpoint than above it, so a
+    # single divisor would stop one direction short of 1.0.
+    stick = AxisRange(-32768, 32767)
+    assert stick.centred(-32768) == -1.0
+    assert stick.centred(32767) == 1.0
+
+
+def test_a_trigger_rests_at_zero_rather_than_reading_fully_negative():
+    # Reading a trigger through centred() is the bug this pair exists to
+    # prevent: 0..1023 has a midpoint of 512, so a released trigger would
+    # report -1.0 and a game would think it was held.
+    trigger = XBOX_RANGES[ABS_Z]
+    assert trigger.travel(0) == 0.0
+    assert trigger.travel(1023) == 1.0
+    assert trigger.centred(0) == -1.0  # exactly the wrong answer
+
+
+def test_a_hat_is_already_the_three_values_it_should_be():
+    hat = XBOX_RANGES[ABS_HAT0X]
+    assert [hat.centred(v) for v in (-1, 0, 1)] == [-1.0, 0.0, 1.0]
+
+
+def test_a_degenerate_range_answers_zero_rather_than_dividing_by_it():
+    assert AxisRange(7, 7).centred(7) == 0.0
+    assert AxisRange(7, 7).travel(7) == 0.0
+
+
+def test_values_beyond_the_declared_range_are_clamped():
+    stick = AxisRange(-32768, 32767)
+    assert stick.centred(-40000) == -1.0
+    assert stick.centred(40000) == 1.0
+    assert XBOX_RANGES[ABS_Z].travel(2000) == 1.0
+
+
+def test_the_ioctl_number_is_eviocgabs():
+    # _IOR('E', 0x40 + code, sizeof(struct input_absinfo)); pinned because a
+    # wrong request number fails silently as "this pad has no axes".
+    assert _read_request(0x40 + ABS_X, 24) == 0x80184540
+
+
+def test_asking_a_pipe_for_axes_is_empty_rather_than_an_explosion():
+    # Every axis answers ENOTTY on something that is not an input device, and
+    # that is the same path a pad takes for an axis it does not have.
+    read_fd, write_fd = os.pipe()
+    try:
+        assert axis_ranges(read_fd) == {}
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
+
+
+def test_the_axes_asked_about_are_two_sticks_two_triggers_and_a_hat():
+    assert len(AXES) == 8
+    assert ABS_X in AXES and ABS_Z in AXES and ABS_HAT0X in AXES
+
+
+@pytest.mark.skipif(not os.path.exists("/proc/bus/input/devices"), reason="linux only")
+def test_against_whatever_is_actually_plugged_in():
+    # Not a fixture: a live check that open + calibrate works on real
+    # hardware, skipped when there is none. Every range the kernel reports
+    # must be usable, which is the property the fixtures above assume.
+    from blitspersecond.input.pads.evdev import discover as live
+
+    for pad in live().values():
+        fd = open_node(pad.path)
+        try:
+            ranges = axis_ranges(fd)
+        finally:
+            os.close(fd)
+        assert ranges, f"{pad.name} reported no axes at all"
+        for code, span in ranges.items():
+            assert span.maximum >= span.minimum
+            assert -1.0 <= span.centred(span.minimum) <= 1.0
+            assert 0.0 <= span.travel(span.maximum) <= 1.0
