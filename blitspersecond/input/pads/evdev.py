@@ -278,3 +278,159 @@ def axis_ranges(fd: int) -> dict[int, AxisRange]:
         )
         ranges[code] = AxisRange(minimum, maximum)
     return ranges
+
+
+# -- reading ----------------------------------------------------------------
+
+EV_SYN = 0x00
+EV_KEY = 0x01
+EV_ABS = 0x03
+
+SYN_REPORT = 0
+SYN_DROPPED = 3
+
+#: `struct input_event`: a timeval, then type, code, value.
+_EVENT = "llHHi"
+_EVENT_SIZE = struct.calcsize(_EVENT)
+
+#: How much to ask for per `read`. Not a limit -- the loop drains to EAGAIN --
+#: just the size of each trip into the kernel.
+_READ_EVENTS = 64
+
+
+class Report(NamedTuple):
+    """One complete kernel input report: what changed at the same instant.
+
+    A report is the kernel's own simultaneity group, ended by `SYN_REPORT`.
+    Everything in it happened together, and the ORDER OF REPORTS is what makes
+    a roll through down, down-forward, forward reconstructible rather than
+    flattened into wherever the stick finished.
+
+    `events` are raw `(type, code, value)` triples. Translating them into
+    `Button` and axis values is the pad's job, not the transport's.
+    """
+
+    events: tuple[tuple[int, int, int], ...]
+
+
+class Desync(NamedTuple):
+    """The kernel dropped events, here, in the order it happened.
+
+    `SYN_DROPPED` means the per-client buffer overflowed: input happened and
+    nobody will ever say what it was. This is emitted INTO the report stream
+    rather than raised or flagged, so a reader sees exactly where its
+    knowledge stops -- reports, then this, then reports again.
+
+    **It is not recoverable here.** The transport knows events were lost; only
+    the layer holding a held-set can care, because the specific danger is a
+    release inside the lost run leaving a button held for good. Resynchronising
+    against the device's current state is the next piece and belongs beside
+    this one; until it exists, this marker is the honest statement that a hole
+    is there.
+    """
+
+
+class PadReader:
+    """One open pad, read once per frame.
+
+    **There is no thread and no `select`.** The kernel keeps a per-client
+    buffer on each evdev fd -- sized from the device's capabilities, at least
+    64 events -- and holds everything until it is read. So the kernel IS the
+    staging buffer this subsystem would otherwise build: a reader thread
+    copying that buffer into one of ours a few milliseconds sooner does the
+    same job twice, and buys a cross-thread handoff, a lock, and the engine's
+    only concurrency.
+
+    Kris, 2026-09-11: *"we don't need to read until the cut; anything between
+    frames can happily sit there."*
+
+    What it costs is freshness, which this engine has already bought once and
+    priced: input that lands during a frame's tail waits for the next cut, the
+    same one-frame granularity the keyboard accepts. What it risks is the
+    kernel buffer overflowing between cuts, which is `SYN_DROPPED`, which has
+    to be handled whether or not a thread exists.
+    """
+
+    __slots__ = ("_drops", "_fd", "_pending", "ranges")
+
+    def __init__(self, fd: int, ranges: dict[int, AxisRange]) -> None:
+        self._fd = fd
+        self.ranges = ranges
+        # Events seen since the last SYN_REPORT. **Held across cuts on
+        # purpose**: a report whose SYN_REPORT has not arrived yet is not
+        # finished, and splitting it over two frames would report as
+        # sequential two things the kernel is saying were simultaneous.
+        self._pending: list[tuple[int, int, int]] = []
+        self._drops = 0
+
+    @property
+    def drops(self) -> int:
+        """How many times the kernel has dropped events on this device.
+
+        Cumulative and never reset. Nonzero means input was lost; the `Desync`
+        markers in the stream say where.
+        """
+        return self._drops
+
+    def read(self) -> tuple[Report | Desync, ...]:
+        """Drain whatever has arrived since the last call, in order.
+
+        Returns complete reports only. Anything after the last `SYN_REPORT`
+        stays pending for the next cut.
+        """
+        reports: list[Report | Desync] = []
+        while True:
+            try:
+                data = os.read(self._fd, _EVENT_SIZE * _READ_EVENTS)
+            except BlockingIOError:
+                break  # drained
+            except OSError:
+                break  # gone; discovery notices on the next scan
+            if not data:
+                break
+            self._frame(data, reports)
+            if len(data) < _EVENT_SIZE * _READ_EVENTS:
+                break
+        return tuple(reports)
+
+    def _frame(self, data: bytes, reports: list[Report | Desync]) -> None:
+        for offset in range(0, len(data) - _EVENT_SIZE + 1, _EVENT_SIZE):
+            # The timeval is unpacked and dropped. Within a frame everything
+            # is simultaneous by construction, so a microsecond stamp would be
+            # a second game clock; order survives the cut and time does not.
+            _sec, _usec, kind, code, value = struct.unpack_from(
+                _EVENT, data, offset
+            )
+            if kind == EV_SYN:
+                if code == SYN_DROPPED:
+                    # The partial report this belonged to has a hole in it, so
+                    # it is discarded rather than emitted missing its middle.
+                    # The marker goes out in its place, in order.
+                    self._pending.clear()
+                    self._drops += 1
+                    reports.append(Desync())
+                elif code == SYN_REPORT and self._pending:
+                    reports.append(Report(tuple(self._pending)))
+                    self._pending.clear()
+                continue
+            if kind in (EV_KEY, EV_ABS):
+                self._pending.append((kind, code, value))
+
+    def close(self) -> None:
+        """Close the node. Safe to call twice."""
+        if self._fd >= 0:
+            try:
+                os.close(self._fd)
+            except OSError:
+                pass
+            self._fd = -1
+
+
+def open_pad(device: PadDevice) -> PadReader:
+    """Open a discovered pad and ask it what its axes mean."""
+    fd = open_node(device.path)
+    try:
+        return PadReader(fd, axis_ranges(fd))
+    except BaseException:
+        os.close(fd)
+        raise

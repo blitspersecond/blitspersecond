@@ -280,3 +280,155 @@ def test_against_whatever_is_actually_plugged_in():
             assert span.maximum >= span.minimum
             assert -1.0 <= span.centred(span.minimum) <= 1.0
             assert 0.0 <= span.travel(span.maximum) <= 1.0
+
+
+# -- reading reports ------------------------------------------------------
+#
+# A pipe stands in for an event node: the framing has no idea what is
+# underneath it, which is the point of testing it this way.
+
+import struct
+
+from blitspersecond.input.pads.evdev import (
+    BTN_SOUTH,
+    EV_ABS,
+    EV_KEY,
+    EV_SYN,
+    SYN_DROPPED,
+    SYN_REPORT,
+    Desync,
+    PadReader,
+    Report,
+)
+
+BTN_EAST = 0x131
+
+
+def events(*triples):
+    """Synthetic `struct input_event` bytes, with plausible timestamps."""
+    return b"".join(
+        struct.pack("llHHi", 1757600000, 123456, kind, code, value)
+        for kind, code, value in triples
+    )
+
+
+def reader_on_a_pipe():
+    read_fd, write_fd = os.pipe()
+    os.set_blocking(read_fd, False)
+    return PadReader(read_fd, {}), write_fd
+
+
+def test_a_report_is_what_the_kernel_called_simultaneous():
+    reader, writer = reader_on_a_pipe()
+    os.write(writer, events(
+        (EV_KEY, BTN_SOUTH, 1),
+        (EV_ABS, ABS_X, -32000),
+        (EV_SYN, SYN_REPORT, 0),
+    ))
+    assert reader.read() == (
+        Report(((EV_KEY, BTN_SOUTH, 1), (EV_ABS, ABS_X, -32000))),
+    )
+    reader.close()
+    os.close(writer)
+
+
+def test_an_unfinished_report_waits_rather_than_being_split_across_frames():
+    # The kernel says these happened together. Emitting half of them now and
+    # half next frame would report as sequential two things that were not.
+    reader, writer = reader_on_a_pipe()
+    os.write(writer, events((EV_KEY, BTN_SOUTH, 1), (EV_ABS, ABS_X, -32000)))
+    assert reader.read() == ()          # nothing complete yet
+
+    os.write(writer, events((EV_SYN, SYN_REPORT, 0)))
+    assert reader.read() == (
+        Report(((EV_KEY, BTN_SOUTH, 1), (EV_ABS, ABS_X, -32000))),
+    )
+    reader.close()
+    os.close(writer)
+
+
+def test_the_order_of_reports_is_the_path_the_stick_took():
+    # This is the whole reason reports exist rather than one scan per frame:
+    # a roll through three positions inside one frame stays three facts.
+    reader, writer = reader_on_a_pipe()
+    for value in (-32000, -16000, 0):
+        os.write(writer, events((EV_ABS, ABS_X, value), (EV_SYN, SYN_REPORT, 0)))
+    assert [r.events[0][2] for r in reader.read()] == [-32000, -16000, 0]
+    reader.close()
+    os.close(writer)
+
+
+def test_a_dropped_run_is_marked_in_place_rather_than_hidden():
+    reader, writer = reader_on_a_pipe()
+    os.write(writer, events(
+        (EV_KEY, BTN_SOUTH, 1),
+        (EV_SYN, SYN_REPORT, 0),
+        (EV_KEY, BTN_EAST, 1),       # part of a report that lost its middle
+        (EV_SYN, SYN_DROPPED, 0),
+        (EV_KEY, BTN_SOUTH, 0),
+        (EV_SYN, SYN_REPORT, 0),
+    ))
+    got = reader.read()
+    assert got == (
+        Report(((EV_KEY, BTN_SOUTH, 1),)),
+        Desync(),
+        Report(((EV_KEY, BTN_SOUTH, 0),)),
+    )
+    # The half-report that straddled the drop is gone, not emitted incomplete.
+    assert reader.drops == 1
+    reader.close()
+    os.close(writer)
+
+
+def test_a_pad_keeps_working_after_a_drop():
+    # An earlier draft muted the device permanently once desynced, waiting for
+    # a resync that is not built yet. A drop loses state; it must not lose the
+    # pad.
+    reader, writer = reader_on_a_pipe()
+    os.write(writer, events((EV_SYN, SYN_DROPPED, 0)))
+    assert reader.read() == (Desync(),)
+
+    os.write(writer, events((EV_KEY, BTN_SOUTH, 1), (EV_SYN, SYN_REPORT, 0)))
+    assert reader.read() == (Report(((EV_KEY, BTN_SOUTH, 1),)),)
+    assert reader.drops == 1
+    reader.close()
+    os.close(writer)
+
+
+def test_event_kinds_the_pad_cannot_use_are_dropped_at_the_transport():
+    EV_MSC, EV_FF = 0x04, 0x15
+    reader, writer = reader_on_a_pipe()
+    os.write(writer, events(
+        (EV_MSC, 0x04, 589825),
+        (EV_KEY, BTN_SOUTH, 1),
+        (EV_FF, 0x50, 1),
+        (EV_SYN, SYN_REPORT, 0),
+    ))
+    assert reader.read() == (Report(((EV_KEY, BTN_SOUTH, 1),)),)
+    reader.close()
+    os.close(writer)
+
+
+def test_an_empty_report_is_not_a_report():
+    # The kernel emits SYN_REPORT even when nothing this reader cares about
+    # changed. An empty one would be a frame's worth of nothing.
+    reader, writer = reader_on_a_pipe()
+    os.write(writer, events((EV_SYN, SYN_REPORT, 0), (EV_SYN, SYN_REPORT, 0)))
+    assert reader.read() == ()
+    reader.close()
+    os.close(writer)
+
+
+def test_nothing_to_read_is_an_ordinary_answer():
+    reader, writer = reader_on_a_pipe()
+    assert reader.read() == ()
+    assert reader.read() == ()
+    reader.close()
+    os.close(writer)
+
+
+def test_closing_twice_is_safe_because_teardown_runs_on_half_built_things():
+    reader, writer = reader_on_a_pipe()
+    reader.close()
+    reader.close()
+    os.close(writer)
