@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import NamedTuple
 
 from .button import Button
+from .control import Axis
 from .mapper import PadMapper, mapper_for, model_for
 
 _PROCFS = "/proc/bus/input/devices"
@@ -320,6 +321,17 @@ BUTTONS: dict[int, Button] = {
     BTN_TR: Button.RB,
     BTN_SELECT: Button.SELECT,
     BTN_START: Button.START,
+}
+
+#: evdev axis code -> `Axis`. The d-pad is absent on purpose: ABS_HAT0X/Y are
+#: how evdev spells a d-pad, and a d-pad is not two axes. See `Direction`.
+AXIS_NAMES: dict[int, Axis] = {
+    ABS_X: Axis.LEFT_X,
+    ABS_Y: Axis.LEFT_Y,
+    ABS_RX: Axis.RIGHT_X,
+    ABS_RY: Axis.RIGHT_Y,
+    ABS_Z: Axis.LEFT_TRIGGER,
+    ABS_RZ: Axis.RIGHT_TRIGGER,
 }
 
 #: Trigger AXES that become buttons. `LT` and `RT` do not arrive as keys: a
