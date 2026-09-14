@@ -203,7 +203,10 @@ _MODELS: dict[str, str] = {
     "045e:0b05": "Xbox Elite Series 2",
     "045e:0b0a": "Xbox Adaptive Controller",
     "045e:0b0c": "Xbox One Controller",
-    "045e:0b12": "Xbox One Controller",
+    # 0b12 and 0b13 are one model on two links -- the kernel names 0b12
+    # "Microsoft Xbox Series S|X Controller" itself. Corrected 2026-09-14
+    # after the pad was plugged in; v2's extraction had them disagreeing.
+    "045e:0b12": "Xbox Series Controller",
     "045e:0b13": "Xbox Series Controller",
     "045e:0b20": "Xbox One Controller",
     "045e:0b22": "Xbox Wireless Controller",
