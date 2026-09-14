@@ -200,3 +200,56 @@ def test_the_wrong_layout_is_what_makes_a_trigger_read_as_held():
     at_rest, span = 32688, AxisRange(0, 65535)
     assert span.travel(at_rest) > TRIGGER_ON      # held, wrongly
     assert abs(span.centred(at_rest)) < 0.01      # centred, correctly
+
+
+def test_a_pad_with_no_trigger_axes_reports_its_triggers_as_buttons():
+    # A Switch Pro is this: ZL and ZR are switches, it declares no trigger
+    # axes at all, and without the digital mapping Button.LT and Button.RT
+    # are unreachable on it forever -- a game binds them and gets nothing.
+    from blitspersecond.input.pads.evdev import (
+        ABS_RX, ABS_RY, BTN_TL2, BTN_TR2, AxisRange, layout_for,
+    )
+
+    switch = {
+        ABS_X: AxisRange(-32767, 32767),
+        ABS_RX: AxisRange(-32767, 32767),
+        ABS_RY: AxisRange(-32767, 32767),
+    }
+    layout = layout_for(switch)
+    assert layout.triggers == {}
+    assert layout.buttons[BTN_TL2] is Button.LT
+    assert layout.buttons[BTN_TR2] is Button.RT
+
+
+def test_a_pad_with_trigger_axes_does_not_also_read_the_digital_ones():
+    # Four of five pads on the test desk declare BTN_TL2/BTN_TR2 BESIDE their
+    # analogue triggers. Mapping both would give one control two sources that
+    # can disagree near the threshold, and the axis re-pressing after the
+    # button let go would chatter.
+    from blitspersecond.input.pads.evdev import BTN_TL2, BTN_TR2, AxisRange, layout_for
+
+    analogue = {ABS_X: AxisRange(-32768, 32767), ABS_Z: AxisRange(0, 1023)}
+    layout = layout_for(analogue)
+    assert BTN_TL2 not in layout.buttons
+    assert BTN_TR2 not in layout.buttons
+    assert layout.triggers[ABS_Z] is Button.LT
+
+
+@pytest.mark.parametrize(
+    "declares",
+    [
+        {0x00: (-32768, 32767), 0x02: (0, 1023), 0x05: (0, 1023)},   # xpad
+        {0x00: (0, 65535), 0x02: (0, 65535), 0x09: (0, 1023), 0x0A: (0, 1023)},
+        {0x00: (-32767, 32767), 0x03: (-32767, 32767)},              # digital
+    ],
+    ids=["xpad", "generic-hid", "digital-triggers"],
+)
+def test_every_button_is_reachable_on_every_layout(declares):
+    # The closed-vocabulary bargain, per device rather than in general: a
+    # Button nothing on THIS pad maps to is a control a game can name and
+    # never receive from it.
+    from blitspersecond.input.pads.evdev import AxisRange, layout_for
+
+    layout = layout_for({c: AxisRange(*r) for c, r in declares.items()})
+    reachable = set(layout.buttons.values()) | set(layout.triggers.values())
+    assert reachable == set(Button)

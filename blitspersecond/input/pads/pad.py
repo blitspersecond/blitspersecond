@@ -228,7 +228,7 @@ class PadIngress:
         hat = self._hat
         for kind, code, value in report.events:
             if kind == EV_KEY:
-                button = BUTTONS.get(code)
+                button = self._reader.layout.buttons.get(code)
                 # value 2 is autorepeat: a fact about the OS, never an edge.
                 if button is not None and value in (0, 1):
                     self._edge(button, value == 1, pressed, released, facts)

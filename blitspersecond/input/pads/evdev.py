@@ -335,6 +335,12 @@ BTN_WEST = 0x133
 BTN_NORTH = 0x134
 BTN_TL = 0x136
 BTN_TR = 0x137
+#: The digital trigger buttons. On a pad with analogue triggers these arrive
+#: BESIDE the axis; on one without them they are the only way ZL and ZR ever
+#: appear. See `layout_for`.
+BTN_TL2 = 0x138
+BTN_TR2 = 0x139
+
 BTN_SELECT = 0x13A
 BTN_START = 0x13B
 
@@ -375,10 +381,14 @@ TRIGGERS: dict[int, Button] = {ABS_Z: Button.LT, ABS_RZ: Button.RT}
 
 
 class Layout(NamedTuple):
-    """Which evdev axis is which control, for one particular device."""
+    """Which control is which, for one particular device."""
 
     axes: dict[int, Axis]
+    #: Axis code -> the `Button` its travel thresholds into.
     triggers: dict[int, Button]
+    #: Key code -> `Button`. Per device because a pad with no trigger AXES
+    #: reports ZL and ZR as plain buttons, and that is the only way they come.
+    buttons: dict[int, Button]
 
 
 #: The `xpad` layout: what a Microsoft pad looks like over USB, and what the
@@ -386,6 +396,7 @@ class Layout(NamedTuple):
 _XPAD = Layout(
     axes=dict(AXIS_NAMES),
     triggers=dict(TRIGGERS),
+    buttons=dict(BUTTONS),
 )
 
 #: The generic-HID layout. `ABS_Z`/`ABS_RZ` are the RIGHT STICK here, not
@@ -400,6 +411,21 @@ _GENERIC = Layout(
         ABS_BRAKE: Axis.LEFT_TRIGGER,
     },
     triggers={ABS_GAS: Button.RT, ABS_BRAKE: Button.LT},
+    buttons=dict(BUTTONS),
+)
+
+#: No trigger axes at all, so the digital buttons ARE the triggers. A Switch
+#: Pro is this: ZL and ZR are switches, and without these two entries
+#: `Button.LT` and `Button.RT` are unreachable on it forever.
+_DIGITAL_TRIGGERS = Layout(
+    axes={
+        ABS_X: Axis.LEFT_X,
+        ABS_Y: Axis.LEFT_Y,
+        ABS_RX: Axis.RIGHT_X,
+        ABS_RY: Axis.RIGHT_Y,
+    },
+    triggers={},
+    buttons=dict(BUTTONS) | {BTN_TL2: Button.LT, BTN_TR2: Button.RT},
 )
 
 
@@ -427,6 +453,13 @@ def layout_for(ranges: dict[int, AxisRange]) -> Layout:
     """
     if ABS_GAS in ranges and ABS_BRAKE in ranges:
         return _GENERIC
+    if ABS_Z not in ranges and ABS_RZ not in ranges:
+        # No trigger axes. `BTN_TL2`/`BTN_TR2` are then the only way ZL and
+        # ZR arrive, so they become the triggers -- and they are mapped ONLY
+        # here. A pad with both would have two sources for one control that
+        # can disagree near the threshold, and the axis re-pressing after the
+        # button let go would chatter.
+        return _DIGITAL_TRIGGERS
     return _XPAD
 
 
