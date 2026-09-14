@@ -257,8 +257,15 @@ def test_asking_a_pipe_for_axes_is_empty_rather_than_an_explosion():
         os.close(write_fd)
 
 
-def test_the_axes_asked_about_are_two_sticks_two_triggers_and_a_hat():
-    assert len(AXES) == 8
+def test_gas_and_brake_are_asked_about_precisely_because_most_pads_lack_them():
+    # Their presence is the signal `layout_for` branches on: a device that
+    # declares them puts its triggers there and its RIGHT STICK on Z/RZ.
+    # Not querying them was a real bug for an afternoon -- the discriminant
+    # could never fire, because the fact it needed was never read.
+    from blitspersecond.input.pads.evdev import ABS_BRAKE, ABS_GAS
+
+    assert ABS_GAS in AXES and ABS_BRAKE in AXES
+    assert len(AXES) == 10
     assert ABS_X in AXES and ABS_Z in AXES and ABS_HAT0X in AXES
 
 

@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from blitspersecond.common import fps
 
 from .control import Direction
-from .evdev import PadDevice, Snapshot, discover, open_pad
+from .evdev import PadDevice, Snapshot, discover, layout_for, open_pad
 from .identify import Identification
 from .mapper import PadMapper
 from .pad import PadEvent, PadIngress, PadWindow
@@ -39,6 +39,7 @@ class _Gone:
     """
 
     ranges: dict[int, object] = {}
+    layout = layout_for({})
 
     def read(self) -> tuple[()]:
         return ()

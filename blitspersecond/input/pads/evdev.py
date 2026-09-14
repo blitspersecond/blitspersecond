@@ -180,8 +180,25 @@ ABS_RZ = 0x05
 ABS_HAT0X = 0x10
 ABS_HAT0Y = 0x11
 
-#: The axes worth asking about: two sticks, two triggers, one hat.
-AXES = (ABS_X, ABS_Y, ABS_Z, ABS_RX, ABS_RY, ABS_RZ, ABS_HAT0X, ABS_HAT0Y)
+ABS_GAS = 0x09
+ABS_BRAKE = 0x0A
+
+#: The axes worth asking about: two sticks, two triggers, one d-pad -- and
+#: `GAS`/`BRAKE`, which are where the triggers live under the generic HID
+#: driver. They are queried even though most pads do not have them BECAUSE
+#: most pads do not: their presence is what `layout_for` branches on.
+AXES = (
+    ABS_X,
+    ABS_Y,
+    ABS_Z,
+    ABS_RX,
+    ABS_RY,
+    ABS_RZ,
+    ABS_GAS,
+    ABS_BRAKE,
+    ABS_HAT0X,
+    ABS_HAT0Y,
+)
 
 #: `struct input_absinfo`: value, minimum, maximum, fuzz, flat, resolution.
 _ABSINFO = "iiiiii"
@@ -278,6 +295,14 @@ def axis_ranges(fd: int) -> dict[int, AxisRange]:
         _value, minimum, maximum, _fuzz, _flat, _resolution = struct.unpack(
             _ABSINFO, bytes(info)
         )
+        if minimum == maximum:
+            # DECLARED BUT EMPTY. Real pads do this for controls they do not
+            # have: both Bluetooth Xbox pads on the test desk declare
+            # `ABS_RX`/`ABS_RY` this way, and a Switch Pro declares
+            # `ABS_Z`/`ABS_RZ` this way because its triggers are digital and
+            # arrive as buttons. An axis with no range is an axis that is not
+            # there, so it is left out rather than carried as a zero-width one.
+            continue
         ranges[code] = AxisRange(minimum, maximum)
     return ranges
 
@@ -339,6 +364,62 @@ AXIS_NAMES: dict[int, Axis] = {
 #: threshold is the pad's judgement, not the transport's -- this only says
 #: which axis becomes which button.
 TRIGGERS: dict[int, Button] = {ABS_Z: Button.LT, ABS_RZ: Button.RT}
+
+
+class Layout(NamedTuple):
+    """Which evdev axis is which control, for one particular device."""
+
+    axes: dict[int, Axis]
+    triggers: dict[int, Button]
+
+
+#: The `xpad` layout: what a Microsoft pad looks like over USB, and what the
+#: dedicated Sony drivers present too.
+_XPAD = Layout(
+    axes=dict(AXIS_NAMES),
+    triggers=dict(TRIGGERS),
+)
+
+#: The generic-HID layout. `ABS_Z`/`ABS_RZ` are the RIGHT STICK here, not
+#: triggers, and the triggers are on `ABS_GAS`/`ABS_BRAKE`.
+_GENERIC = Layout(
+    axes={
+        ABS_X: Axis.LEFT_X,
+        ABS_Y: Axis.LEFT_Y,
+        ABS_Z: Axis.RIGHT_X,
+        ABS_RZ: Axis.RIGHT_Y,
+        ABS_GAS: Axis.RIGHT_TRIGGER,
+        ABS_BRAKE: Axis.LEFT_TRIGGER,
+    },
+    triggers={ABS_GAS: Button.RT, ABS_BRAKE: Button.LT},
+)
+
+
+def layout_for(ranges: dict[int, AxisRange]) -> Layout:
+    """Work out which axis is which, from what this device declares.
+
+    **The layout follows the kernel driver, not the device and not the link.**
+    Measured across six pads on 2026-09-14: a wired Xbox pad and a Bluetooth
+    DualSense both use the `xpad` arrangement, while the same Xbox pad over
+    Bluetooth does not -- Sony pads get a dedicated driver and Xbox pads over
+    Bluetooth fall through to generic HID.
+
+    The consequence of getting it wrong is not subtle. Read a Bluetooth Xbox
+    pad through the `xpad` layout and its right stick is dead while both
+    triggers report permanently held, because `ABS_Z`/`ABS_RZ` are sticks
+    resting near the middle of a 0..65535 range -- 0.499 travel against a
+    0.118 threshold.
+
+    **So it is decided by capability rather than by identity.** A device that
+    declares `ABS_GAS` and `ABS_BRAKE` has its triggers there; nothing else
+    does. That is a duck test, and it is the only practical option anyway:
+    since the layout follows the driver, a vendor:product table would have to
+    encode which driver claims what on which kernel, and that is precisely the
+    two-thousand-entry problem this engine refuses.
+    """
+    if ABS_GAS in ranges and ABS_BRAKE in ranges:
+        return _GENERIC
+    return _XPAD
 
 
 # -- reading ----------------------------------------------------------------
@@ -418,11 +499,22 @@ class PadReader:
     to be handled whether or not a thread exists.
     """
 
-    __slots__ = ("_dropped_at", "_drops", "_fd", "_pending", "ranges")
+    __slots__ = (
+        "_dropped_at",
+        "_drops",
+        "_fd",
+        "_pending",
+        "layout",
+        "ranges",
+    )
 
     def __init__(self, fd: int, ranges: dict[int, AxisRange]) -> None:
         self._fd = fd
         self.ranges = ranges
+        #: Resolved once, at open, from what this device declares. Asked of
+        #: the reader rather than looked up globally, because two pads on one
+        #: desk can disagree about what `ABS_Z` means.
+        self.layout = layout_for(ranges)
         # Events seen since the last SYN_REPORT. **Held across cuts on
         # purpose**: a report whose SYN_REPORT has not arrived yet is not
         # finished, and splitting it over two frames would report as

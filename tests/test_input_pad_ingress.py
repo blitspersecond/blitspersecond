@@ -39,7 +39,10 @@ class Stub:
     """A reader that hands over whatever a test says arrived."""
 
     def __init__(self, ranges=None):
+        from blitspersecond.input.pads.evdev import layout_for
+
         self.ranges = RANGES if ranges is None else ranges
+        self.layout = layout_for(self.ranges)
         self.queued = []
 
     def arrive(self, *items):
@@ -307,3 +310,26 @@ def test_state_outlives_the_facts_that_produced_it():
         window = pad.cut(frame)
     assert window.facts == ()
     assert window.scan.held == frozenset({Button.FACE_SOUTH})
+
+
+def test_the_ingress_asks_the_READER_which_axis_is_which():
+    # Two pads on one desk can disagree about what ABS_Z means, so the layout
+    # is resolved per device at open and carried by the reader. A global table
+    # would give one of them a dead right stick and two stuck triggers.
+    from blitspersecond.input.pads.evdev import ABS_BRAKE, ABS_GAS, ABS_RZ, layout_for
+
+    generic_ranges = {
+        ABS_X: AxisRange(0, 65535),
+        ABS_Z: AxisRange(0, 65535),
+        ABS_RZ: AxisRange(0, 65535),
+        ABS_GAS: AxisRange(0, 1023),
+        ABS_BRAKE: AxisRange(0, 1023),
+    }
+    stub, pad = ingress(ranges=generic_ranges)
+    assert stub.layout is layout_for(generic_ranges)
+
+    # ABS_Z is this pad's right stick, resting near the middle of its range.
+    stub.arrive(report((EV_ABS, ABS_Z, 32688)))
+    scan = pad.cut(1).scan
+    assert abs(scan.axes[Axis.RIGHT_X]) < 0.01
+    assert scan.pressed == frozenset()          # and no trigger fired

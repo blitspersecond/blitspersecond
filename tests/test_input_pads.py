@@ -26,7 +26,10 @@ RANGES = {ABS_X: AxisRange(-32768, 32767), ABS_HAT0X: AxisRange(-1, 1)}
 
 class Reader:
     def __init__(self):
+        from blitspersecond.input.pads.evdev import layout_for
+
         self.ranges = RANGES
+        self.layout = layout_for(RANGES)
         self.queued = []
         self.closed = False
         self.snapshots = 0

@@ -134,3 +134,69 @@ def test_a_digital_stick_reaches_full_deflection_rather_than_a_fraction():
 
     assert AxisRange(-1, 1).centred(1) == 1.0
     assert AxisRange(-32768, 32767).centred(1) != 1.0
+
+
+# -- which axis is which, per device --------------------------------------
+
+
+def test_a_declared_but_empty_axis_is_not_an_axis():
+    # Real pads do this for controls they do not have: both Bluetooth Xbox
+    # pads on the test desk declare ABS_RX/ABS_RY with range (0, 0), and a
+    # Switch Pro declares ABS_Z/ABS_RZ that way because its triggers are
+    # digital and arrive as buttons. An axis with no range is not there.
+    import os
+    import struct
+    from blitspersecond.input.pads.evdev import axis_ranges
+
+    # A pipe answers ENOTTY to every query, which is the same path.
+    read_fd, write_fd = os.pipe()
+    try:
+        assert axis_ranges(read_fd) == {}
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
+
+
+def test_the_default_layout_is_what_a_wired_xbox_pad_looks_like():
+    from blitspersecond.input.pads.evdev import AxisRange, layout_for
+
+    xpad = {
+        ABS_X: AxisRange(-32768, 32767),
+        ABS_Z: AxisRange(0, 1023),
+        ABS_RZ: AxisRange(0, 1023),
+    }
+    layout = layout_for(xpad)
+    assert layout.axes[ABS_Z] is Axis.LEFT_TRIGGER
+    assert layout.triggers[ABS_Z] is Button.LT
+
+
+def test_declaring_gas_and_brake_moves_the_triggers_and_the_right_stick():
+    # Measured: a Bluetooth Xbox pad puts its RIGHT STICK on ABS_Z/ABS_RZ and
+    # its triggers on ABS_GAS/ABS_BRAKE, where the same pad over USB does the
+    # opposite. The layout follows the kernel driver, not the device.
+    from blitspersecond.input.pads.evdev import ABS_BRAKE, ABS_GAS, AxisRange, layout_for
+
+    generic = {
+        ABS_X: AxisRange(0, 65535),
+        ABS_Z: AxisRange(0, 65535),
+        ABS_RZ: AxisRange(0, 65535),
+        ABS_GAS: AxisRange(0, 1023),
+        ABS_BRAKE: AxisRange(0, 1023),
+    }
+    layout = layout_for(generic)
+    assert layout.axes[ABS_Z] is Axis.RIGHT_X
+    assert layout.axes[ABS_RZ] is Axis.RIGHT_Y
+    assert layout.triggers == {ABS_GAS: Button.RT, ABS_BRAKE: Button.LT}
+    assert ABS_Z not in layout.triggers
+
+
+def test_the_wrong_layout_is_what_makes_a_trigger_read_as_held():
+    # The failure, stated as a number. A Bluetooth Xbox pad rests its ABS_Z
+    # near the middle of a 0..65535 range because it is a STICK. Read as a
+    # trigger that is half-pressed, and 0.5 is four times the threshold.
+    from blitspersecond.input.pads.evdev import AxisRange
+    from blitspersecond.input.pads.pad import TRIGGER_ON
+
+    at_rest, span = 32688, AxisRange(0, 65535)
+    assert span.travel(at_rest) > TRIGGER_ON      # held, wrongly
+    assert abs(span.centred(at_rest)) < 0.01      # centred, correctly

@@ -259,11 +259,11 @@ class PadIngress:
             )
 
     def _axis(self, code: int, raw: int, pressed, released, facts) -> None:
-        name = AXIS_NAMES.get(code)
+        name = self._reader.layout.axes.get(code)
         if name is None:
             return  # a control outside the vocabulary; dropped here
         span = self._reader.ranges.get(code)
-        trigger = TRIGGERS.get(code)
+        trigger = self._reader.layout.triggers.get(code)
         if span is None:
             # No calibration, so no idea what the number means. Reporting it
             # raw would be worse than not reporting it.
