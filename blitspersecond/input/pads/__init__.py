@@ -4,6 +4,7 @@
     mapper.py    which pad is this, and what does it print on its buttons.
     control.py   sticks, triggers and the d-pad, named for the control.
     pad.py       one pad's settled interval: a scan, and ordered facts.
+    pads.py      a pad that persists, and the collection of them.
     evdev.py     the Linux transport: discovery, identity, calibration,
                  and reading reports at the cut.
 
@@ -12,6 +13,7 @@ The audit this is being rebuilt from is `docs/bps/PADS_PORT.md`.
 
 from .button import Button
 from .control import Axis, Direction, direction
+from .pads import ACTIVATION, REFRESH_FRAMES, Pad, Pads
 from .pad import (
     NEUTRAL_AXES,
     TRIGGER_ON,
@@ -41,9 +43,13 @@ __all__ = [
     "DualSenseMapper",
     "NintendoMapper",
     "PadDevice",
+    "ACTIVATION",
+    "REFRESH_FRAMES",
+    "Pad",
     "PadEvent",
     "PadFact",
     "PadIngress",
+    "Pads",
     "PadMapper",
     "PadReader",
     "PadScan",

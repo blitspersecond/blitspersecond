@@ -131,6 +131,7 @@ class PadIngress:
         "_disconnecting",
         "_hat",
         "_held",
+        "_resyncing",
         "_reader",
         "_stream",
     )
@@ -143,11 +144,30 @@ class PadIngress:
         self._hat: tuple[int, int] = (0, 0)
         self._direction = Direction.NEUTRAL
         self._disconnecting = False
+        self._resyncing = False
 
     @property
     def stream(self) -> InputStream[PadScan, PadFact]:
         """Settled history. The accumulating frame is not reachable."""
         return self._stream
+
+    def retire(self, reader) -> None:
+        """Read from somewhere else from now on.
+
+        Used when a pad goes away and when the same one comes back: the ring
+        and the held-set stay with the ingress, and only the source under it
+        changes.
+        """
+        self._reader = reader
+
+    def resync(self) -> None:
+        """Replace state with what the device says, at the next cut.
+
+        The pad is asked rather than assumed, which is the whole difference
+        between this device and the keyboard on a resume: a player holding a
+        direction through a pause still holds it.
+        """
+        self._resyncing = True
 
     def disconnect(self) -> None:
         """The pad went away. Release what it was holding, as real edges.
@@ -165,6 +185,11 @@ class PadIngress:
         released: set[Button] = set()
         facts: list[PadFact] = []
         resynced = False
+
+        if self._resyncing:
+            self._resyncing = False
+            resynced = True
+            self._replace(self._reader.snapshot(), pressed, released, facts)
 
         for item in self._reader.read():
             if isinstance(item, Snapshot):
