@@ -1,9 +1,12 @@
 """The console line reducer: its own buffer, fed by the cut."""
 
-from pyglet.window import key
+import pytest
+
+from blitspersecond.input import Motion, key
 
 from blitspersecond.common import fps
-from blitspersecond.input.kbm import InputState, KeyboardIngress
+from blitspersecond.input import InputState
+from blitspersecond.input.kbm import KeyboardIngress
 from blitspersecond.internal import EventBus
 
 
@@ -52,7 +55,7 @@ def test_backspacing_leaves_the_intended_word():
     line = keyboard.input().until(key.RETURN)
 
     _type(events, "Riddik")
-    _motion(events, key.MOTION_BACKSPACE)
+    _motion(events, Motion.BACKSPACE)
     _type(events, "ck")
     keyboard.cut(1)
 
@@ -64,8 +67,8 @@ def test_editing_happens_at_the_caret_not_the_end():
     line = keyboard.input().until(key.RETURN)
 
     _type(events, "Riddck")
-    _motion(events, key.MOTION_LEFT)
-    _motion(events, key.MOTION_LEFT)
+    _motion(events, Motion.LEFT)
+    _motion(events, Motion.LEFT)
     _type(events, "i")
     keyboard.cut(1)
 
@@ -78,9 +81,9 @@ def test_home_end_and_delete():
     line = keyboard.input().until(key.RETURN)
 
     _type(events, "abc")
-    _motion(events, key.MOTION_BEGINNING_OF_LINE)
-    _motion(events, key.MOTION_DELETE)
-    _motion(events, key.MOTION_END_OF_LINE)
+    _motion(events, Motion.BEGINNING_OF_LINE)
+    _motion(events, Motion.DELETE)
+    _motion(events, Motion.END_OF_LINE)
     _type(events, "d")
     keyboard.cut(1)
 
@@ -153,3 +156,24 @@ def test_a_line_outlives_the_ring_it_is_not_stored_in():
 
     assert len(line.value) == 300
     assert keyboard.stream.capacity == 30
+
+
+def test_narrowing_twice_is_a_mistake_and_says_so():
+    _, keyboard = _keyboard()
+    line = keyboard.input().until(key.RETURN)
+    with pytest.raises(RuntimeError):
+        line.until(key.TAB)
+
+
+def test_narrowing_a_finished_line_is_a_mistake():
+    _, keyboard = _keyboard()
+    line = keyboard.input()
+    line.discard()
+    with pytest.raises(RuntimeError):
+        line.until(key.RETURN)
+
+
+def test_narrowing_to_something_that_is_not_a_key_symbol_is_a_mistake():
+    _, keyboard = _keyboard()
+    with pytest.raises(TypeError):
+        keyboard.input().until("return")

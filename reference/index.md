@@ -62,9 +62,21 @@ stub.
 
 ## [Input](input/input.md)
 
-What the player did, settled onto the engine's frame boundary. **Not written,
-and not yet writable** — input is next in line for the full porting process,
-so the page is a marker for other chapters to point at rather than a brief.
+What the player did, settled onto the engine's frame boundary. The overview
+page carries the shape — the cut every device settles onto, one flush with
+three answers, and where the devices genuinely differ. `docs/bps/` holds the
+standing authority for transport fidelity and the Windows measurement.
+
+| | |
+|---|---|
+| [stream.md](input/stream.md) | the retention ring: a window per frame, and how deep |
+| [request.md](input/request.md) | a question put to the player, answered without blocking |
+| [keyboard.md](input/keyboard.md) | window callbacks in, settled windows out |
+| [pointer.md](input/pointer.md) | window pixels to screen pixels, and the ideal mouse |
+| [text.md](input/text.md) | a line of typing, and why it is not in the ring |
+| [pads.md](input/pads.md) | the closed vocabulary, a pad's window, and which pad is whose |
+| [evdev.md](input/evdev.md) | the Linux transport: find, name, calibrate, read |
+| [ports.md](input/ports.md) | four durable routes for four people on a sofa — **deferred**, and the page says why |
 
 ## Not started
 

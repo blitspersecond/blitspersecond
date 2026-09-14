@@ -35,28 +35,17 @@ def test_the_ring_drops_its_oldest_window_and_keeps_the_rest():
         stream.append(_window(frame))
 
     assert len(stream) == 8
-    assert stream.newest is not None and stream.newest.frame == 11
-    assert [w.frame for w in stream.recent(99)] == list(range(4, 12))
+    assert stream.latest is not None and stream.latest.frame == 11
+    assert [w.frame for w in stream.all] == list(range(4, 12))
 
 
-def test_recent_gives_the_last_n_oldest_first_and_cannot_be_starved():
+def test_all_is_every_retained_window_oldest_first():
     stream: InputStream[str, str] = InputStream(fps.SIXTY)
     for frame in range(5):
         stream.append(_window(frame))
 
-    assert [w.frame for w in stream.recent(3)] == [2, 3, 4]
-    assert [w.frame for w in stream.recent(50)] == [0, 1, 2, 3, 4]
-    assert stream.recent(0) == ()
-
-
-def test_a_cursor_older_than_the_ring_is_told_rather_than_part_answered():
-    stream: InputStream[str, str] = InputStream(fps.FIFTEEN)
-    for frame in range(12):
-        stream.append(_window(frame))
-
-    assert [w.frame for w in stream.after(9)] == [10, 11]
-    with pytest.raises(ValueError, match="expired"):
-        list(stream.after(0))
+    assert [w.frame for w in stream.all] == [0, 1, 2, 3, 4]
+    assert stream.all[-1] is stream.latest
 
 
 def test_windows_must_arrive_in_frame_sequence():
@@ -70,7 +59,6 @@ def test_windows_must_arrive_in_frame_sequence():
 
 def test_an_empty_stream_answers_rather_than_raising():
     stream: InputStream[str, str] = InputStream(fps.SIXTY)
-    assert stream.newest is None
-    assert stream.recent(5) == ()
-    assert list(stream.after(None)) == []
-    assert list(stream.after(3)) == []
+    assert stream.latest is None
+    assert stream.all == ()
+    assert len(stream) == 0

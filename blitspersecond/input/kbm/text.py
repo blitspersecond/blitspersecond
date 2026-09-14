@@ -1,44 +1,38 @@
 """A line of typing: the console's own buffer, not engine history.
 
-The engine keeps half a second of input so a motion can be reconstructed. A
-person typing their name may take a minute over it, and none of that belongs
-in a ring sized for quarter-circles. So a line reducer owns its own buffer,
-which grows for as long as the line is open, and the engine retains nothing
-on its behalf.
+A reducer owns its own buffer, which grows for as long as the line is open,
+and the engine retains nothing on its behalf. It is fed by the cut rather than
+reading the ring, because it is the one consumer whose correctness depends on
+missing nothing and it must not depend on a retention depth it does not
+control.
 
-The reference did this the other way round: its `Input` pinned a range of the
-keyboard stream at construction and replayed it on every read, which made the
-engine's short, hardware-shaped history unbounded whenever a console line
-happened to be open. One mechanism serving two lifetimes. This is the split.
-
-A reducer is fed by the cut rather than reading the ring, so its correctness
-does not depend on a retention depth it does not control -- it is the one
-consumer that must not miss anything.
+Design record: `bps/reference/input/text.md`.
 """
 
 from __future__ import annotations
 
-from pyglet.window import key as _key
+from .keys import Motion
 
 from blitspersecond.input.kbm.keyboard import KeyEvent, KeyboardWindow
-from blitspersecond.input.request import InputState, Request
+from blitspersecond.input.request import Request
 
-#: Editing motions the line understands. Pyglet resolves these from the
-#: platform's own bindings, so backspace on a Mac and backspace on Linux both
-#: arrive here as MOTION_BACKSPACE whatever key produced them.
-_BACKSPACE = _key.MOTION_BACKSPACE
-_DELETE = _key.MOTION_DELETE
-_LEFT = _key.MOTION_LEFT
-_RIGHT = _key.MOTION_RIGHT
-_HOME = _key.MOTION_BEGINNING_OF_LINE
-_END = _key.MOTION_END_OF_LINE
+#: Editing motions the line understands; anything else is ignored. Pyglet
+#: resolves these from the platform's own bindings, so backspace on a Mac and
+#: on Linux both arrive as MOTION_BACKSPACE whatever key produced them.
+_BACKSPACE = Motion.BACKSPACE
+_DELETE = Motion.DELETE
+_LEFT = Motion.LEFT
+_RIGHT = Motion.RIGHT
+_HOME = Motion.BEGINNING_OF_LINE
+_END = Motion.END_OF_LINE
 
 
 class TextInput(Request):
     """One line being typed, reduced from settled windows as they are cut.
 
     The lifecycle comes from `Request`, which the pad's `Identification`
-    shares -- see that module for why the two are one shape.
+    shares -- see `bps/reference/input/request.md` for why the two are one
+    shape.
     """
 
     __slots__ = ("_caret", "_terminator", "_text")
@@ -50,8 +44,20 @@ class TextInput(Request):
         self._terminator: int | None = None
 
     def until(self, symbol: int) -> "TextInput":
-        """Name the key that finishes this line. Returns self, to read as one
-        phrase at the call site: `keyboard.input().until(key.RETURN)`."""
+        """Name the key that finishes this line. Returns self, so the call
+        site reads as one phrase: `keyboard.input().until(key.RETURN)`.
+
+        Narrowing once is the whole of it. A second terminator, or one named
+        after the line has stopped listening, is a mistake in the caller
+        rather than a change of mind worth honouring -- the same three
+        refusals `Identification.until` makes, for the same reason.
+        """
+        if not isinstance(symbol, int):
+            raise TypeError("until() takes a key symbol")
+        if self._terminator is not None:
+            raise RuntimeError("this request already has a terminator")
+        if not self.listening:
+            raise RuntimeError("this request is no longer listening")
         self._terminator = symbol
         return self
 
@@ -61,9 +67,9 @@ class TextInput(Request):
     def value(self) -> str:
         """What the line spells, right now.
 
-        Held still for the whole of a tick: the reducer is advanced at the
-        cut, before the game is handed control, so this cannot change halfway
-        down a function that is reading it.
+        Held still for the whole of a tick: the reducer is advanced at the cut,
+        before the game is handed control. Readable in every state -- a
+        half-typed line is a perfectly good partial answer.
         """
         return "".join(self._text)
 
@@ -83,16 +89,16 @@ class TextInput(Request):
     def _consume(self, window: KeyboardWindow) -> None:
         """Fold one settled window's text and editing into the line.
 
-        Facts in the order they arrived, which is what makes `"name\\r"` spell
-        the name before the Return completes it.
+        Facts in ARRIVAL ORDER, which is what makes `"name\\r"` spell the name
+        before the Return completes it.
         """
-        if self._state is not InputState.LISTENING:
+        if not self.listening:
             return
 
         for fact in window.facts:
             if fact.kind is KeyEvent.PRESS:
                 if self._terminator is not None and fact.value == self._terminator:
-                    self._state = InputState.COMPLETED
+                    self._complete()
                     return
 
             elif fact.kind is KeyEvent.TEXT:

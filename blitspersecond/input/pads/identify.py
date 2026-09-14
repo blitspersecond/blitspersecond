@@ -13,7 +13,8 @@ which says "Press Menu" on an Xbox pad and "Press Options" on a DualSense,
 because by then we know which pad we are talking to. That is the entire point
 of identifying one: not to assign a seat, but to know whose glyphs to draw.
 
-Seats are a different subsystem. See `docs/bps/PADS_PORT.md`.
+Seats are a different subsystem: `bps/reference/input/ports.md`.
+Design record: `bps/reference/input/pads.md`, *Two ways in*.
 """
 
 from __future__ import annotations
@@ -22,7 +23,9 @@ from typing import TYPE_CHECKING
 
 from blitspersecond.input.request import Request
 
-from .button import Button, ButtonCondition, ButtonPredicate, resolve
+from blitspersecond.input.condition import Condition, matches, resolve
+
+from .button import Button, ButtonCondition
 from .pad import PadEvent, PadWindow
 
 if TYPE_CHECKING:
@@ -33,7 +36,8 @@ class Identification(Request):
     """A request for the next pad somebody deliberately uses.
 
     Non-blocking, like every question this engine puts to a player: it is
-    advanced by the cut and read whenever the game gets round to it.
+    advanced by the cut and read whenever the game gets round to it. The
+    lifecycle is `Request`'s -- `bps/reference/input/request.md`.
     """
 
     __slots__ = ("_condition", "_value")
@@ -59,7 +63,7 @@ class Identification(Request):
         on a Nintendo one. That resolution happens per pad when the answer
         arrives, because it cannot happen when the question is written.
         """
-        if not isinstance(condition, (Button, ButtonPredicate)):
+        if not isinstance(condition, (Button, Condition)):
             raise TypeError("until() takes a Button condition")
         if self._condition is not None:
             raise RuntimeError("this request already has a condition")
@@ -90,9 +94,9 @@ class Identification(Request):
         if self._condition is None:
             matched = deliberate
         else:
-            wanted = resolve(self._condition, pad.mapper.ACCEPT)
+            wanted = resolve(self._condition, {Button.ACCEPT: pad.mapper.ACCEPT})
             matched = any(
-                fact.kind is PadEvent.PRESS and fact.button in wanted
+                fact.kind is PadEvent.PRESS and matches(wanted, fact.held)
                 for fact in window.facts
             )
         if matched:

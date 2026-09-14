@@ -7,7 +7,7 @@ rather than exercised. These are the tests that exercise it.
 """
 
 import pytest
-from pyglet.window import key
+from blitspersecond.input import key
 
 from blitspersecond.common import Location, fps
 from blitspersecond.common.screen import SCREEN
@@ -41,8 +41,8 @@ def test_one_cut_settles_every_device_on_the_same_frame_number():
 
     inputs.cut(7)
 
-    keyboard = inputs.keyboard.stream.newest
-    mouse = inputs.mouse.stream.newest
+    keyboard = inputs.keyboard.stream.latest
+    mouse = inputs.mouse.stream.latest
     assert keyboard.frame == mouse.frame == 7
     assert keyboard.scan.held == frozenset({key.SPACE})
     assert mouse.scan.held == frozenset({PRIMARY})
@@ -62,8 +62,8 @@ def test_the_rings_stay_in_step_frame_for_frame():
         inputs.cut(frame)
 
     assert len(inputs.keyboard.stream) == len(inputs.mouse.stream)
-    assert [w.frame for w in inputs.keyboard.stream.recent(20)] == [
-        w.frame for w in inputs.mouse.stream.recent(20)
+    assert [w.frame for w in inputs.keyboard.stream.all] == [
+        w.frame for w in inputs.mouse.stream.all
     ]
 
 
@@ -79,8 +79,8 @@ def test_a_flush_reaches_every_device():
     inputs.flush()
     inputs.cut(2)
 
-    keyboard = inputs.keyboard.stream.newest.scan
-    mouse = inputs.mouse.stream.newest.scan
+    keyboard = inputs.keyboard.stream.latest.scan
+    mouse = inputs.mouse.stream.latest.scan
     # Neither device kept what arrived during the suspension...
     assert key.RIGHT not in keyboard.held
     assert mouse.delta == (0.0, 0.0)
@@ -102,8 +102,8 @@ def test_neither_device_swallows_the_other_s_events():
     events.dispatch_event("on_deactivate")
     inputs.cut(2)
 
-    assert inputs.keyboard.stream.newest.scan.cleared is True
-    assert inputs.mouse.stream.newest.scan.cleared is True
+    assert inputs.keyboard.stream.latest.scan.cleared is True
+    assert inputs.mouse.stream.latest.scan.cleared is True
 
 
 def test_the_devices_describe_the_same_interval_not_the_same_events():
@@ -114,10 +114,10 @@ def test_the_devices_describe_the_same_interval_not_the_same_events():
 
     # Per-device storage: each ring holds only its own facts, and there is no
     # merged stream to demultiplex.
-    assert [f.kind for f in inputs.mouse.stream.newest.facts] == [
+    assert [f.kind for f in inputs.mouse.stream.latest.facts] == [
         MouseEvent.PRESS
     ]
-    assert [f.kind for f in inputs.keyboard.stream.newest.facts] == [
+    assert [f.kind for f in inputs.keyboard.stream.latest.facts] == [
         KeyEvent.PRESS
     ]
 
@@ -139,14 +139,14 @@ def test_the_three_devices_answer_a_resume_differently_on_purpose():
     events.dispatch_event("on_key_press", key.LEFT, 0)
     events.dispatch_event("on_mouse_motion", 1278, 0, 1278, -719)
     inputs.cut(1)
-    where = inputs.mouse.stream.newest.scan.position
+    where = inputs.mouse.stream.latest.scan.position
     assert where == Location(639, 359)
 
     inputs.flush()
     inputs.cut(2)
 
-    keyboard = inputs.keyboard.stream.newest.scan
-    mouse = inputs.mouse.stream.newest.scan
+    keyboard = inputs.keyboard.stream.latest.scan
+    mouse = inputs.mouse.stream.latest.scan
     assert keyboard.held == frozenset()      # assumed neutral
     assert keyboard.cleared is True
     assert mouse.position == where           # kept: it is wherever it is

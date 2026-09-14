@@ -44,12 +44,16 @@ class Stub:
         self.ranges = RANGES if ranges is None else ranges
         self.layout = layout_for(self.ranges)
         self.queued = []
+        self.drops = 0
 
     def arrive(self, *items):
         self.queued.extend(items)
 
     def read(self):
         items, self.queued = tuple(self.queued), []
+        # A real reader counts a drop as it emits the snapshot that replaces
+        # what was lost, so this does too.
+        self.drops += sum(isinstance(item, Snapshot) for item in items)
         return items
 
 

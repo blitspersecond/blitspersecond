@@ -12,30 +12,42 @@ cuts: staging freezes into one immutable window, the window joins the ring,
 and the oldest cycles out. Game code reads finalised windows and cannot reach
 the frame still accumulating, so it never sees input change under it mid-tick.
 
-`key` is pyglet's key module, re-exported rather than re-numbered. There is
-one keyboard transport and there always will be, so a parallel BPS numbering
-would be a table mapping a hundred and fifty symbols to themselves. Game code
-writes `key.RETURN`; what it must not write is `pyglet.window.key.RETURN`, and
-this is the door that makes the short spelling the available one.
+`key` is `Key`, and its values ARE pyglet's -- names that carry the condition
+operators, over the numbering the transport already uses. So there is still no
+translation at ingress: a scan holds whatever the window system sent, and an
+`IntEnum` member hashes equal to its value, so `key.LEFT in scan.held` answers
+without a table. A parallel BPS numbering would be a hundred and seventy
+entries mapping values to themselves, and this is not one.
 
-Chords and the wider query vocabulary are a separate piece and belong above
-this one. See `docs/bps/INPUT_STREAM.md`.
+**The names exist because the operators could not.** A pyglet symbol is a
+plain `int`, so `key.LCTRL & key.LALT` does not raise -- it evaluates to
+`LSHIFT`, a real symbol, with nothing downstream able to tell. `condition.py`
+holds that argument in full.
+
+Game code writes `key.RETURN`; what it must not write is
+`pyglet.window.key.RETURN`, and this is the door that makes the short spelling
+the available one.
 """
 
-from pyglet.window import key
-
 from .boundary import InputBoundary
-from .kbm import InputState, TextInput
+from .condition import Condition, matches, resolve
+from .kbm import Key as key
+from .kbm import Modifier, Motion, TextInput
 from .request import InputState, Request
 from .stream import WINDOW_SECONDS, InputStream, InputWindow
 
 __all__ = [
     "WINDOW_SECONDS",
+    "Condition",
     "InputBoundary",
     "InputState",
     "InputStream",
     "Request",
     "InputWindow",
+    "Modifier",
+    "Motion",
     "TextInput",
     "key",
+    "matches",
+    "resolve",
 ]

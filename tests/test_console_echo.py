@@ -1,6 +1,6 @@
 """`Console.echo`: typing on screen, and where the cursor is left."""
 
-from pyglet.window import key
+from blitspersecond.input import Motion, key
 
 from blitspersecond.common import fps
 from blitspersecond.graphics.console import CharSet, Console
@@ -46,7 +46,7 @@ def test_backspace_clears_the_cell_it_gave_up():
 
     events.dispatch_event("on_text", "abc")
     _frame(keyboard, console, 1)
-    events.dispatch_event("on_text_motion", key.MOTION_BACKSPACE)
+    events.dispatch_event("on_text_motion", Motion.BACKSPACE)
     _frame(keyboard, console, 2)
 
     # Not "ab" plus a leftover "c".

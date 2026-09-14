@@ -2,7 +2,9 @@
 
 The same two halves every device in this engine produces -- a scan of state,
 and ordered facts -- so a reader who has understood the keyboard or the
-pointer has understood this. See `docs/bps/INPUT_STREAM.md`.
+pointer has understood this.
+
+Design record: `bps/reference/input/pads.md`, *A pad's settled interval*.
 """
 
 from __future__ import annotations
@@ -29,9 +31,8 @@ from .evdev import (
 )
 
 #: Every axis, always present, neutral when the pad has nothing to say. A pad
-#: does not admit which controls it lacks -- see `Axis` -- so an absent one is
-#: indistinguishable from one at rest, and pretending otherwise by leaving it
-#: out would only move the problem to a `KeyError`.
+#: does not admit which controls it lacks -- see `Axis` -- so leaving an absent
+#: one out would only move the problem to a `KeyError`.
 NEUTRAL_AXES: Mapping[Axis, float] = MappingProxyType({axis: 0.0 for axis in Axis})
 
 
@@ -52,12 +53,10 @@ class PadEvent(Enum):
 class PadFact:
     """One pad fact, in the order it arrived within a frame.
 
-    `held` carries the invariant the keyboard states and the pointer repeats:
+    `held` carries the invariant the keyboard states and the pointer repeats,
+    and it holds without exception:
 
         A transition carries the held-set in which its own button is present.
-
-    A press carries the set after its button was added; a release carries the
-    set before its button was removed.
     """
 
     kind: PadEvent
@@ -69,6 +68,15 @@ class PadFact:
     #: DIRECTION only.
     direction: Direction | None
     held: frozenset[Button]
+
+    @property
+    def control(self) -> Button | None:
+        """What this fact is about, under the name every device uses.
+
+        The query verbs walk facts from any device with one piece of code, so
+        they need one spelling for the button a transition concerns.
+        """
+        return self.button
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,32 +110,29 @@ PadWindow = InputWindow[PadScan, PadFact]
 
 #: Travel past which a trigger reads as a button. XInput's own figure.
 #:
-#: Triggers arrive as an axis and rest at zero. Many fightpads -- the Hori
-#: among them -- wire a face button to a trigger and report it DIGITALLY, 0 or
-#: full, so one threshold turns the axis into clean edges; a genuinely
-#: analogue trigger becomes a slightly light button. No hysteresis: digital
-#: does not need it, and an analogue trigger held exactly on the line has not
-#: been seen to chatter. Revisit if one does.
+#: No hysteresis: many fightpads report a trigger DIGITALLY so it needs none,
+#: and an analogue trigger held exactly on the line has not been seen to
+#: chatter. Revisit if one does. See `bps/reference/input/pads.md`,
+#: *The continuous controls*.
 TRIGGER_ON = 30 / 255
 
 
 class PadIngress:
     """One pad's reports, folded into settled windows.
 
-    Everything the transport says arrives as `Report`s -- the kernel's own
-    simultaneity groups -- and this turns them into the two halves a window
-    has. **Folding happens per report rather than per event**, which is what
-    the report boundary is for: a diagonal is two axis changes the transport
-    is telling us happened together, so it becomes one `DIRECTION` fact rather
-    than a spurious intermediate position.
+    **Folding happens per REPORT rather than per event**, which is what the
+    transport's simultaneity groups are for: a diagonal is two axis changes
+    the kernel says happened together, so it becomes ONE `DIRECTION` fact
+    rather than an intermediate position the player never passed through.
 
-    No deadzone is applied. The scan records what the pad reported; a deadzone
-    is a judgement about intent and belongs to whatever reads it.
+    No deadzone is applied -- that is a judgement about intent and belongs to
+    whatever reads this. See `bps/reference/input/pads.md`.
     """
 
     __slots__ = (
         "_axes",
         "_direction",
+        "_desyncs",
         "_disconnecting",
         "_hat",
         "_held",
@@ -145,11 +150,22 @@ class PadIngress:
         self._direction = Direction.NEUTRAL
         self._disconnecting = False
         self._resyncing = False
+        self._desyncs = 0
 
     @property
     def stream(self) -> InputStream[PadScan, PadFact]:
         """Settled history. The accumulating frame is not reachable."""
         return self._stream
+
+    @property
+    def desyncs(self) -> int:
+        """Times the kernel dropped events on this pad in the interval cut.
+
+        This connection's, and this frame's. A reconnected pad reads from a
+        fresh reader with a fresh tally, which is correct -- it is a new
+        connection rather than a continuation.
+        """
+        return self._desyncs
 
     def retire(self, reader) -> None:
         """Read from somewhere else from now on.
@@ -185,6 +201,9 @@ class PadIngress:
         released: set[Button] = set()
         facts: list[PadFact] = []
         resynced = False
+        # Asked before and after the drain, so what is counted is the kernel
+        # dropping events -- not a resync the engine asked for on resume.
+        dropped_before = self._reader.drops
 
         if self._resyncing:
             self._resyncing = False
@@ -198,6 +217,7 @@ class PadIngress:
             else:
                 self._apply(item, pressed, released, facts)
 
+        self._desyncs = self._reader.drops - dropped_before
         disconnected = self._disconnecting
         if disconnected:
             self._disconnecting = False
@@ -305,12 +325,8 @@ class PadIngress:
         """Apply what the pad says is true, discarding what we thought.
 
         A snapshot REPLACES rather than adds: a button absent from it is up,
-        including one we believed was held. That is the whole point -- a
-        release lost in a dropped run leaves a button held for good, and only
-        a wholesale replacement heals it.
-
-        The differences still become facts, so a reader watching edges sees
-        them. `PadScan.resynced` is what says they were not observed.
+        including one we believed was held. The differences still become
+        facts; `PadScan.resynced` says they were not observed.
         """
         now = {BUTTONS[code] for code in snapshot.buttons if code in BUTTONS}
         for button in sorted(self._held - now, key=lambda b: b.name):
@@ -344,8 +360,7 @@ class PadIngress:
         """Unwind the held-set one button at a time.
 
         Each release carries the set as it stood at that moment rather than
-        the empty end state, so a recogniser watching the unwind sees a
-        coherent sequence instead of everything vanishing at once. The
+        the empty end state, so a recogniser sees a coherent sequence. The
         keyboard's focus-loss clear does exactly this.
         """
         for button in sorted(self._held, key=lambda b: b.name):

@@ -4,7 +4,7 @@
 a flat battery, a replug, fifteen minutes of power-save -- and the ingress is
 where the frames go. `Pads` discovers them and cuts them together.
 
-See `docs/bps/PADS_PORT.md`.
+Design record: `bps/reference/input/pads.md`.
 """
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from blitspersecond.common import fps
+from blitspersecond.input.stream import Queryable
+from blitspersecond.system.logger import Logger
 
 from .control import Direction
 from .evdev import PadDevice, Snapshot, discover, layout_for, open_pad
@@ -31,15 +33,13 @@ class _Gone:
     A disconnected pad keeps being cut, because its ring must stay contiguous
     -- "the last thirty frames" has to mean thirty frames whether or not the
     pad was present for them. This is what it reads from meanwhile.
-
-    It is also why the reference's `_retired` list has no counterpart here:
-    that existed so a dead pad's release edges stayed readable for the tick it
-    died on, and a per-device ring keeps them readable for as long as any
-    other window.
     """
 
     ranges: dict[int, object] = {}
     layout = layout_for({})
+    #: Part of the reader contract, not an afterthought: a pad that is gone
+    #: cannot lose input it was never sent.
+    drops = 0
 
     def read(self) -> tuple[()]:
         return ()
@@ -59,18 +59,17 @@ class _Gone:
 _GONE = _Gone()
 
 
-class Pad:
+class Pad(Queryable):
     """One physical gamepad, for as long as this session remembers it.
 
     **The object outlives the connection.** A pad that vanishes becomes inert
-    rather than disappearing: `connected` goes false, its held buttons release
-    as real edges, and anything holding it keeps a valid reference. The same
-    fingerprint reconnecting revives this object rather than making a new one,
-    so a game holding `pad` still holds the player's pad afterwards.
+    rather than disappearing, and the same fingerprint reconnecting revives
+    THIS object -- so a game holding `pad` still holds the player's pad
+    afterwards.
 
-    That matters because a pad vanishing is ORDINARY. Wireless pads power
-    themselves off after about fifteen minutes untouched -- measured, and it
-    happened twice during this port -- so a long cutscene is enough.
+    A pad vanishing is ORDINARY: wireless pads power themselves off after
+    about fifteen minutes untouched, so a long cutscene is enough. See
+    `bps/reference/input/pads.md`, *A pad that persists*.
     """
 
     __slots__ = ("_connected", "_device", "_id", "_ingress", "_reader")
@@ -120,8 +119,13 @@ class Pad:
 
     @property
     def stream(self) -> "InputStream[PadScan, PadFact]":
-        """This pad's settled history, newest last."""
+        """This pad's settled history, oldest first."""
         return self._ingress.stream
+
+    @property
+    def desyncs(self) -> int:
+        """Kernel drops on this pad, in the frame just cut."""
+        return self._ingress.desyncs
 
     # -- driven by Pads ---------------------------------------------------
 
@@ -174,30 +178,23 @@ class Pad:
 REFRESH_FRAMES = 60
 
 #: How far a stick must be shoved to count as somebody using this pad, rather
-#: than the pad sitting on a desk drifting. Deliberately far past any
-#: deadzone: identifying the wrong pad because one of them twitched is a
-#: worse failure than making a player push a bit harder.
+#: than the pad sitting on a desk drifting. Deliberately FAR past any deadzone
+#: -- a pad at rest wanders, and identifying the wrong pad because one twitched
+#: is worse than making a player push a bit harder.
 ACTIVATION = 2 / 3
 
 
 class Pads:
     """Every gamepad this session knows about, cut together.
 
-    **Two ways to reach a pad, and they are different modes rather than one
-    design with a convenience attached.**
+    **Two ways to reach a pad, and they are different MODES** -- wiggle-a-pad
+    for a single-player game that never thinks about identity, and `Ports` for
+    four people on a sofa. This is the discovery layer both rest on.
 
-    *Wiggle a pad.* A single-player game never thinks about identity: whatever
-    somebody used is `pads.gamepad`, and the title screen asks for
-    `pad.mapper.label(...)` so it says "Press A" or "Press cross" as
-    appropriate. Nothing has to be assigned and nothing has to be configured.
-
-    *Ports.* Four people on a sofa and which pad is whose is the whole
-    problem. That is a separate subsystem above this one, and it maps
-    explicitly rather than inferring from who pressed something first.
-
-    This is the discovery layer both rest on. It has NO CAP: five pads can sit
-    on a desk while four sit on the sofa, and limiting the list here would let
-    a pad that was merely powered on take a place from one somebody picked up.
+    **NO CAP**, and do not add one: limiting the list here would let a pad
+    that was merely powered on take a place from one somebody picked up, and a
+    cap on SEATS is a different thing at a different layer. See
+    `bps/reference/input/pads.md`, *Two ways in*.
     """
 
     __slots__ = (
@@ -207,6 +204,8 @@ class Pads:
         "_next_id",
         "_frames",
         "_identification",
+        "_logger",
+        "_unopened",
     )
 
     def __init__(self, rate: fps, refresh_frames: int = REFRESH_FRAMES) -> None:
@@ -220,6 +219,12 @@ class Pads:
         self._known: dict[str, Pad] = {}
         self._next_id = 1
         self._frames = 0
+        #: Fingerprints that have failed to open, so the reason is
+        #: said once rather than once a second forever.
+        self._unopened: set[str] = set()
+        # Per instance, never at import: a module-level Logger()
+        # installs a handler before anything has configured one.
+        self._logger = Logger()
 
     # -- enumeration ------------------------------------------------------
 
@@ -261,6 +266,16 @@ class Pads:
             pad for pad in self._known.values() if pad.connected and pad.id
         ]
         return min(used, key=lambda pad: pad.id or 0, default=None)
+
+    @property
+    def desyncs(self) -> int:
+        """Kernel drops across every pad, in the frame just cut.
+
+        THIS FRAME's, deliberately, rather than a session total. A pad's tally
+        lives with its reader and a reconnect brings a fresh one, so a running
+        sum over current readers would fall when somebody's battery came back.
+        """
+        return sum(pad.desyncs for pad in self._known.values())
 
     @property
     def known(self) -> tuple[Pad, ...]:
@@ -343,10 +358,21 @@ class Pads:
                 continue
             try:
                 reader = open_pad(device)
-            except OSError:
+            except OSError as exc:
                 # Permissions, or it left between the scan and the open.
-                # Neither is exceptional and the next refresh tries again.
+                # Neither is exceptional and the next refresh tries again --
+                # but a pad that is present and never opens is invisible with
+                # no symptom, and EACCES here is the one case a person can
+                # act on. Said once per pad, not once per scan.
+                if fingerprint not in self._unopened:
+                    self._unopened.add(fingerprint)
+                    self._logger.warning(
+                        f"Pad {device.name!r} at {device.path} would not "
+                        f"open ({exc}); it will not be seen. Retrying each "
+                        "scan."
+                    )
                 continue
+            self._unopened.discard(fingerprint)
             if pad is None:
                 self._known[fingerprint] = Pad(device, reader, self._rate)
             else:
@@ -369,9 +395,8 @@ def _deliberate(window: PadWindow) -> bool:
     the same information is a second thing to keep in step.
 
     A press counts, and so does a d-pad leaving neutral. A stick counts only
-    when it is shoved most of the way, because a pad at rest drifts -- the one
-    on this desk sits around 1050 of 32767 and wanders while nobody touches
-    it.
+    when shoved most of the way -- see `ACTIVATION` and
+    `bps/reference/input/pads.md`.
     """
     for fact in window.facts:
         if fact.kind is PadEvent.PRESS:

@@ -1,5 +1,6 @@
 """The local keyboard and mouse, as delivered by the window."""
 
+from .keys import Key, Modifier, Motion
 from .keyboard import (
     KeyboardIngress,
     KeyboardWindow,
@@ -21,13 +22,15 @@ from .mouse import (
     MouseWindow,
     screen_location,
 )
-from .text import InputState, TextInput
+from .text import TextInput
 
 __all__ = [
     "BACK",
+    "Key",
+    "Modifier",
+    "Motion",
     "BUTTONS",
     "FORWARD",
-    "InputState",
     "KeyEvent",
     "KeyFact",
     "KeyScan",

@@ -56,6 +56,27 @@ def _publish_pacing(metrics, presentation, previous: dict) -> dict:
     return previous
 
 
+def _publish_input(metrics, inputs) -> None:
+    """Push what each device lost in the interval just cut.
+
+    The devices report THIS FRAME's loss rather than a session total, so
+    there is no previous-value bookkeeping here -- unlike the pacing tallies
+    above, which the session counts for the whole run. Only a nonzero reading
+    is pushed, which keeps a clean run silent rather than filling the stream
+    with zeroes.
+
+    Two different quantities, deliberately two counters: the first two are the
+    engine's own staging limit overflowing, the third is the kernel discarding
+    events before anything read them.
+    """
+    if inputs.keyboard.dropped:
+        metrics.keyboard_dropped.push(inputs.keyboard.dropped)
+    if inputs.mouse.dropped:
+        metrics.pointer_dropped.push(inputs.mouse.dropped)
+    if inputs.pads.desyncs:
+        metrics.pad_desyncs.push(inputs.pads.desyncs)
+
+
 def _frame(engine, clock, metrics, display, layers, inputs) -> None:
     """One frame, end to end: prepare, run the game, commit.
 
@@ -94,6 +115,7 @@ def _frame(engine, clock, metrics, display, layers, inputs) -> None:
     # that happened to have input" -- which reads correctly in any test that
     # presses a key, and is wrong exactly when the player pauses mid-motion.
     inputs.cut(clock.frame)
+    _publish_input(metrics, inputs)
     clock.tick()
     # BEGIN. Every ATTACHED layer is brought current before the game looks at
     # it, so a sprite's pose and a console's echoed line are this tick's when

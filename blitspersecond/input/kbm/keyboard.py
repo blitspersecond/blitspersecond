@@ -5,14 +5,7 @@ whatever thread pumped it. So the handlers here do the least possible work --
 record the arrival and return -- and everything that needs ordering or state
 happens later, at the cut, on the engine's own boundary.
 
-Pyglet's key symbols are kept as they are. There is one keyboard transport and
-there will only ever be one, so translating its symbols into a parallel BPS
-numbering would be a table mapping a hundred and fifty values to themselves.
-`key.W` is a predicate over the pyglet symbol; game code still never writes a
-raw one. What this module adds is what pyglet does not have: ordering that
-survives the frame, edges, and a held set that outlives the ring.
-
-See `docs/bps/INPUT_STREAM.md`.
+Design record: `bps/reference/input/keyboard.md`.
 """
 
 from __future__ import annotations
@@ -23,7 +16,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Deque
 
 from blitspersecond.common import fps
-from blitspersecond.input.stream import InputStream, InputWindow
+from blitspersecond.input.stream import Queryable, InputStream, InputWindow
 
 if TYPE_CHECKING:
     from blitspersecond.input.kbm.text import TextInput
@@ -31,9 +24,8 @@ if TYPE_CHECKING:
 
 
 #: Arrivals staged in one frame before the excess is dropped and counted.
-#: Bounded for the reason `MetricBuffer` is bounded: a subsystem that can
-#: exhaust memory when something goes wrong is worse than one that says it is
-#: going wrong. Far above any real frame's typing.
+#: Bounded for the reason `MetricBuffer` is bounded, and far above any real
+#: frame's typing.
 _STAGING_LIMIT = 512
 
 
@@ -68,16 +60,15 @@ class _Arrival(Enum):
 class KeyFact:
     """One keyboard fact, in the order it arrived within a frame.
 
-    `held` carries the invariant the whole predicate layer rests on:
+    `held` carries the invariant the whole predicate layer rests on, and it
+    holds without exception:
 
         A transition carries the held-set in which its own key is present.
 
-    A press carries the set *after* its key was added; a release carries the
-    set *before* its key was removed. Both therefore contain the key the fact
-    is about, which is what lets a reader evaluate a chord in either
-    direction -- "did adding this make the expression true", and "was it true
-    while this was present, and is it not now". Publishing the after-state for
-    a release instead would lose the second question.
+    A press carries the set AFTER its key was added; a release the set BEFORE
+    it was removed. What this forbids, and why:
+    `bps/reference/input/keyboard.md`, *A transition carries the held-set its
+    own key is in*.
     """
 
     kind: KeyEvent
@@ -86,16 +77,24 @@ class KeyFact:
     modifiers: int
     held: frozenset[int]
 
+    @property
+    def control(self) -> int | str:
+        """What this fact is about, under the name every device uses.
+
+        The query verbs walk facts from any device with one piece of code, so
+        they need one spelling for the key symbol a transition concerns.
+        """
+        return self.value
+
 
 @dataclass(frozen=True, slots=True)
 class KeyScan:
     """The keyboard's state at one cut, and the edges of that interval.
 
-    The scan survives the ring. `held` is folded forward from every event ever
-    seen, so a key weighed down for an hour still reports held long after the
-    press that started it cycled out of history. Do not infer held-ness from
-    `KeyEvent.REPEAT`: repeat generally applies only to the most recently
-    pressed key, needs focus, and can be turned off entirely.
+    The scan survives the ring: `held` is folded forward from every event ever
+    seen, so a key weighed down for an hour still reports held long after its
+    press left history. Do not infer held-ness from `KeyEvent.REPEAT` -- it
+    needs focus, usually applies only to the most recent key, and can be off.
     """
 
     held: frozenset[int]
@@ -109,7 +108,7 @@ class KeyScan:
 KeyboardWindow = InputWindow[KeyScan, KeyFact]
 
 
-class KeyboardIngress:
+class KeyboardIngress(Queryable):
     """Subscribes to the bus, stages arrivals, settles them at the cut.
 
     Whoever builds this must keep it: the bus stores bound methods as weak
@@ -123,6 +122,7 @@ class KeyboardIngress:
     __slots__ = (
         "__weakref__",
         "_dropped",
+        "_lost",
         "_held",
         "_line",
         "_staging",
@@ -134,6 +134,7 @@ class KeyboardIngress:
         self._stream: InputStream[KeyScan, KeyFact] = InputStream(rate)
         self._held: set[int] = set()
         self._dropped = 0
+        self._lost = 0
         # The active line, if a console is asking a question. Fed directly by
         # the cut rather than reading the ring: it is the one consumer whose
         # correctness depends on missing nothing, and it must not depend on a
@@ -155,8 +156,12 @@ class KeyboardIngress:
 
     @property
     def dropped(self) -> int:
-        """Arrivals lost to the staging limit since the engine started."""
-        return self._dropped
+        """Arrivals lost to the staging limit in the interval just cut.
+
+        This frame's loss, not a session total: it is published as a metric
+        every frame, and a counter wants what happened in THIS frame.
+        """
+        return self._lost
 
     def input(self, initial: str = "") -> "TextInput":
         """Begin a line of typing, fed from each cut until it finishes.
@@ -207,15 +212,10 @@ class KeyboardIngress:
     def flush(self) -> None:
         """Discard staged arrivals and release everything held.
 
-        Called on resume. Ticks stop while an engine is suspended but the
-        window keeps pumping, so staging would otherwise land as one enormous
-        window describing input that was never aimed at the game.
-
-        Dropping the events alone would leave the held set stale for good --
-        anything pressed before the suspend and released during it would stay
-        held until something cleared it. So this queues the same clear that
-        focus loss uses. The keyboard assumes neutral because it cannot ask
-        the OS what is still down; a pad can, and resyncs instead.
+        Called on resume. Dropping the events alone would leave the held set
+        stale for good, so this queues the same clear that focus loss uses.
+        The keyboard assumes neutral because it cannot ask what is still
+        down; a pad can, and resyncs instead.
         """
         self._staging.clear()
         self._stage(_Arrival.CLEAR, 0, 0)
@@ -223,12 +223,11 @@ class KeyboardIngress:
     def cut(self, frame: int) -> KeyboardWindow:
         """Settle the interval that just ended into one frozen window.
 
-        Called once per frame by the engine, at the head of the frame, before
-        the clock turns -- so `frame` is the number of the frame now closing.
-        Called on EVERY frame, including frames where nothing arrived: an
-        empty window is what keeps "the last fifteen frames" meaning fifteen
-        frames rather than fifteen frames that happened to have input.
+        Called once per frame by the engine, before the clock turns, so
+        `frame` is the number of the frame now closing -- and on EVERY frame,
+        including empty ones. See `bps/reference/input/stream.md`.
         """
+        self._lost, self._dropped = self._dropped, 0
         pressed: set[int] = set()
         released: set[int] = set()
         facts: list[KeyFact] = []
@@ -263,11 +262,17 @@ class KeyboardIngress:
 
             elif kind is _Arrival.RELEASE:
                 assert isinstance(value, int)
+                if value not in self._held:
+                    # A release for a key we do not believe is down. It is
+                    # the player letting go after a clear already released
+                    # it, and the engine has said so once. Emitting it would
+                    # carry a held-set WITHOUT its own key in it, which is
+                    # the one thing a fact must never do.
+                    continue
                 # Before removing: the set contains the key released.
                 before = frozenset(self._held)
-                if value in self._held:
-                    self._held.remove(value)
-                    released.add(value)
+                self._held.remove(value)
+                released.add(value)
                 facts.append(
                     KeyFact(KeyEvent.RELEASE, value, modifiers, before)
                 )

@@ -1,22 +1,15 @@
 """A question put to the player, answered without blocking.
 
-Two of these exist and they are the same object under different subjects: a
-line of typing waiting for Return, and a pad waiting for somebody to press
-something on it. Both are asked once, both are answered by input arriving at
-some later cut, and neither makes anybody wait.
+Two of these exist -- a line of typing waiting for Return, and a pad waiting
+for somebody to press something on it:
 
     name = console.echo(bps.keyboard.input().until(key.RETURN))
     who = bps.pads.identify().until(Button.START)
 
-    if name.completed: ...
-    if who.completed: ...
+Both are asked once, both are answered by input arriving at some later cut,
+and neither makes anybody wait.
 
-**The shape is shared deliberately.** The pad version was written months after
-the console one and came out identical bone for bone -- the same four states,
-the same `until()` narrowing, the same non-optional `value` that raises rather
-than returning None, the same supersede-on-reasking. Two subjects arriving at
-one shape is the signal to write it once; a reader who has understood either
-has understood the other.
+Design record: `bps/reference/input/request.md`.
 """
 
 from __future__ import annotations
@@ -36,9 +29,11 @@ class InputState(Enum):
 class Request:
     """The lifecycle both requests share, and nothing else.
 
-    No `value` here: what a request is FOR differs, and the base has no
-    business guessing. What it owns is the state machine -- which is the part
-    that was written twice.
+    **No `value` and no `until` here.** What a request is FOR differs, and so
+    does whether a partial answer exists -- a half-typed line is worth
+    reading, a half-identified pad is not. Each subject defines both; a base
+    that defined either would have to pick one subject and be wrong for the
+    other. See the chapter, *`value` is each subject's own*.
     """
 
     __slots__ = ("_reason", "_state")
@@ -83,14 +78,13 @@ class Request:
             self._reason = "DISCARDED"
 
     # -- driven by the cut -------------------------------------------------
+    #
+    # The engine's two setters. A subject completes through `_complete()`
+    # rather than assigning `_state`, so there is one place a request can
+    # finish.
 
     def _interrupt(self, reason: str) -> None:
-        """End it for a reason of the engine's rather than the player's.
-
-        A newer request of the same kind supersedes an older one: a finished
-        question is a finished thing, and the next one deserves its own answer
-        rather than a share of this one's.
-        """
+        """End it for a reason of the engine's rather than the player's."""
         if self._state is InputState.LISTENING:
             self._state = InputState.INTERRUPTED
             self._reason = reason

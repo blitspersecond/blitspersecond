@@ -4,42 +4,29 @@ Positions and jobs, never letters. `FACE_SOUTH` is the bottom button on every
 pad ever made -- Xbox prints an A on it, Sony a cross, Nintendo a B -- and a
 game maps it to its own action, because a pad does not know 'punch'.
 
-See `docs/bps/PADS_PORT.md` for why this is closed and how a new button is
-answered without opening it.
+Design record: `bps/reference/input/pads.md`.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TypeAlias
 
+from blitspersecond.input.condition import Composable, Condition, Unresolved
 
-class Button(Enum):
+
+class Button(Composable, Enum):
     """Every button the engine reports, and there will never be another.
 
-    **This is not a subset of what pads offer; it is the shape they converged
-    on.** The 360 is where the form stopped moving -- d-pad, four face
-    buttons, bumpers, triggers, two sticks, and the centre pair that has been
-    there since the Famicom. The SNES contributed the face diamond and the
-    shoulders, the Sega line the analogue stick and analogue triggers, Sony the
-    second stick. Everything since has accepted that shape while varying the
-    layout, so anything a later pad adds is one vendor experimenting after the
-    convergence, not part of the form.
+    **CLOSED, and closing it is what buys the rest**: no `UNKNOWN` member, no
+    escape hatch, and a `match` over it that is total and stays total. A
+    control outside these ten is dropped where it arrives rather than carried
+    as a value nothing can name.
 
-    So the enum is closed, and closing it is what buys the rest: no `UNKNOWN`
-    member, no escape hatch, and a `match` over it that is total and stays
-    total. A control outside these ten has no target here, which is why it is
-    dropped where it arrives rather than carried as a value nothing can name.
-    **A game cannot bind what it cannot name, and that is the intended end of
-    the sentence.**
-
-    Two tests answer a new button without reopening anything, and they have
-    already been applied twice -- Sony's touchpad in 2013 and Microsoft's
-    Share button in 2020 are both ignored. Is it on the Xbox One controller
-    and the DualShock 4, the two pads that witness the settled form? And did
-    any other vendor adopt it? If it sits where an existing control sits, it
-    IS that control under a new name and it maps. Otherwise it is dropped.
+    **Do not add a member.** Two tests answer a new button without reopening
+    anything, and they have already refused a touchpad and a Share button.
+    What they are, and why ten is the converged form rather than a subset:
+    `bps/reference/input/pads.md`, *The vocabulary is closed*.
 
     The d-pad is deliberately absent: it arrives as an axis pair and is read
     as a direction, which is what it physically is.
@@ -48,9 +35,6 @@ class Button(Enum):
     # Named for POSITION, because position is the only thing that held. The
     # letters move between vendors and the function moves between games --
     # FACE_SOUTH is jump in one game and confirm in the next.
-    def __or__(self, other) -> "ButtonPredicate":
-        return ButtonPredicate._combine(self, other)
-
     FACE_SOUTH = auto()
     FACE_EAST = auto()
     FACE_WEST = auto()
@@ -77,91 +61,26 @@ class Button(Enum):
     START = auto()
     SELECT = auto()
 
-    # NOT HERE, and each for a stated reason rather than an oversight:
+    # NOT HERE, each refused for a stated reason rather than overlooked, and
+    # each argued in full in `bps/reference/input/pads.md`, under
+    # *What is not there*:
     #
-    # L3/R3. The stick clicks are the one input class only ever triggered at
-    # inopportune moments and never by player agency -- you push the stick you
-    # are already steering with, and it clicks. Refused at the vocabulary, the
-    # same way the pointer refuses wheel tilt: an input bound onto a control
-    # that already has a job.
-    #
-    # Touchpads, motion, mute, Share-below-the-guide, paddles. Added after the
-    # convergence, one vendor at a time, adopted by nobody else.
-    #
-    # Guide / PS / Home. This one is not about the fixed point at all -- every
-    # vendor has it, so it passes both tests above. It is refused because it
-    # is already the player's: it turns their pad off and controls their
-    # media, and a game binding it does not gain a control, it takes one away.
+    #   L3/R3    accidental when unwanted, unreliable when wanted, and an
+    #            accessibility position -- a game cannot bind what the engine
+    #            cannot name, which is the point
+    #   Guide    already the player's: it turns their pad off
+    #   the rest touchpads, motion, mute, paddles -- after the convergence,
+    #            one vendor at a time, adopted by nobody else
 
 
-@dataclass(frozen=True)
-class ButtonPredicate:
-    """One-of-these, composed with `|`.
+ButtonCondition: TypeAlias = "Button | Condition"
 
-    `Button.FACE_SOUTH | Button.START` matches either. The vocabulary stays a
-    plain enum and this sits beside it, so a `Button` is still a button and
-    never accidentally a set of them.
-    """
-
-    buttons: tuple[Button, ...]
-    #: Also match whatever THIS PAD calls confirm, which is a different
-    #: physical position per family -- south for Xbox and Sony, east for
-    #: Nintendo. Carried as a flag rather than a resolved button because it
-    #: cannot be resolved until there is a pad to resolve it against, and a
-    #: request is written before anybody has touched one.
-    conventional_accept: bool = False
-
-    @classmethod
-    def _combine(cls, left, right) -> "ButtonPredicate":
-        parts: list[Button] = []
-        accept = False
-        for condition in (left, right):
-            if isinstance(condition, Button):
-                candidates: tuple[Button, ...] = (condition,)
-            elif isinstance(condition, ButtonPredicate):
-                candidates = condition.buttons
-                accept |= condition.conventional_accept
-            else:
-                return NotImplemented
-            for button in candidates:
-                if button not in parts:
-                    parts.append(button)
-        return cls(tuple(parts), accept)
-
-    def __or__(self, other) -> "ButtonPredicate":
-        return self._combine(self, other)
-
-    def __repr__(self) -> str:
-        parts = [f"Button.{button.name}" for button in self.buttons]
-        if self.conventional_accept:
-            parts.append("Button.ACCEPT")
-        return " | ".join(parts) or "Button.ACCEPT"
-
-
-ButtonCondition: TypeAlias = Button | ButtonPredicate
-
-#: "Whatever this pad calls confirm." Not an eleventh button -- a predicate
-#: with nothing in it but the flag, so `Button.START | Button.ACCEPT` reads as
-#: one phrase and resolves per pad at the moment there is a pad.
+#: "Whatever this pad calls confirm." Not an eleventh button -- a term the
+#: pad resolves when there is finally a pad to resolve it against, so
+#: `Button.START | Button.ACCEPT` reads as one phrase and still means the
+#: right thumb on every family.
 #:
 #: It is not in the enum because it is not a position. Every other name in
 #: this vocabulary says where a thumb goes; this one says what a FAMILY means
 #: by yes, and those two are different kinds of fact.
-Button.ACCEPT = ButtonPredicate((), conventional_accept=True)
-
-
-def resolve(condition: ButtonCondition, accept: Button) -> frozenset[Button]:
-    """Which buttons this condition means, for a pad whose confirm is `accept`.
-
-    Resolution is per pad and deliberately late: the same request matches
-    FACE_SOUTH on an Xbox pad and FACE_EAST on a Nintendo one, and neither is
-    knowable when the request is written.
-    """
-    if isinstance(condition, Button):
-        return frozenset((condition,))
-    if isinstance(condition, ButtonPredicate):
-        buttons = set(condition.buttons)
-        if condition.conventional_accept:
-            buttons.add(accept)
-        return frozenset(buttons)
-    raise TypeError(f"expected a Button condition, got {type(condition).__name__}")
+Button.ACCEPT = Unresolved("Button.ACCEPT")

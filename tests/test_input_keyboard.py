@@ -1,6 +1,6 @@
 """Keyboard ingress: ordering, edges, the held set, and the clear."""
 
-from pyglet.window import key
+from blitspersecond.input import Modifier, Motion, key
 
 from blitspersecond.common import fps
 from blitspersecond.input.kbm import KeyEvent, KeyboardIngress
@@ -18,7 +18,7 @@ def _kinds(window) -> list[tuple[KeyEvent, object]]:
 
 def test_a_press_and_its_text_settle_in_arrival_order():
     events, keyboard = _keyboard()
-    events.dispatch_event("on_key_press", key.S, key.MOD_SHIFT)
+    events.dispatch_event("on_key_press", key.S, Modifier.SHIFT)
     events.dispatch_event("on_text", "S")
 
     window = keyboard.cut(6)
@@ -99,10 +99,10 @@ def test_a_key_stays_held_long_after_its_press_left_the_ring():
     for frame in range(1, 400):
         keyboard.cut(frame)
 
-    newest = keyboard.stream.newest
-    assert newest is not None
-    assert newest.facts == ()          # the press cycled out long ago
-    assert newest.scan.held == frozenset({key.W})   # the state did not
+    latest = keyboard.stream.latest
+    assert latest is not None
+    assert latest.facts == ()          # the press cycled out long ago
+    assert latest.scan.held == frozenset({key.W})   # the state did not
     assert keyboard.stream.capacity == 8
 
 
@@ -159,7 +159,7 @@ def test_focus_loss_takes_its_place_in_arrival_order():
 def test_text_is_split_per_character_and_keeps_order_against_motion():
     events, keyboard = _keyboard()
     events.dispatch_event("on_text", "name\r")
-    events.dispatch_event("on_text_motion", key.MOTION_LEFT)
+    events.dispatch_event("on_text_motion", Motion.LEFT)
 
     assert _kinds(keyboard.cut(1)) == [
         (KeyEvent.TEXT, "n"),
@@ -167,7 +167,7 @@ def test_text_is_split_per_character_and_keeps_order_against_motion():
         (KeyEvent.TEXT, "m"),
         (KeyEvent.TEXT, "e"),
         (KeyEvent.TEXT, "\r"),
-        (KeyEvent.MOTION, key.MOTION_LEFT),
+        (KeyEvent.MOTION, Motion.LEFT),
     ]
 
 
@@ -177,8 +177,8 @@ def test_every_frame_cuts_even_with_nothing_to_report():
         keyboard.cut(frame)
 
     assert len(keyboard.stream) == 4
-    assert [w.frame for w in keyboard.stream.recent(4)] == [0, 1, 2, 3]
-    assert all(w.facts == () for w in keyboard.stream.recent(4))
+    assert [w.frame for w in keyboard.stream.all] == [0, 1, 2, 3]
+    assert all(w.facts == () for w in keyboard.stream.all)
 
 
 def test_a_flush_drops_staged_input_and_does_not_leave_keys_stuck():
@@ -231,3 +231,48 @@ def test_an_ingress_handler_never_swallows_an_event():
 
     assert seen == [key.Q]
     assert keyboard.cut(1).scan.pressed == frozenset({key.Q})
+
+
+def test_a_release_after_a_clear_does_not_report_itself_twice():
+    # Hold X, lose focus, come back and let go. The clear already released X;
+    # the real release must not arrive as a second fact carrying a held-set
+    # that its own key is not in.
+    events, keyboard = _keyboard()
+    events.dispatch_event("on_key_press", key.X, 0)
+    keyboard.cut(0)
+    events.dispatch_event("on_deactivate")
+    cleared = keyboard.cut(1)
+    events.dispatch_event("on_key_release", key.X, 0)
+    after = keyboard.cut(2)
+
+    assert [(f.kind, f.value) for f in cleared.facts] == [(KeyEvent.RELEASE, key.X)]
+    assert cleared.scan.released == frozenset({key.X})
+    assert after.facts == ()
+    assert after.scan.released == frozenset()
+
+
+def test_every_transition_carries_the_held_set_its_own_key_is_in():
+    events, keyboard = _keyboard()
+    for symbol in (key.A, key.B):
+        events.dispatch_event("on_key_press", symbol, 0)
+    events.dispatch_event("on_key_release", key.A, 0)
+    events.dispatch_event("on_key_release", key.A, 0)   # a second, unmatched
+    events.dispatch_event("on_deactivate")
+    window = keyboard.cut(0)
+
+    for fact in window.facts:
+        if fact.kind in (KeyEvent.PRESS, KeyEvent.RELEASE):
+            assert fact.value in fact.held, fact
+
+
+def test_what_was_lost_is_this_frames_loss_not_a_session_total():
+    # It is published as a counter every frame, and a counter wants what
+    # happened in THIS frame.
+    events, keyboard = _keyboard()
+    for _ in range(600):
+        events.dispatch_event("on_text", "x")
+    keyboard.cut(0)
+    assert keyboard.dropped == 88
+
+    keyboard.cut(1)
+    assert keyboard.dropped == 0

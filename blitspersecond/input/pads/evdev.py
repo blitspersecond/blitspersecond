@@ -1,11 +1,9 @@
-"""Finding the gamepads Linux has, and deciding what each one is called.
+"""The Linux transport: find the pads, name them, calibrate them, read them.
 
-Discovery only: this reads `/proc` and answers "which pads are here, and what
-is each one's identity". It opens nothing and reads no input. The fds, the
-calibration and the reader thread are the transport proper and sit above this.
+Reports come out as ordered `(type, code, value)` triples; what a control
+MEANS is the pad's business, not this layer's.
 
-Identity is the part with a ruling behind it -- see `docs/bps/PADS_PORT.md`,
-*Identity: measured, not assumed*.
+Design record: `bps/reference/input/evdev.md`.
 """
 
 from __future__ import annotations
@@ -17,6 +15,8 @@ import re
 import struct
 from dataclasses import dataclass
 from typing import NamedTuple
+
+from blitspersecond.system.logger import Logger
 
 from .button import Button
 from .control import Axis
@@ -30,12 +30,11 @@ _PROCFS = "/proc/bus/input/devices"
 #: only one of them claims a south face button.
 BTN_SOUTH = 0x130
 
-#: Valve. Refused, and the refusal is not about weak identity: a Steam virtual
-#: pad is a PROXY standing in front of a real device and concealing which one.
-#: Every controller routed through it presents as the same vendor:product, so
-#: N pads arrive as N copies of one thing. Refusing the vendor is how a
-#: physical pad is seen once, as itself, instead of once directly and again
-#: through something that answers to input and looks like it works.
+#: Valve. Refused because a Steam virtual pad is a PROXY concealing which real
+#: device it stands in front of, and they multiply -- so one physical pad
+#: arrives as several. Why refusing the vendor is the right cut, and why a pad
+#: counted twice is worse than one counted never:
+#: `bps/reference/input/evdev.md`.
 _STEAM_VENDOR = "28de"
 
 
@@ -65,34 +64,16 @@ def _fingerprint(bus: str, uniq: str, phys: str) -> str | None:
         uniq  ->  the device's own serial or MAC
         phys  ->  the socket it is plugged into
 
-    `uniq` comes first because it is the more specific answer, and because
-    `phys` is actively wrong on Bluetooth: there it is the HOST ADAPTER,
-    shared by every device paired to it. Measured -- two Xbox Wireless
-    Controllers on one desk report the identical `phys`, so preferring it
-    would merge them into one pad and one would silently overwrite the other.
+    **It branches on what a device OFFERS, never on the bus.** A bus rule
+    refuses a DualShock 4 on a cable outright -- `hid-playstation` names it by
+    MAC and leaves `phys` empty on both links. Do not reintroduce one.
 
-    `phys` catches the pads that do not identify themselves, which is most
-    wired ones. A USB device is enumerated THROUGH a socket, so the path
-    exists and survives the replug and re-enumeration that move an event
-    node. A pad moved to a DIFFERENT socket becomes a different pad, which is
-    the N64 rule: swapping two cables swaps two players, and nobody has ever
-    been confused by that.
+    `uniq` first because `phys` is the HOST ADAPTER on Bluetooth, shared by
+    every device paired to it. None rather than a fallthrough, because an
+    identity invented from an event node changes on the next replug.
 
-    **An earlier version branched on the bus instead**, on the measured claim
-    that every USB device has a `phys`. That was measured against thirty
-    devices which did not happen to include a DualShock 4 on a cable:
-    `hid-playstation` names it by MAC and leaves `phys` empty on BOTH links,
-    so a bus-based rule refused it outright and the pad did not exist. Asking
-    what a device OFFERS, rather than how it is attached, has no such gap.
-
-    **None rather than a fallthrough.** A device with neither has nothing to
-    be named by, and inventing something from its event node would produce an
-    identity that changes on the next replug. Steam's virtual pads are the
-    case that matters and they are refused by vendor before reaching here.
-
-    Identity is needed PER SESSION -- long enough to survive a flat battery
-    and a replug during a run -- so neither branch needs to outlive the
-    process, and nothing here is written down anywhere.
+    Why this is the rule, and the N64 trade it accepts:
+    `bps/reference/input/evdev.md`, *Naming a connection*.
     """
     if uniq:
         return f"id:{uniq}"
@@ -122,18 +103,23 @@ def _has_key_bit(block: str, code: int) -> bool:
 def discover(procfs: str | None = None) -> dict[str, PadDevice]:
     """Every gamepad Linux is offering, by fingerprint.
 
-    Pass `procfs` to parse a captured device list instead of reading the live
-    one -- which is how this is tested, and how a bug report of the form "my
-    pad is not detected" becomes reproducible without the pad.
+    Pass `procfs` to parse a captured device list instead of the live one --
+    how this is tested, and how "my pad is not detected" becomes reproducible
+    without the pad.
 
-    Devices that cannot be named are not returned. That is deliberate and
-    there are three ways to earn it: Valve's vendor, a Bluetooth pad with no
-    MAC, and anything with no port and no MAC at all.
+    The three ways a device is not offered: `bps/reference/input/evdev.md`.
     """
     if procfs is None:
         try:
             procfs = open(_PROCFS).read()
-        except OSError:
+        except OSError as exc:
+            # No pads rather than an exception -- a game must run on a box
+            # with no procfs. Said, because "no pads detected" with a
+            # readable reason beats the same symptom with none.
+            # Constructed here rather than at module scope: a Logger()
+            # at import time installs a handler before anything has
+            # configured one.
+            Logger().warning(f"Cannot read {_PROCFS}, so no pads: {exc}.")
             return {}
 
     found: dict[str, PadDevice] = {}
@@ -221,13 +207,12 @@ def _read_request(number: int, size: int) -> int:
 class AxisRange(NamedTuple):
     """What one axis's numbers mean, as the kernel reports them.
 
-    **Ranges are not universal, and not even uniform within a pad.** A wired
-    Xbox One pad reports sticks over -32768..32767, triggers over 0..1023 and
-    the hat over -1..1, all at once. Read on 2026-09-11 from the pad on the
-    desk. Assume one range and a fully pressed trigger reads as three percent.
+    **Ranges are not uniform even within one pad** -- a wired Xbox One pad
+    reports sticks over -32768..32767, triggers over 0..1023 and the hat over
+    -1..1, all at once. Never assume one range.
 
-    Only `minimum` and `maximum` are kept of the six fields the kernel
-    returns. `fuzz` and `flat` are deliberately dropped -- see `axis_ranges`.
+    Only `minimum` and `maximum` are kept of the kernel's six fields. See
+    `bps/reference/input/evdev.md`, *Asking what the numbers mean*.
     """
 
     minimum: int
@@ -267,12 +252,12 @@ class AxisRange(NamedTuple):
 def open_node(path: str) -> int:
     """Open one event node for reading.
 
-    Read-only and non-blocking, and **never `EVIOCGRAB`**. A grab is
-    exclusive: it would take the pad away from the browser, the desktop and
-    Steam, so alt-tabbing out of a game would kill the controller everywhere
-    else. Measured on 2026-09-11 -- every pad node on that desk was held open
-    by three processes at once, all of them reading happily. Sharing is how
-    evdev works and asking for more is not ours to do.
+    Read-only and non-blocking, and **never `EVIOCGRAB`**: a grab is
+    exclusive, so alt-tabbing out of a game would kill the controller for the
+    browser, the desktop and Steam too. Sharing is how evdev works.
+    See `bps/reference/input/evdev.md`.
+
+    `O_NONBLOCK` is what lets the drain run to `EAGAIN` with no thread.
     """
     return os.open(path, os.O_RDONLY | os.O_NONBLOCK)
 
@@ -284,12 +269,10 @@ def axis_ranges(fd: int) -> dict[int, AxisRange]:
     `EINVAL` or `ENOTTY` and is simply absent from the result -- that is how
     the set of axes a pad HAS is discovered, rather than by asking separately.
 
-    **`fuzz` and `flat` are read and discarded, deliberately.** `flat` is the
-    kernel's declared deadzone and it is not the one a game wants: the pad on
-    this desk declares `flat=128` and rests at 1054, eight times that, so a
-    flat-sized deadzone would let its own drift through. The kernel is
-    describing NOISE; a deadzone is a judgement about INTENT, it belongs with
-    the pad rather than the transport, and it is a much larger number.
+    **`fuzz` and `flat` are read and discarded, deliberately.** The kernel is
+    describing NOISE; a deadzone is a judgement about INTENT and a much larger
+    number, and it belongs to whatever reads the pad. Do not adopt `flat` as
+    one -- the figures that settle it are in `bps/reference/input/evdev.md`.
     """
     ranges: dict[int, AxisRange] = {}
     for code in AXES:
@@ -298,6 +281,9 @@ def axis_ranges(fd: int) -> dict[int, AxisRange]:
             fcntl.ioctl(fd, _read_request(0x40 + code, _ABSINFO_SIZE), info, True)
         except OSError as exc:
             if exc.errno in (errno.EINVAL, errno.ENOTTY):
+                # NOT a swallowed error. This is the probe's ANSWER: the
+                # device has no such axis, which is how the set it does have
+                # is discovered. Anything else is a real failure and raises.
                 continue
             raise
         _value, minimum, maximum, _fuzz, _flat, _resolution = struct.unpack(
@@ -317,19 +303,13 @@ def axis_ranges(fd: int) -> dict[int, AxisRange]:
 
 # -- the vocabulary, at this transport's boundary ---------------------------
 #
-# `INPUT_STREAM.md`: *"an evdev code and a GameInput bitfield describe the same
-# physical button with different numbers, so both are translated to
-# Button.FACE_SOUTH AT THEIR OWN BOUNDARY, and nothing downstream can tell
-# which platform it is reading."*
-#
-# So this table lives here rather than on `PadMapper`. The reference put it on
-# the mapper and had its Windows transport normalise into evdev codes to reuse
-# it -- which makes one platform's numbering the engine's intermediate, and
-# means a GameInput reading is translated twice to arrive somewhere it could
-# have reached directly. A mapper's job is what a pad CALLS its buttons; what
-# a transport's numbers MEAN is the transport's own business.
+# Each transport translates its own codes to `Button`, so nothing downstream
+# can tell which platform it is reading. **This table must not move onto
+# `PadMapper`**: that would make one platform's numbering the engine's
+# intermediate and translate the other twice. A mapper's job is what a pad
+# CALLS its buttons; what a transport's numbers MEAN is its own business.
+# See `bps/reference/input/evdev.md`, *The vocabulary is translated here*.
 
-BTN_SOUTH = 0x130
 BTN_EAST = 0x131
 BTN_WEST = 0x133
 BTN_NORTH = 0x134
@@ -432,24 +412,15 @@ _DIGITAL_TRIGGERS = Layout(
 def layout_for(ranges: dict[int, AxisRange]) -> Layout:
     """Work out which axis is which, from what this device declares.
 
-    **The layout follows the kernel driver, not the device and not the link.**
-    Measured across six pads on 2026-09-14: a wired Xbox pad and a Bluetooth
-    DualSense both use the `xpad` arrangement, while the same Xbox pad over
-    Bluetooth does not -- Sony pads get a dedicated driver and Xbox pads over
-    Bluetooth fall through to generic HID.
+    **The layout follows the kernel DRIVER -- not the device, not the link.**
+    A wired Xbox pad and a Bluetooth DualSense are both `xpad`; the same Xbox
+    pad over Bluetooth is not.
 
-    The consequence of getting it wrong is not subtle. Read a Bluetooth Xbox
-    pad through the `xpad` layout and its right stick is dead while both
-    triggers report permanently held, because `ABS_Z`/`ABS_RZ` are sticks
-    resting near the middle of a 0..65535 range -- 0.499 travel against a
-    0.118 threshold.
-
-    **So it is decided by capability rather than by identity.** A device that
-    declares `ABS_GAS` and `ABS_BRAKE` has its triggers there; nothing else
-    does. That is a duck test, and it is the only practical option anyway:
-    since the layout follows the driver, a vendor:product table would have to
-    encode which driver claims what on which kernel, and that is precisely the
-    two-thousand-entry problem this engine refuses.
+    Decided by capability rather than identity, and a vendor:product table
+    could not do it: it would have to encode which driver claims what on which
+    kernel. The measurements, and what the wrong layout looks like on a real
+    pad: `bps/reference/input/evdev.md`, *Which axis is which follows the
+    DRIVER*.
     """
     if ABS_GAS in ranges and ABS_BRAKE in ranges:
         return _GENERIC
@@ -487,13 +458,12 @@ _READ_EVENTS = 64
 class Report(NamedTuple):
     """One complete kernel input report: what changed at the same instant.
 
-    A report is the kernel's own simultaneity group, ended by `SYN_REPORT`.
-    Everything in it happened together, and the ORDER OF REPORTS is what makes
-    a roll through down, down-forward, forward reconstructible rather than
-    flattened into wherever the stick finished.
+    The kernel's own simultaneity group, ended by `SYN_REPORT`. Everything in
+    it happened together, and the ORDER OF REPORTS is what makes a roll
+    reconstructible rather than flattened into where the stick finished.
 
-    `events` are raw `(type, code, value)` triples. Translating them into
-    `Button` and axis values is the pad's job, not the transport's.
+    `events` are raw `(type, code, value)` triples; translating them is the
+    pad's job.
     """
 
     events: tuple[tuple[int, int, int], ...]
@@ -502,15 +472,13 @@ class Report(NamedTuple):
 class Snapshot(NamedTuple):
     """What the device says is true NOW, asked for rather than observed.
 
-    Emitted in place of the reports that were lost. Where a `Report` says
-    "these changed together", this says "this is the state, never mind how it
-    got here" -- which is all that can honestly be offered after a drop.
+    Emitted in place of the reports that were lost.
 
-    A reader applying this must treat it as REPLACING its knowledge rather
-    than adding to it: a button absent from `buttons` is up, including one it
-    thought was held. That is the whole point. The failure a drop causes is a
-    release landing in the lost run and leaving a button held for good, and
-    only a wholesale replacement fixes it.
+    **A reader must treat this as REPLACING its knowledge, never adding to
+    it**: a button absent from `buttons` is up, including one it thought was
+    held. A release lost in a dropped run leaves a button held for good, and
+    only a wholesale replacement heals it. See
+    `bps/reference/input/evdev.md`, *When the kernel drops*.
     """
 
     #: Raw evdev codes currently down. Translating them is the pad's job.
@@ -522,29 +490,24 @@ class Snapshot(NamedTuple):
 class PadReader:
     """One open pad, read once per frame.
 
-    **There is no thread and no `select`.** The kernel keeps a per-client
-    buffer on each evdev fd -- sized from the device's capabilities, at least
-    64 events -- and holds everything until it is read. So the kernel IS the
-    staging buffer this subsystem would otherwise build: a reader thread
-    copying that buffer into one of ours a few milliseconds sooner does the
-    same job twice, and buys a cross-thread handoff, a lock, and the engine's
-    only concurrency.
+    **There is no thread and no `select`, and none should be added.** The
+    kernel already buffers each evdev fd until it is read, so a reader thread
+    does the same job twice and buys a cross-thread handoff, a lock, and the
+    engine's only concurrency. The engine is single threaded and polls.
 
-    Kris, 2026-09-11: *"we don't need to read until the cut; anything between
-    frames can happily sit there."*
-
-    What it costs is freshness, which this engine has already bought once and
-    priced: input that lands during a frame's tail waits for the next cut, the
-    same one-frame granularity the keyboard accepts. What it risks is the
-    kernel buffer overflowing between cuts, which is `SYN_DROPPED`, which has
-    to be handled whether or not a thread exists.
+    What it costs is freshness -- a frame's granularity, which the keyboard
+    accepts too. What it risks is the buffer overrunning between cuts, which
+    is `SYN_DROPPED` and has to be handled either way. See
+    `bps/reference/input/evdev.md`, *Reading at the cut*.
     """
 
     __slots__ = (
         "_dropped_at",
         "_drops",
         "_fd",
+        "_logger",
         "_pending",
+        "_said_gone",
         "layout",
         "ranges",
     )
@@ -564,13 +527,19 @@ class PadReader:
         self._drops = 0
         #: Where in this drain the stream stopped being trustworthy.
         self._dropped_at: int | None = None
+        self._logger = Logger()
+        #: Said once per CONNECTION, not per frame. A vanished device fails
+        #: every read until the next discovery scan notices it, which is up
+        #: to a second of them; a reconnect builds a fresh reader, so the
+        #: flag resets exactly when the connection does.
+        self._said_gone = False
 
     @property
     def drops(self) -> int:
         """How many times the kernel has dropped events on this device.
 
-        Cumulative and never reset. Nonzero means input was lost; the `Desync`
-        markers in the stream say where.
+        Cumulative for as long as this connection lasts. Nonzero means input
+        was lost; `PadScan.resynced` is what says which windows it landed in.
         """
         return self._drops
 
@@ -585,14 +554,31 @@ class PadReader:
             try:
                 data = os.read(self._fd, _EVENT_SIZE * _READ_EVENTS)
             except BlockingIOError:
-                break  # drained
-            except OSError:
-                break  # gone; discovery notices on the next scan
+                break  # Drained: the ordinary exit, every frame. Never log.
+            except OSError as exc:
+                # The device went away mid-read -- a flat battery or an
+                # unplug. Ordinary, and discovery makes it official on the
+                # next scan; said once so a dead pad does not narrate every
+                # frame until then.
+                if not self._said_gone:
+                    self._said_gone = True
+                    self._logger.info(
+                        f"Pad fd {self._fd} stopped reading: {exc}."
+                    )
+                break
             if not data:
+                # EOF on an evdev node, which should not happen: the node
+                # either has events, says EAGAIN, or fails. Worth seeing.
+                if not self._said_gone:
+                    self._said_gone = True
+                    self._logger.warning(
+                        f"Pad fd {self._fd} read returned no data; "
+                        "treating the device as gone."
+                    )
                 break
             self._frame(data, reports)
             if len(data) < _EVENT_SIZE * _READ_EVENTS:
-                break
+                break  # Short read means drained. Ordinary. Never log.
 
         if self._dropped_at is not None:
             # Everything from the drop onwards is superseded. The snapshot is
@@ -646,8 +632,15 @@ class PadReader:
         keys = bytearray(_KEY_BYTES)
         try:
             fcntl.ioctl(self._fd, _read_request(0x18, _KEY_BYTES), keys, True)
-        except OSError:
-            keys = bytearray(_KEY_BYTES)  # answer "nothing held" over guessing
+        except OSError as exc:
+            # Answer "nothing held" rather than guess -- but this has a
+            # consequence a reader will see: every held button reads as
+            # released in the window that recovers.
+            keys = bytearray(_KEY_BYTES)
+            self._logger.warning(
+                f"Pad fd {self._fd} would not report held buttons ({exc}); "
+                "answering nothing held, so a held button will read released."
+            )
         for index, byte in enumerate(keys):
             if byte:
                 buttons.update(
@@ -661,7 +654,14 @@ class PadReader:
                 fcntl.ioctl(
                     self._fd, _read_request(0x40 + code, _ABSINFO_SIZE), info, True
                 )
-            except OSError:
+            except OSError as exc:
+                # The axis was calibrated at open, so failing now is the
+                # device going away mid-snapshot rather than an absent
+                # control. Left out; it keeps its last known value.
+                self._logger.debug(
+                    f"Pad fd {self._fd} would not report axis {code:#x} "
+                    f"({exc}); it keeps its last value this frame."
+                )
                 continue
             axes[code] = struct.unpack(_ABSINFO, bytes(info))[0]
         return Snapshot(frozenset(buttons), axes)
@@ -671,8 +671,13 @@ class PadReader:
         if self._fd >= 0:
             try:
                 os.close(self._fd)
-            except OSError:
-                pass
+            except OSError as exc:
+                # The fd is forgotten either way -- there is no second thing
+                # to try -- but a close that fails means a descriptor leaked,
+                # and a session leaking one per pad is worth being able to see.
+                self._logger.warning(
+                    f"Pad fd {self._fd} would not close: {exc}."
+                )
             self._fd = -1
 
 

@@ -18,7 +18,7 @@ from pyglet.window import mouse as _mouse
 
 from blitspersecond.common import Location, fps
 from blitspersecond.common.screen import SCREEN
-from blitspersecond.input.stream import InputStream, InputWindow
+from blitspersecond.input.stream import Queryable, InputStream, InputWindow
 
 if TYPE_CHECKING:
     from blitspersecond.internal.events import EventBus
@@ -43,18 +43,15 @@ def screen_location(
     refusing to answer, would make a pointer behave one way fullscreen and
     another windowed, for a reason nobody can see.
 
-    Nothing is lost by clamping here. `delta` is summed unclamped by the
-    ingress precisely so that a drag at the screen edge keeps its distance;
-    position answers "where is it", and off the screen there is no better
-    answer than the edge.
-
     The viewport is the only argument because it already carries the screen's
-    size -- `width // scale` is the internal width -- so there is no second
-    copy of 640x360 to pass in and no way to hand this a viewport and a screen
-    that disagree.
+    size -- `width // scale` is the internal width -- so there is no way to
+    hand this a viewport and a screen that disagree.
 
     `x` may be fractional: pyglet divides by the display scale on the way out,
     so a HiDPI window delivers floats.
+
+    Why it clamps rather than reporting a true out-of-viewport coordinate:
+    `bps/reference/input/pointer.md`, *Out of bounds clamps, per axis*.
     """
 
     width = viewport.width // viewport.scale
@@ -74,29 +71,24 @@ def screen_location(
 
 
 #: The buttons the engine reports, named for what they MEAN rather than where
-#: they sit. Handedness is the OS's job -- libinput and the compositor apply
-#: the left-handed pointer mapping below us, so by the time an event arrives
-#: pyglet's LEFT already IS the player's primary button. Swapping again here
-#: would double-swap a left-handed setup. This is the same rule the keyboard
-#: follows for layout: the OS has applied the player's own configuration and
-#: the engine reads the result, never the hardware.
+#: they sit. Handedness is the OS's job: pyglet's LEFT already IS the player's
+#: primary button by the time an event arrives, so an in-engine swap toggle
+#: would double-swap a lefty and MUST NEVER BE ADDED.
 PRIMARY = _mouse.LEFT
 SECONDARY = _mouse.RIGHT
 MIDDLE = _mouse.MIDDLE
 BACK = _mouse.MOUSE4
 FORWARD = _mouse.MOUSE5
 
-#: Everything the engine will report, and nothing else. A device that sends
-#: more -- an MMO thumb-grid, a sniper trigger -- has those dropped at ingress
-#: rather than reaching a window, so `held` stays a set a game can enumerate.
+#: Everything the engine will report, and nothing else. Anything a device
+#: sends beyond these is dropped at ingress, so `held` stays a set a game can
+#: enumerate.
 #:
-#: PRIMARY and SECONDARY are the floor every real pointer meets. MIDDLE, BACK
-#: and FORWARD are reported but must never be a game's only way to do
-#: something: the thumb pair is absent on plenty of honest mice, and
-#: wheel-click is a button bound onto an axis control -- stiff to press
-#: without scrolling, easy to hit while scrolling. That is design law, not a
-#: check the engine can make: window events cannot reveal a button's absence,
-#: because a mouse only proves a button by pressing it.
+#: PRIMARY and SECONDARY are the floor every pointer meets; MIDDLE, BACK and
+#: FORWARD are reported but must never be a game's ONLY way to do something,
+#: and that is design law rather than a check -- window events cannot reveal a
+#: button's absence. Which tier each is in, and why:
+#: `bps/reference/input/pointer.md`, *The ideal mouse*.
 BUTTONS = frozenset((PRIMARY, SECONDARY, MIDDLE, BACK, FORWARD))
 
 
@@ -120,20 +112,14 @@ class MouseEvent(Enum):
 class MouseFact:
     """One pointer fact, in the order it arrived within a frame.
 
-    **Every fact is positioned.** That is the type's reason for existing: a
-    click is a question about where, and collapsing a frame's events down to
-    one end-of-interval position -- which the reference did -- answers it with
-    wherever the pointer finished. Drag quickly and click, and the click is
-    reported somewhere it never happened. `screen_location` always answers, so
-    this field is never absent.
+    **Every fact is positioned**, and that is the type's reason for existing:
+    a click is a question about WHERE, and one end-of-interval position for
+    the whole frame answers it with wherever the pointer finished.
 
-    `held` carries the same invariant the keyboard's does, and for the same
-    reason -- see `KeyFact`:
+    `held` carries the same invariant the keyboard's does, and it holds
+    without exception -- see `KeyFact`:
 
         A transition carries the held-set in which its own button is present.
-
-    A press carries the set after its button was added; a release carries the
-    set before its button was removed.
     """
 
     kind: MouseEvent
@@ -150,6 +136,15 @@ class MouseFact:
     modifiers: int
     held: frozenset[int]
 
+    @property
+    def control(self) -> int | None:
+        """What this fact is about, under the name every device uses.
+
+        The query verbs walk facts from any device with one piece of code, so
+        they need one spelling for the button a transition concerns.
+        """
+        return self.button
+
 
 @dataclass(frozen=True, slots=True)
 class MouseScan:
@@ -162,13 +157,8 @@ class MouseScan:
     """
 
     #: Always a pixel on the screen. Before the pointer has been seen at all
-    #: this is the centre -- a DECLARED default, not a measurement. There is
-    #: nothing to ask: pyglet has no "where is the pointer", and until an
-    #: event arrives the engine genuinely does not know. The centre is the
-    #: choice a game makes on hardware that only offers relative counters,
-    #: and it is conventional because it is the least wrong thing to say --
-    #: visible, neutral, and not read by a player as a statement. `(0, 0)`
-    #: would look like a reading and put it in a corner.
+    #: this is the centre -- a DECLARED default, not a measurement: pyglet has
+    #: no "where is the pointer" to ask.
     position: Location
     #: Internal pixels moved this interval, summed and unclamped, y growing
     #: down. Float: at a 4x window a single window pixel is a quarter of a
@@ -208,7 +198,7 @@ class _Arrival(Enum):
     CLEAR = auto()
 
 
-class MouseIngress:
+class MouseIngress(Queryable):
     """Subscribes to the bus, stages arrivals, settles them at the cut.
 
     Whoever builds this must keep it: the bus stores bound methods as weak
@@ -239,6 +229,7 @@ class MouseIngress:
     __slots__ = (
         "__weakref__",
         "_dropped",
+        "_lost",
         "_held",
         "_position",
         "_staging",
@@ -266,6 +257,7 @@ class MouseIngress:
         self._held: set[int] = set()
         self._position = Location(SCREEN.width // 2, SCREEN.height // 2)
         self._dropped = 0
+        self._lost = 0
         events.push_handlers(
             on_mouse_motion=self._on_mouse_motion,
             on_mouse_drag=self._on_mouse_drag,
@@ -284,8 +276,12 @@ class MouseIngress:
 
     @property
     def dropped(self) -> int:
-        """Arrivals lost to the staging limit since the engine started."""
-        return self._dropped
+        """Arrivals lost to the staging limit in the interval just cut.
+
+        This frame's loss, not a session total: it is published as a metric
+        every frame, and a counter wants what happened in THIS frame.
+        """
+        return self._lost
 
     # -- bus handlers: record and return, nothing else --------------------
     #
@@ -360,6 +356,7 @@ class MouseIngress:
         the clock turns -- so `frame` is the number of the frame now closing.
         Called on EVERY frame, including frames where nothing arrived.
         """
+        self._lost, self._dropped = self._dropped, 0
         viewport = self._viewport()
         scale = viewport.scale
         pressed: set[int] = set()
@@ -460,11 +457,16 @@ class MouseIngress:
                 button = int(a)
                 if button not in BUTTONS:
                     continue
+                if button not in self._held:
+                    # A release for a button we do not believe is down: the
+                    # player letting go after a clear already released it.
+                    # Same rule as the keyboard -- a fact must never carry a
+                    # held-set without its own button in it.
+                    continue
                 # Before removing: the set contains the button released.
                 before_release = frozenset(self._held)
-                if button in self._held:
-                    self._held.remove(button)
-                    released.add(button)
+                self._held.remove(button)
+                released.add(button)
                 facts.append(
                     MouseFact(
                         MouseEvent.RELEASE,

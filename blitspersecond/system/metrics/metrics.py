@@ -35,13 +35,20 @@ MetricType = TypeVar("MetricType", bound=Metric)
 class Metrics(metaclass=SingletonMeta):
     """Engine-wide metric registry and frame-boundary flush."""
 
-    def __init__(self, framerate: int = 60, capacity: int = 256) -> None:
+    def __init__(self, framerate: int, capacity: int = 256) -> None:
         # `framerate` is the frames-to-seconds fold ratio, and a singleton
         # takes its arguments from whoever constructs it FIRST. The engine
         # does, in its own constructor, before any subsystem can declare
-        # anything -- but a module-level `Metrics()` in something imported
-        # earlier would silently fix this at the default. Harmless while the
-        # engine's rate is a fixed 60; a real trap the day it is not.
+        # anything.
+        #
+        # **It has no default, deliberately.** A module-level `Metrics()` in
+        # something imported earlier would otherwise fix the ratio at a
+        # guess, and every per-second figure would be wrong by the ratio it
+        # guessed wrong by -- with nothing raised and nothing to notice.
+        # Without a default that import fails loudly instead. The rate is an
+        # authoring choice from `fps` (15, 20, 30, 40, 60), so there is no
+        # value that could be right to guess; `bps.metrics` is how a
+        # subsystem reaches the one the engine built.
         self._framerate = framerate
         self._buffer = MetricBuffer(capacity)
         self._streams: List[Stream] = []
@@ -138,6 +145,28 @@ class Metrics(metaclass=SingletonMeta):
             "Times the engine was called with no reserve left before its "
             "slot -- the pacer's estimate of how long a frame takes was "
             "short. The leading indicator of an overrun.",
+        )
+        # Input loss, and the two kinds are NOT one counter. The first two are
+        # the engine's own staging limit overflowing; the third is the kernel
+        # discarding events before we ever read them. Different cause,
+        # different remedy, and only the English word is shared.
+        self._keyboard_dropped = self.counter(
+            "input.keyboard.dropped",
+            "Keyboard arrivals discarded because more than the staging limit "
+            "landed in one frame. Far above any real typing, so a nonzero "
+            "reading means the pump ran without the engine cutting.",
+        )
+        self._pointer_dropped = self.counter(
+            "input.pointer.dropped",
+            "Pointer arrivals discarded because more than the staging limit "
+            "landed in one frame. A 1000Hz pointer offers about seventeen a "
+            "frame at 60Hz, so this is two orders of magnitude clear.",
+        )
+        self._pad_desyncs = self.counter(
+            "input.pads.desyncs",
+            "Times the kernel dropped events on a pad and its state had to "
+            "be replaced by asking the device. Input was lost; a held button "
+            "may read as released in the window that recovers.",
         )
         self._phase_shifts = self.counter(
             "display.phase.shifts",
@@ -289,3 +318,15 @@ class Metrics(metaclass=SingletonMeta):
     @property
     def phase_shifts(self) -> Counter:
         return self._phase_shifts
+
+    @property
+    def keyboard_dropped(self) -> Counter:
+        return self._keyboard_dropped
+
+    @property
+    def pointer_dropped(self) -> Counter:
+        return self._pointer_dropped
+
+    @property
+    def pad_desyncs(self) -> Counter:
+        return self._pad_desyncs

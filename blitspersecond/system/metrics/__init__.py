@@ -1,9 +1,11 @@
 """What the engine measures about itself, and how much of it it keeps.
 
-    from blitspersecond.system import Metrics
-
-    SPRITES = Metrics().counter("game.sprites", "Sprites drawn per frame")
+    SPRITES = bps.metrics.counter("game.sprites", "Sprites drawn per frame")
     SPRITES.push(len(batch))
+
+Declare through `bps.metrics` rather than constructing `Metrics()`: it takes
+the frames-to-seconds fold ratio from whoever builds it first, and the engine
+is what knows the authored rate.
 
 Two metric types (`Counter`, `Gauge`), one staging buffer per frame, and
 three cascading rings per metric. Nothing here drives the engine: metrics

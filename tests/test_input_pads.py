@@ -33,12 +33,16 @@ class Reader:
         self.queued = []
         self.closed = False
         self.snapshots = 0
+        self.drops = 0
 
     def arrive(self, *items):
         self.queued.extend(items)
 
     def read(self):
         items, self.queued = tuple(self.queued), []
+        # A real reader counts a drop as it emits the snapshot that replaces
+        # what was lost, so this does too.
+        self.drops += sum(isinstance(item, Snapshot) for item in items)
         return items
 
     def snapshot(self):
@@ -166,11 +170,11 @@ def test_a_disconnect_releases_what_the_pad_was_holding(world):
     pad = next(iter(pads))
     press(world.reader("bt:aa"))
     pads.cut(1)
-    assert pad.stream.newest.scan.held == frozenset({Button.FACE_SOUTH})
+    assert pad.stream.latest.scan.held == frozenset({Button.FACE_SOUTH})
 
     world.unplug("bt:aa")
     pads.cut(2)
-    scan = pad.stream.newest.scan
+    scan = pad.stream.latest.scan
     assert scan.released == frozenset({Button.FACE_SOUTH})
     assert scan.held == frozenset()
     assert scan.disconnected is True
@@ -230,7 +234,7 @@ def test_a_departed_pads_ring_stays_contiguous(world):
     world.unplug("bt:aa")
     for frame in range(1, 6):
         pads.cut(frame)
-    assert [w.frame for w in pad.stream.recent(6)] == [0, 1, 2, 3, 4, 5]
+    assert [w.frame for w in pad.stream.all] == [0, 1, 2, 3, 4, 5]
 
 
 # -- identity: the wiggle-a-pad mode --------------------------------------
@@ -336,7 +340,7 @@ def test_a_resume_asks_the_pads_rather_than_assuming(world):
     pads.flush()
     pads.cut(1)
     assert world.reader("bt:aa").snapshots == 1
-    assert pads.known[0].stream.newest.scan.resynced is True
+    assert pads.known[0].stream.latest.scan.resynced is True
 
 
 def test_closing_releases_everything_but_forgets_nothing(world):
@@ -362,3 +366,38 @@ def test_discovery_does_not_run_every_frame(world):
     assert len(pads) == 0
     pads.cut(60)
     assert len(pads) == 1
+
+
+def test_kernel_drops_are_counted_across_every_pad_for_the_frame(world):
+    # `Pads.desyncs` is what the loop publishes. It is THIS frame's across
+    # every pad: a reconnect brings a fresh reader with a fresh tally, so a
+    # running sum over readers would FALL when somebody's battery came back.
+    world.plug("bt:aa")
+    world.plug("bt:bb")
+    pads = collection()
+    pads.cut(0)
+    assert pads.desyncs == 0
+
+    first, second = sorted(pads, key=lambda pad: pad.fingerprint)
+    first._reader.arrive(Snapshot(frozenset(), {}))
+    second._reader.arrive(Snapshot(frozenset(), {}), Snapshot(frozenset(), {}))
+    pads.cut(1)
+
+    assert first.desyncs == 1
+    assert second.desyncs == 2
+    assert pads.desyncs == 3
+
+    # This frame's: a quiet frame reports nothing, so a clean run stays silent.
+    pads.cut(2)
+    assert pads.desyncs == 0
+
+
+def test_a_departed_pad_cannot_lose_input_it_was_never_sent(world):
+    world.plug("bt:aa")
+    pads = collection()
+    pads.cut(0)
+    world.unplug("bt:aa")
+    pads.refresh()
+    pads.cut(1)
+
+    assert pads.desyncs == 0

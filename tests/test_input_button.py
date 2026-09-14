@@ -10,6 +10,7 @@ See `docs/bps/PADS_PORT.md`.
 
 import pytest
 
+from blitspersecond.input.condition import matches
 from blitspersecond.input.pads import Button
 
 #: Every button the engine reports. Not a fixture -- a specification.
@@ -64,15 +65,25 @@ def test_accept_exists_but_is_not_an_eleventh_button():
     # name in the vocabulary is one. It is a predicate with nothing in it but
     # the flag, so `Button.START | Button.ACCEPT` reads as one phrase and
     # resolves per pad when there is a pad to resolve against.
-    from blitspersecond.input.pads.button import ButtonPredicate, resolve
+    from blitspersecond.input.condition import Unresolved, matches, resolve
 
-    assert isinstance(Button.ACCEPT, ButtonPredicate)
+    assert isinstance(Button.ACCEPT, Unresolved)
     assert Button.ACCEPT not in list(Button)
     assert len(Button) == len(SETTLED)
     # The same condition, two families, two answers.
     condition = Button.START | Button.ACCEPT
-    assert resolve(condition, Button.FACE_SOUTH) == {Button.START, Button.FACE_SOUTH}
-    assert resolve(condition, Button.FACE_EAST) == {Button.START, Button.FACE_EAST}
+    xbox = resolve(condition, {Button.ACCEPT: Button.FACE_SOUTH})
+    nintendo = resolve(condition, {Button.ACCEPT: Button.FACE_EAST})
+    assert matches(xbox, {Button.FACE_SOUTH}) and not matches(xbox, {Button.FACE_EAST})
+    assert matches(nintendo, {Button.FACE_EAST}) and not matches(nintendo, {Button.FACE_SOUTH})
+    assert matches(xbox, {Button.START}) and matches(nintendo, {Button.START})
+
+
+def test_an_unresolved_term_refuses_to_answer_rather_than_saying_no():
+    # ACCEPT with no pad behind it has no meaning. Answering False would be a
+    # question that silently never matches; raising is the visible failure.
+    with pytest.raises(RuntimeError, match="resolve"):
+        matches(Button.START | Button.ACCEPT, {Button.START})
 
 
 def test_a_button_is_not_an_integer_in_disguise():

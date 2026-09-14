@@ -250,7 +250,7 @@ class MaskView:
         would toggle the mode sixty times a second for as long as the key was
         down. The cursor is what makes a fact read exactly once.
         """
-        window = self.bps.keyboard.stream.newest
+        window = self.bps.keyboard.stream.latest
         if window is None or window.frame == self.cursor:
             return False
         self.cursor = window.frame

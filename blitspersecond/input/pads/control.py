@@ -4,11 +4,12 @@ Named for the control, never for how a transport happens to carry it. That is
 the same rule `Button` follows one level down -- FACE_SOUTH rather than 'A' --
 and it matters more here, because the encodings disagree more.
 
-See `docs/bps/PADS_PORT.md`.
+Design record: `bps/reference/input/pads.md`.
 """
 
 from __future__ import annotations
 
+from blitspersecond.input.condition import Composable
 from enum import Enum, IntEnum, auto
 
 
@@ -16,42 +17,19 @@ class Axis(Enum):
     """The continuous controls, normalised and carried as they are.
 
     **The signal is carried, not reduced.** A trigger is reported as travel
-    even though `Button.LT` and `Button.RT` also exist for it: the same
-    control has two honest readings, and which one a game wants is the game's
-    business. Kris, 2026-09-11: *"carry the signal. my hori has them and they
-    are digital"* -- a fightpad that wires a face button to a trigger axis
-    reports 0 or full, so the threshold gives it clean edges, while a
-    genuinely analogue trigger gives travel as well.
+    even though `Button.LT`/`RT` exist for it too: the same control has two
+    honest readings and which one a game wants is the game's business.
 
-    **A closed vocabulary is not a promise every pad has all of it, and the
-    pad will not tell you which it has.** A Hori Fighting Commander has one
-    stick, and it is digital -- and measured on 2026-09-11 it declares all six
-    axes over exactly the ranges a real Xbox pad declares, sticks at
-    -32768..32767 and triggers at 0..1023. `EVIOCGABS` does not report the
-    absence, because the pad does not admit to it: presenting as an Xbox
-    controller is what makes it work everywhere, and the claim covers
-    capabilities as much as identity.
-
-    So a control that is not there reads as permanently neutral, and nothing
-    can distinguish that from one at rest. **This is the same law the pointer
-    already states** -- *"window events cannot reveal a button's absence, a
-    mouse only proves buttons by pressing them"* -- and a pad only proves an
-    axis by moving it.
-
-    Which makes REQUIRE-NEVER design law rather than a runtime check: a game
-    may read an axis and must never depend on one, because there is no test
-    it could perform first.
-
-    `Button` does not have the problem and the asymmetry is real: the ten
-    buttons ARE the converged form, and a pad missing one would not be a
-    gamepad. The continuous controls are where hardware varies, and where it
-    also lies.
+    **A closed vocabulary is NOT a promise every pad has all of it, and the
+    pad will not tell you which it has** -- a control that is not there reads
+    as permanently neutral, indistinguishable from one at rest. So a game may
+    READ an axis and must never DEPEND on one; there is no test it could
+    perform first. Why the hardware lies about this, and why `Button` has no
+    such problem: `bps/reference/input/pads.md`, *A pad will not admit
+    which controls it lacks*.
 
     Sticks are two axes each rather than one vector, because that is what the
-    hardware reports. A stick as a deadzoned (x, y) pair is a DERIVED reading:
-    the deadzone is radial, which is a judgement about intent applied to the
-    two together, and a scan that stored the result would have thrown away
-    what the hardware actually said.
+    hardware reports; a deadzoned pair is a DERIVED reading.
     """
 
     LEFT_X = auto()
@@ -63,24 +41,25 @@ class Axis(Enum):
     RIGHT_TRIGGER = auto()
 
 
-class Direction(IntEnum):
+class Direction(Composable, IntEnum):
     """The d-pad, as a numpad position. Neutral is 5.
 
-    **A d-pad is a d-pad.** It reaches the engine three different ways -- two
-    evdev axes reading -1/0/1, four GameInput button bits, or a single
-    GameInput switch position on the hardware that needs that quirk -- and
-    none of those is the control. "Hat" is a wire format. Eight directions and
+    **A d-pad is a d-pad.** It reaches the engine three different ways and
+    none of them is the control; "hat" is a wire format, eight directions and
     a centre is the thing in your hand.
 
-    **Numpad notation is not an arbitrary encoding; it is the one the subject
-    already uses.** A quarter-circle forward is 236 in every move list ever
-    printed, so a roll in the fact stream reads as 2, 3, 6 and a recogniser
-    looks like the move it implements. For a ring whose stated purpose is
-    reconstructing exactly that, nothing else comes close.
+    Numpad notation because it is the notation the subject already uses: a
+    quarter-circle forward is 236 in every move list ever printed.
+    See `bps/reference/input/pads.md`.
 
-    An `IntEnum` deliberately, where `Button` deliberately is not: there the
-    integer is a transport's private numbering that must never leak, and here
-    the integer IS the vocabulary.
+    An `IntEnum` where `Button` deliberately is not -- there the integer is a
+    transport's private numbering that must never leak, here it IS the
+    vocabulary: `Direction.DOWN_RIGHT == 3` is the notation a move list is
+    printed in, and 236 should mean what it means on paper.
+
+    `Composable` comes first so its operators SHADOW int's. Without it
+    `DOWN | DOWN_RIGHT` is arithmetic and evaluates to `DOWN_RIGHT` -- a
+    real member, so nothing downstream could tell. See `condition.py`.
     """
 
     DOWN_LEFT = 1

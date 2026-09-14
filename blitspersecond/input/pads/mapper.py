@@ -8,7 +8,8 @@ FACE_SOUTH; the mapper says the vendor printed 'A' there, or 'cross', or 'B'.
 through to `XboxMapper` and works perfectly -- see `mapper_for`. The table only
 ever adds a name and a label.
 
-See `docs/bps/PADS_PORT.md`, *Retained rulings*.
+Design record: `bps/reference/input/pads.md`, *Which pad is this, and what
+does it print*.
 """
 
 from __future__ import annotations
@@ -130,35 +131,18 @@ class NintendoMapper(PadMapper):
 # Keys are "vendor:product", lowercase hex, exactly as /proc/bus/input/devices
 # prints them ("I: Bus=0005 Vendor=054c Product=0ce6").
 #
-# THE TABLES BELOW ARE RESEARCHED, NOT SCRAPED. Do not "improve" them by
-# pasting in SDL_GameControllerDB or any other community controller database:
-# that is the reflex answer and it is the wrong one here. Those databases are
-# BEHAVIOURAL -- they decide which button is which -- and they collide with
-# themselves: pyglet's is 2139 entries over 2066 distinct GUIDs, 70 of them
-# duplicated, three sharing one GUID all called "Xbox One Controller" and
-# disagreeing about whether b6 is Back or the left stick click, with no
-# resolution rule. Ours are editorial NAMES over six behavioural entries.
+# THE TABLES BELOW ARE RESEARCHED, NOT SCRAPED. **Do not "improve" them by
+# pasting in SDL_GameControllerDB or any other community controller database.**
+# That is the reflex answer and it is the wrong one: those databases are
+# BEHAVIOURAL, they collide with themselves, and vendor:product is a CLAIM
+# rather than ground truth -- third-party pads report a first-party id because
+# that is what gets them working everywhere. A bigger table is not more
+# authoritative; it holds more confident answers about ids that several
+# unrelated devices assert. The figures are in `bps/reference/input/pads.md`,
+# *The tables are researched, not scraped*.
 #
-# Vendor:product is a CLAIM, not ground truth. Third-party pads report a
-# first-party id because that is what gets them working everywhere, and clones
-# report whatever they were cloned from. A bigger table does not become more
-# authoritative; it just holds more confident answers about ids that several
-# unrelated devices are all asserting.
-#
-# Steam (0x28de) is absent on purpose and must stay absent, and the reason is
-# not that its pads identify themselves badly -- it is that STEAM HIDES
-# IDENTITY. A Steam virtual pad is a proxy standing in front of a real device
-# and concealing which one, so the empty Uniq and empty Phys are not an
-# omission: there is nothing to report, because the thing reporting is
-# synthesised. They also share a product id and multiply.
-#
-# Refusing the vendor is how each physical pad is seen ONCE, as itself, rather
-# than once directly and again through a proxy. A pad counted twice is worse
-# than a pad counted never: the duplicate answers to input, so it looks like it
-# works, and somebody ends up holding one controller that is two seats.
-#
-# The transport rejects the vendor before anything reaches here.
-
+# Steam (0x28de) is absent on purpose and must stay absent. The transport
+# rejects the vendor before anything reaches here -- see `evdev.py`.
 
 #: vendor -> that vendor's label family. Three, because there are three
 #: families a person actually owns: an Xbox pad is what retail sells for a PC,

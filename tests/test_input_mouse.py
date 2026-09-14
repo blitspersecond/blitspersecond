@@ -344,3 +344,37 @@ def test_an_ingress_handler_never_swallows_an_event():
 
     assert seen == [(0, 719, PRIMARY, 0)]
     assert mouse.cut(1).scan.pressed == frozenset({PRIMARY})
+
+
+def test_a_release_after_a_clear_does_not_report_itself_twice():
+    # The same rule the keyboard keeps: the clear already released PRIMARY,
+    # and the player's real release must not arrive as a second fact carrying
+    # a held-set its own button is not in.
+    events, mouse = _mouse()
+    events.dispatch_event("on_mouse_press", 100, 100, PRIMARY, 0)
+    mouse.cut(0)
+    events.dispatch_event("on_deactivate")
+    cleared = mouse.cut(1)
+    events.dispatch_event("on_mouse_release", 100, 100, PRIMARY, 0)
+    after = mouse.cut(2)
+
+    assert [(f.kind, f.button) for f in cleared.facts] == [
+        (MouseEvent.RELEASE, PRIMARY)
+    ]
+    assert cleared.scan.released == frozenset({PRIMARY})
+    assert after.facts == ()
+    assert after.scan.released == frozenset()
+
+
+def test_every_transition_carries_the_held_set_its_own_button_is_in():
+    events, mouse = _mouse()
+    events.dispatch_event("on_mouse_press", 10, 10, PRIMARY, 0)
+    events.dispatch_event("on_mouse_press", 10, 10, SECONDARY, 0)
+    events.dispatch_event("on_mouse_release", 10, 10, PRIMARY, 0)
+    events.dispatch_event("on_mouse_release", 10, 10, PRIMARY, 0)  # unmatched
+    events.dispatch_event("on_deactivate")
+    window = mouse.cut(0)
+
+    for fact in window.facts:
+        if fact.kind in (MouseEvent.PRESS, MouseEvent.RELEASE):
+            assert fact.button in fact.held, fact
