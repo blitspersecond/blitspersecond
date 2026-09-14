@@ -6,6 +6,7 @@ things touched.
     bps.layers.add(island)      a world of cells, with a camera
     bps.layers.add(chun)        a thing that moves at its own coordinate
     bps.layers.add(hud)         glyphs on a fixed lattice
+    bps.layers.add(walls)       clipped projective textures in screen space
 
 ## The shape
 
@@ -19,7 +20,7 @@ somewhere.
     └─────────────────────────────────────────────────────────┘
          │              │               │
     ┌────┴────┐   ┌─────┴─────┐   ┌─────┴─────┐
-    │ Console │   │  TileMap  │   │  Sprite   │      three pillars,
+    │ Console │   │  TileMap  │   │  Sprite   │      four pillars,
     │ glyphs  │   │  a world  │   │  a thing  │      each IS a Layer
     └────┬────┘   └─────┬─────┘   └─────┬─────┘
          │              │               │
@@ -30,20 +31,25 @@ somewhere.
     │ the rects │  │ the colour│   │  1 bit a pixel│
     └───────────┘  └───────────┘   └───────────────┘
 
-**Three pillars, and the boundary between them is what the content IS**, not
+    The quad pillar is the fourth: a Layer and Atlas consumer outside
+    the packed-plane branch.
+
+**Four pillars, and the boundary between them is what the content IS**, not
 how it is drawn. Content painted into a grid is tiles. Glyphs on a fixed
 lattice are the console. Anything moving at its own coordinate is a sprite.
-Each is a `Layer` in its own right, so there is no container to reach through
-and nothing to keep in step with a parallel list.
+Final projective texture mappings and their screen-space clips in painter
+order are quads. Each collection is a `Layer` in its own right, so there is no
+container to reach through and nothing to keep in step with a parallel list.
 
 **They are made of the same two things.** Art is an `Atlas` — one image cut
 into rects — and colour is a `PaletteBank`, 256 tables the layer picks a row
 of. A colour in BPS is an index, never a triple, which is why recolouring is a
 palette job at every level and no pillar carries a tint.
 
-**Collision is one bitmap per layer, in screen space**, filled by whichever
-pillar owns it and asked the same way whatever filled it. A tilemap's terrain
-and a fighter's hurtbox answer one question with one AND.
+**Collision is one bitmap per collidable layer, in screen space**, filled by
+whichever pillar owns it and asked the same way whatever filled it. A
+tilemap's terrain and a fighter's hurtbox answer one question with one AND.
+The quad pillar is presentation only and can never join that question.
 
 ## The chapters
 
@@ -61,13 +67,14 @@ and a fighter's hurtbox answer one question with one AND.
 | [console.md](console.md) | the glyph grid: a cell as one number, the variant table, the pen, and what recomposes |
 | [tiles.md](tiles.md) | a world of cells over one sheet, with a camera: `cell` as the only road in, the retained window, and the coarse/fine split |
 | [sprites.md](sprites.md) | independently moving things: one sprite as one layer and one collision identity, its many drawings of itself, the frame plan and the population curve |
+| [quads.md](quads.md) | projective texture mappings and convex screen clips in painter order, with collision structurally absent |
 
 ### What the pillars are made of
 
 | | |
 |---|---|
 | [palette.md](palette.md) | colour as an index: the 256-row bank, the register that picks a row, the modify path, and the pin that keeps drawing and collision agreeing |
-| [atlas.md](atlas.md) | one image cut into rects, shared by all three pillars: the autogrid ruling, the rect table, the keying, and what is derived from a rect |
+| [atlas.md](atlas.md) | one image cut into rects, shared by all four pillars: the autogrid ruling, the rect table, the keying, and what is derived from a rect |
 
 ### Reading a file
 
@@ -100,12 +107,12 @@ thousand bullets that were never separately askable.
 
 ## Where the pillars genuinely differ
 
-| | console | tiles | sprites |
-|---|---|---|---|
-| what a frame stages | a screen-sized indexed image, on the CPU | a retained vertex mirror, edited in place | one record per quad, rebuilt |
-| draw calls | one | one | one per material run |
-| collision | composed from the cells | **retained** and slid with the camera | **composed** and refilled |
-| art | one charset, 256 uniform cells | one sheet, uniform cells | one sheet, arbitrary rects |
+| | console | tiles | sprites | quads |
+|---|---|---|---|---|
+| what a frame stages | a screen-sized indexed image, on the CPU | a retained vertex mirror, edited in place | one record per quad, rebuilt | mapping corners, clip polygons and Atlas keys |
+| draw calls | one | one | one per material run | one |
+| collision | composed from the cells | **retained** and slid with the camera | **composed** and refilled | impossible |
+| art | one charset, 256 uniform cells | one sheet, uniform cells | one sheet, arbitrary rects | one Atlas, arbitrary rects |
 
 The collision row is the sharpest of these. A tilemap scrolls a contiguous
 grid in lockstep, so it keeps its plane and slides it; a sprite is at a

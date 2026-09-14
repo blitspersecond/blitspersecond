@@ -25,7 +25,7 @@ Chun-Li's sheet holds 1741 in 982 distinct sizes. Same table, same answers.
 `cell`, `cols` and `rows` are the autogrid's **parameters**, kept because the
 consumer that supplied them usually needs them back — not a mode.
 
-This is not a pillar. All three cut their art with one, which is why it has
+This is not a pillar. All four cut their art with one, which is why it has
 its own chapter rather than living inside whichever reaches it hardest.
 
 **There is no "sheet" type**, and a tileset is not something an atlas becomes.
@@ -35,9 +35,10 @@ own where it constructs:
     a charset      = an atlas + "256 cells, indexed, uniform"
     a tileset      = an atlas + "a uniform grid" (+ indexed, if collidable)
     a sprite sheet = an atlas + palette banks + assemblies + clips
+    a quad sheet   = any atlas, fixed for the command list's lifetime
 
-Three guards in three constructors. At three pillars they still do not repeat
-each other, and none of them needed a type to hold it.
+Four contracts in four constructors. They still do not repeat each other, and
+none of them needed a type to hold it.
 
 **An atlas is agnostic about shape.** It holds rects and does not care what
 they are shaped like. Which turns a rect may take is a question about the slot

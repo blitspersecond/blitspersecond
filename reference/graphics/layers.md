@@ -130,9 +130,9 @@ send-to-front, the two spellings for one intent would disagree about whether
 the layer had to be somewhere else already.
 
 **`Layers` imports no layer class**, and that is what keeps this file free of
-every pillar: a fourth kind of layer needs no line here, and there is no
+every pillar: a new kind of layer needs no line here, and there is no
 import cycle through `graphics` to defer around. A factory on the collection
-would name all three pillars in its signatures — see
+would name every pillar in its signatures — see
 [Not a factory on the collection](#not-a-factory-on-the-collection).
 
 `find(tag=...)` returns matching layers in stack order, or `None` rather than
@@ -392,7 +392,7 @@ What it costs shows up in no published metric — see [Costs](#costs).
 The shape a reader might expect is an engine object that mints a layer you
 then add — `bps.layers.add(engine.layer)`, with the engine as the thing you
 hold. The pillars are the layers instead, and the reason is convergence rather
-than convenience: the three pillars spelling the same idea the same way is
+than convenience: every pillar spelling the same idea the same way is
 what makes learning one teach the others. A `.layer` to unwrap gives every
 pillar its own dialect for the same sentence, and gives `add` a generic
 signature that can hand back the wrong object — worked through in
@@ -400,9 +400,9 @@ signature that can hand back the wrong object — worked through in
 
 ### Not a factory on the collection
 
-`bps.layers` does not mint layers: there is no `tile()`, `sprite()` or
-`glyph()` on it. The cost of putting them there is structural — the collection
-would name all three pillars in its signatures, and would have to import them
+`bps.layers` does not mint layers: there is no `tile()`, `sprite()`, `glyph()`
+or `quad()` on it. The cost of putting them there is structural — the collection
+would name every pillar in its signatures, and would have to import them
 inside method bodies to dodge an import cycle through `graphics`. Building
 belongs to the thing being built. The collection places what it is handed and
 knows about no pillar at all.

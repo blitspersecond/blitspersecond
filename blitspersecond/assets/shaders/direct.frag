@@ -14,5 +14,3 @@ void main()
     // Multiply by vertex colors (allows for tinting and alpha)
     final_colors = texColor * vertex_colors;
 }
-
-

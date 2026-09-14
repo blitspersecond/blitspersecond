@@ -27,6 +27,7 @@ pillars, what they are made of, and where they genuinely differ.
 | [console.md](graphics/console.md) | the glyph grid |
 | [tiles.md](graphics/tiles.md) | a world of cells over one sheet, with a camera |
 | [sprites.md](graphics/sprites.md) | independently moving things, and their many drawings |
+| [quads.md](graphics/quads.md) | ordered textured screen-space quadrilaterals |
 | [palette.md](graphics/palette.md) | colour as an index: the bank and the register |
 | [atlas.md](graphics/atlas.md) | one image cut into rects |
 | [tmx.md](graphics/tmx.md) | reading a Tiled map |
