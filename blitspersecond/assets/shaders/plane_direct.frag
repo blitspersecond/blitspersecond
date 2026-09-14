@@ -1,12 +1,14 @@
 #version 330
+// The direct-colour plane stage: divide by `q`, wrap, sample the region.
+// Authored alpha is passed through untouched rather than discarded on, so a
+// sheet with holes needs `blend = True` on the layer -- unlike the indexed
+// stage beside this one, which discards and needs nothing.
 in vec4 vertex_colors;
 in vec3 texture_coords;
 flat in vec4 vertex_texture_region;
-flat in float vertex_palette_row;
 out vec4 final_colors;
 
 uniform sampler2D sprite_texture;
-uniform sampler2D palette_texture;
 
 void main()
 {
@@ -16,14 +18,5 @@ void main()
     vec2 plane = texture_coords.xy / texture_coords.z;
     vec2 atlas = vertex_texture_region.xy
         + fract(plane) * vertex_texture_region.zw;
-    float palette_index = texture(sprite_texture, atlas).r;
-    vec4 color = texelFetch(
-        palette_texture,
-        ivec2(int(palette_index * 255.0 + 0.5), int(vertex_palette_row + 0.5)),
-        0
-    );
-    if (color.a < 0.5) {
-        discard;
-    }
-    final_colors = color * vertex_colors;
+    final_colors = texture(sprite_texture, atlas) * vertex_colors;
 }

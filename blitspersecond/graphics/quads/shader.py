@@ -12,7 +12,7 @@ _direct: Optional[ShaderProgram] = None
 
 
 def _build(fragment: str) -> ShaderProgram:
-    vertex = (_SHADERS / "quad.vert").read_text(encoding="utf-8")
+    vertex = (_SHADERS / "plane.vert").read_text(encoding="utf-8")
     shading = (_SHADERS / fragment).read_text(encoding="utf-8")
     return ShaderProgram(Shader(vertex, "vertex"), Shader(shading, "fragment"))
 
@@ -22,8 +22,8 @@ def program(indexed: bool) -> ShaderProgram:
     global _indexed, _direct
     if indexed:
         if _indexed is None:
-            _indexed = _build("quad_indexed.frag")
+            _indexed = _build("plane_indexed.frag")
         return _indexed
     if _direct is None:
-        _direct = _build("quad_direct.frag")
+        _direct = _build("plane_direct.frag")
     return _direct
