@@ -26,6 +26,7 @@ from pyglet.window import key
 
 from .boundary import InputBoundary
 from .kbm import InputState, TextInput
+from .request import InputState, Request
 from .stream import WINDOW_SECONDS, InputStream, InputWindow
 
 __all__ = [
@@ -33,6 +34,7 @@ __all__ = [
     "InputBoundary",
     "InputState",
     "InputStream",
+    "Request",
     "InputWindow",
     "TextInput",
     "key",

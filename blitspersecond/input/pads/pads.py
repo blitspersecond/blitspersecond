@@ -15,6 +15,7 @@ from blitspersecond.common import fps
 
 from .control import Direction
 from .evdev import PadDevice, Snapshot, discover, open_pad
+from .identify import Identification
 from .mapper import PadMapper
 from .pad import PadEvent, PadIngress, PadWindow
 
@@ -198,13 +199,21 @@ class Pads:
     a pad that was merely powered on take a place from one somebody picked up.
     """
 
-    __slots__ = ("_known", "_rate", "_refresh", "_next_id", "_frames")
+    __slots__ = (
+        "_known",
+        "_rate",
+        "_refresh",
+        "_next_id",
+        "_frames",
+        "_identification",
+    )
 
     def __init__(self, rate: fps, refresh_frames: int = REFRESH_FRAMES) -> None:
         if refresh_frames < 1:
             raise ValueError("refresh_frames must be positive")
         self._rate = rate
         self._refresh = refresh_frames
+        self._identification: Identification | None = None
         #: Every pad ever seen this session, by fingerprint, connected or not.
         #: Permanent: a disconnected pad stays so the same object revives.
         self._known: dict[str, Pad] = {}
@@ -279,11 +288,32 @@ class Pads:
             self.refresh()
         self._frames += 1
 
+        asking = self._identification
         for pad in self._known.values():
             window = pad._cut(frame)
-            if pad.id is None and pad.connected and _deliberate(window):
+            if not pad.connected:
+                continue
+            deliberate = _deliberate(window)
+            if pad.id is None and deliberate:
                 pad._identify(self._next_id)
                 self._next_id += 1
+            if asking is not None and asking.listening:
+                asking._consider(pad, window, deliberate)
+        if asking is not None and not asking.listening:
+            self._identification = None
+
+    def identify(self) -> Identification:
+        """Ask which pad somebody is using, without blocking.
+
+        One at a time. Asking again supersedes the previous request with
+        reason `REPLACED`, for the reason a console line does: a question that
+        has been asked again is a different question, and the old one should
+        not quietly answer the new one.
+        """
+        if self._identification is not None:
+            self._identification._interrupt("REPLACED")
+        self._identification = Identification()
+        return self._identification
 
     def flush(self) -> None:
         """Resync every pad against what is actually true.
@@ -325,6 +355,9 @@ class Pads:
         """Release every device. Safe to call twice."""
         for pad in self._known.values():
             pad._disconnect()
+        if self._identification is not None:
+            self._identification._interrupt("CLOSED")
+            self._identification = None
 
 
 def _deliberate(window: PadWindow) -> bool:

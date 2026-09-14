@@ -18,21 +18,10 @@ consumer that must not miss anything.
 
 from __future__ import annotations
 
-from enum import Enum, auto
-
 from pyglet.window import key as _key
 
 from blitspersecond.input.kbm.keyboard import KeyEvent, KeyboardWindow
-
-
-class InputState(Enum):
-    """Where a line has got to. Exactly one is true at a time."""
-
-    LISTENING = auto()
-    COMPLETED = auto()
-    INTERRUPTED = auto()
-    DISCARDED = auto()
-
+from blitspersecond.input.request import InputState, Request
 
 #: Editing motions the line understands. Pyglet resolves these from the
 #: platform's own bindings, so backspace on a Mac and backspace on Linux both
@@ -45,17 +34,20 @@ _HOME = _key.MOTION_BEGINNING_OF_LINE
 _END = _key.MOTION_END_OF_LINE
 
 
-class TextInput:
-    """One line being typed, reduced from settled windows as they are cut."""
+class TextInput(Request):
+    """One line being typed, reduced from settled windows as they are cut.
 
-    __slots__ = ("_caret", "_reason", "_state", "_terminator", "_text")
+    The lifecycle comes from `Request`, which the pad's `Identification`
+    shares -- see that module for why the two are one shape.
+    """
+
+    __slots__ = ("_caret", "_terminator", "_text")
 
     def __init__(self, initial: str = "") -> None:
+        super().__init__()
         self._text: list[str] = list(initial)
         self._caret = len(self._text)
-        self._state = InputState.LISTENING
         self._terminator: int | None = None
-        self._reason: str | None = None
 
     def until(self, symbol: int) -> "TextInput":
         """Name the key that finishes this line. Returns self, to read as one
@@ -80,47 +72,13 @@ class TextInput:
         """Where the insertion point sits, in characters from the start."""
         return self._caret
 
-    @property
-    def state(self) -> InputState:
-        return self._state
-
-    @property
-    def listening(self) -> bool:
-        return self._state is InputState.LISTENING
-
-    @property
-    def completed(self) -> bool:
-        """The terminator arrived. `value` is the answer."""
-        return self._state is InputState.COMPLETED
-
-    @property
-    def interrupted(self) -> bool:
-        """Something else ended it. `reason` says what."""
-        return self._state is InputState.INTERRUPTED
-
-    @property
-    def discarded(self) -> bool:
-        return self._state is InputState.DISCARDED
-
-    @property
-    def reason(self) -> str | None:
-        """Why it ended, when it was not the player who ended it."""
-        return self._reason
-
     def discard(self) -> None:
         """Abandon the line. It stops consuming and keeps nothing."""
-        if self._state is InputState.LISTENING:
-            self._state = InputState.DISCARDED
-            self._reason = "DISCARDED"
+        super().discard()
         self._text.clear()
         self._caret = 0
 
     # -- driven by the cut -------------------------------------------------
-
-    def _interrupt(self, reason: str) -> None:
-        if self._state is InputState.LISTENING:
-            self._state = InputState.INTERRUPTED
-            self._reason = reason
 
     def _consume(self, window: KeyboardWindow) -> None:
         """Fold one settled window's text and editing into the line.

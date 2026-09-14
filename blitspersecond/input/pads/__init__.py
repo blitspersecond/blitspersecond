@@ -12,6 +12,7 @@ The audit this is being rebuilt from is `docs/bps/PADS_PORT.md`.
 """
 
 from .button import Button
+from .identify import Identification
 from .control import Axis, Direction, direction
 from .pads import ACTIVATION, REFRESH_FRAMES, Pad, Pads
 from .pad import (
@@ -39,6 +40,7 @@ __all__ = [
     "AxisRange",
     "Button",
     "Direction",
+    "Identification",
     "NEUTRAL_AXES",
     "DualSenseMapper",
     "NintendoMapper",
