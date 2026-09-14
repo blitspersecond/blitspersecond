@@ -146,6 +146,15 @@ platform's own key bindings — so backspace on a Mac and backspace on Linux bot
 arrive as the same motion, whatever key produced it. They are not recoverable
 from key symbols, which is why they are carried separately.
 
+**A motion is not something to ask about.** It is instantaneous — no boundary
+to cross, no held state — so it arrives as a fact and never enters a scan, and
+`Motion` is deliberately not composable. The refusal is loud rather than
+silent because eight motions share a value with the arrow and editing keys:
+`Motion.LEFT` and `key.LEFT` are both `0xff51`, so a predicate about the motion
+would sometimes answer True about the key. A game asking whether backspace was
+pressed asks about `key.BACKSPACE`; a consumer that wants the editing intent
+reads it off the fact, which is what the line reducer does.
+
 **Lock keys are ordinary physical keys.** Caps Lock is a symbol that goes down
 and comes up like any other. Its latch state is not a keyboard concept here;
 text has already had the platform's lock and modifier policy applied to it by

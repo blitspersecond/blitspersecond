@@ -1,15 +1,25 @@
 """The keyboard's vocabularies: what a key is, what an edit is, what was held.
 
-Three enums, and the difference between them is what `|` means.
+Three enums, and only ONE of them is a thing a game asks about.
 
-    Key       a symbol. `key.LEFT | key.RIGHT` is ALTERNATION -- either.
-    Motion    an editing intent, already resolved by the platform.
-    Modifier  a BITFIELD, where `|` is union and means it arithmetically.
+    Key       a control, with a boundary. Queryable, so it carries the
+              condition operators.
+    Motion    an editing intent. Instantaneous -- no boundary, no held
+              state, nothing to ask.
+    Modifier  a BITFIELD describing one event, where `|` is union and means
+              it arithmetically.
 
-So `Key` and `Motion` carry the condition operators and `Modifier` must not:
-combining two masks is exactly what `MOD_CTRL | MOD_SHIFT` should do, and
-turning that into a predicate would break the one place the arithmetic is
-right. See `condition.py` for the hazard this file is arranged around.
+**Only `Key` is composable, and the other two are not for different reasons.**
+A `Modifier` mask must keep `|` as union, because `CTRL | SHIFT` meaning one
+mask for both is the arithmetic being right. A `Motion` is not composable
+because there is nothing to compose it against: motions arrive as facts and
+never enter a scan, so a `Motion` predicate could only ever answer False --
+except where it answered True by ACCIDENT, since eight motions share a value
+with the arrow and editing KEYS. `Motion.LEFT` and `key.LEFT` are both
+0xff51, and a set holding the key would satisfy a predicate about the motion.
+
+That is the exact failure this file exists to prevent, one vocabulary over.
+See `condition.py`.
 
 **The values are pyglet's own**, so nothing is translated at ingress: a scan
 holding raw symbols answers membership against these directly, because an
@@ -219,12 +229,18 @@ class Key(Composable, IntEnum):
     ROPTION = 0xfff0
     DELETE = 0xffff
 
-class Motion(Composable, IntEnum):
+class Motion(IntEnum):
     """An editing intent, resolved from the platform\'s own key bindings.
 
     Backspace on a Mac and backspace on Linux arrive as the same motion
     whatever key produced it, which is why these are carried separately and
     are not recoverable from key symbols.
+
+    **Deliberately not composable.** A motion has no boundary to cross and no
+    held state, so it never enters a scan -- it is read off a fact by whatever
+    consumes one, which today is the line reducer. Giving it the operators
+    would produce predicates that answer False forever, or worse answer True
+    because eight of these share a value with a key.
     """
 
     NEXT_WORD = 0x0001

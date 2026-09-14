@@ -10,13 +10,13 @@ drifts, a raw symbol off the transport stops answering to the name a game
 wrote, and nothing else in the suite would say so.
 """
 
-from enum import IntFlag
+from enum import IntEnum, IntFlag
 
 import pytest
 from pyglet.window import key as pyglet_key
 
 from blitspersecond.input import Modifier, Motion, key
-from blitspersecond.input.condition import AllOf, AnyOf, Not, matches
+from blitspersecond.input.condition import AllOf, AnyOf, Condition, Not, matches
 
 
 def test_every_symbol_is_pyglets_own_value():
@@ -74,3 +74,32 @@ def test_modifiers_are_a_bitfield_and_stay_one():
     assert isinstance(Modifier.CTRL | Modifier.SHIFT, IntFlag)
     assert Modifier.SHIFT in (Modifier.CTRL | Modifier.SHIFT)
     assert int(Modifier.SHIFT) == pyglet_key.MOD_SHIFT
+
+
+def test_a_motion_is_not_something_to_ask_about():
+    """The nastiest collision in the file, and why `Motion` is not composable.
+
+    Motions arrive as facts and never enter a scan, so a motion predicate
+    could only ever answer False -- except that eight motions share a value
+    with an arrow or editing KEY, so it would sometimes answer True about
+    entirely the wrong thing.
+    """
+    assert int(Motion.LEFT) == int(key.LEFT)
+    colliding = {m.name for m in Motion if int(m) in {int(k) for k in key}}
+    assert colliding == {
+        "BACKSPACE", "DELETE", "DOWN", "LEFT",
+        "NEXT_PAGE", "PREVIOUS_PAGE", "RIGHT", "UP",
+    }
+
+    # Not composable: no operators, so no predicate can be built from one.
+    assert not isinstance(Motion.LEFT | Motion.RIGHT, Condition)
+
+    # And asking directly is refused rather than answered against a key.
+    with pytest.raises(TypeError, match="queryable vocabulary"):
+        matches(Motion.LEFT, {int(key.LEFT)})
+
+
+def test_a_bare_number_is_refused():
+    # A raw symbol is what a scan HOLDS, never what a question is built from.
+    with pytest.raises(TypeError, match="queryable vocabulary"):
+        matches(pyglet_key.LEFT, {pyglet_key.LEFT})

@@ -180,10 +180,22 @@ def matches(condition: Term, held: Iterable) -> bool:
 
     The one entry point, because a condition may be a bare control or a
     composition and a caller should not have to know which.
+
+    **A bare number is refused rather than tested.** The vocabularies are
+    integer-valued, so an unrelated value can look exactly like a control and
+    quietly satisfy a set membership -- `Motion.LEFT` and `key.LEFT` are both
+    0xff51, and eight editing motions collide with keys that way. Only a term
+    that belongs to a queryable vocabulary may be asked about.
     """
     if isinstance(condition, (Condition, Composable)):
         return condition.matches(held)
-    return condition in held
+    raise TypeError(
+        f"{condition!r} is not something to ask about. A condition is built "
+        "from a queryable vocabulary -- a key, a button, a direction -- and a "
+        "bare number is not one, however right it looks. Editing motions and "
+        "modifier masks are deliberately not queryable: they describe an "
+        "event rather than a control, and have no held state to test."
+    )
 
 
 def resolve(condition: Term, substitutions: Mapping) -> Term:
