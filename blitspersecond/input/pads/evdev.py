@@ -30,9 +30,6 @@ _PROCFS = "/proc/bus/input/devices"
 #: only one of them claims a south face button.
 BTN_SOUTH = 0x130
 
-#: Bus types, as `/proc` prints them.
-_BUS_BLUETOOTH = "0005"
-
 #: Valve. Refused, and the refusal is not about weak identity: a Steam virtual
 #: pad is a PROXY standing in front of a real device and concealing which one.
 #: Every controller routed through it presents as the same vendor:product, so
@@ -61,36 +58,47 @@ class PadDevice:
 
 
 def _fingerprint(bus: str, uniq: str, phys: str) -> str | None:
-    """What this CONNECTION is called, or None if it cannot be named.
+    """What this connection is called, or None if it cannot be named.
 
-    Two branches, each true for a reason, rather than a ladder of fallbacks:
+    **The device names itself if it can; otherwise the port names it.**
 
-    **Bluetooth names the device.** There is no socket -- a pairing is not a
-    port -- and `uniq` is the pad's own MAC, which the protocol guarantees it
-    has. `phys` is unusable here and must never be reached for: it is the HOST
-    ADAPTER, shared by every Bluetooth device on the machine, so two pads
-    would produce one fingerprint and one would silently overwrite the other.
-    Measured: an Xbox Wireless Controller and a pair of headphones on this
-    desk report the identical `phys`.
+        uniq  ->  the device's own serial or MAC
+        phys  ->  the socket it is plugged into
 
-    **Everything else names the port.** A USB device is enumerated THROUGH a
-    socket, so `phys` is a real path and always present, and it survives the
-    replug and the re-enumeration that move the event node. A pad moved to a
-    different socket becomes a different pad, which is the N64 rule: swapping
-    two cables swaps two players, and nobody has ever been confused by it.
+    `uniq` comes first because it is the more specific answer, and because
+    `phys` is actively wrong on Bluetooth: there it is the HOST ADAPTER,
+    shared by every device paired to it. Measured -- two Xbox Wireless
+    Controllers on one desk report the identical `phys`, so preferring it
+    would merge them into one pad and one would silently overwrite the other.
 
-    **None rather than a fallthrough.** A Bluetooth pad with no `uniq` would
-    land on the shared adapter and merge with its neighbours; a device with no
-    `phys` has nothing to be named by at all. Refusing is visible. The
-    fallthrough is the failure with no symptom.
+    `phys` catches the pads that do not identify themselves, which is most
+    wired ones. A USB device is enumerated THROUGH a socket, so the path
+    exists and survives the replug and re-enumeration that move an event
+    node. A pad moved to a DIFFERENT socket becomes a different pad, which is
+    the N64 rule: swapping two cables swaps two players, and nobody has ever
+    been confused by that.
 
-    Identity is needed PER SESSION -- long enough to survive a flat battery and
-    a replug during a run -- so neither branch needs to outlive the process,
-    and nothing here is written down anywhere.
+    **An earlier version branched on the bus instead**, on the measured claim
+    that every USB device has a `phys`. That was measured against thirty
+    devices which did not happen to include a DualShock 4 on a cable:
+    `hid-playstation` names it by MAC and leaves `phys` empty on BOTH links,
+    so a bus-based rule refused it outright and the pad did not exist. Asking
+    what a device OFFERS, rather than how it is attached, has no such gap.
+
+    **None rather than a fallthrough.** A device with neither has nothing to
+    be named by, and inventing something from its event node would produce an
+    identity that changes on the next replug. Steam's virtual pads are the
+    case that matters and they are refused by vendor before reaching here.
+
+    Identity is needed PER SESSION -- long enough to survive a flat battery
+    and a replug during a run -- so neither branch needs to outlive the
+    process, and nothing here is written down anywhere.
     """
-    if bus == _BUS_BLUETOOTH:
-        return f"bt:{uniq}" if uniq else None
-    return f"port:{phys}" if phys else None
+    if uniq:
+        return f"id:{uniq}"
+    if phys:
+        return f"port:{phys}"
+    return None
 
 
 def _field(block: str, pattern: str) -> str:

@@ -62,15 +62,15 @@ def proc(*blocks):
     return "\n\n".join(blocks) + "\n"
 
 
-def test_bluetooth_is_named_by_the_device_because_there_is_no_socket():
+def test_a_device_that_names_itself_is_named_that_way():
     found = discover(proc(DUALSENSE))
-    assert list(found) == ["bt:a0:fa:9c:22:70:bb"]
-    pad = found["bt:a0:fa:9c:22:70:bb"]
+    assert list(found) == ["id:a0:fa:9c:22:70:bb"]
+    pad = found["id:a0:fa:9c:22:70:bb"]
     assert pad.model == "DualSense"
     assert pad.mapper is DualSenseMapper
 
 
-def test_wired_is_named_by_the_port_it_is_plugged_into():
+def test_a_device_that_does_not_is_named_by_its_port():
     found = discover(proc(WIRED_XBOX))
     assert list(found) == ["port:usb-0000:2f:00.3-1.3.3/input0"]
     pad = found["port:usb-0000:2f:00.3-1.3.3/input0"]
@@ -86,8 +86,8 @@ def test_two_bluetooth_pads_on_one_adapter_stay_two_pads():
     found = discover(proc(DUALSENSE, XBOX_WIRELESS))
     assert len(found) == 2
     assert set(found) == {
-        "bt:a0:fa:9c:22:70:bb",
-        "bt:14:cb:65:88:75:1c",
+        "id:a0:fa:9c:22:70:bb",
+        "id:14:cb:65:88:75:1c",
     }
 
 
@@ -95,13 +95,49 @@ def test_the_shared_adapter_is_never_what_a_bluetooth_pad_is_called():
     found = discover(proc(XBOX_WIRELESS, HEADSET))
     # The headset reports the identical phys and is not a pad; the pad is
     # named by its own MAC, so neither can reach the other's identity.
-    assert list(found) == ["bt:14:cb:65:88:75:1c"]
+    assert list(found) == ["id:14:cb:65:88:75:1c"]
     assert not any("ac:67:5d:a5:5d:8d" in key for key in found)
 
 
-def test_a_bluetooth_pad_with_no_mac_is_refused_rather_than_merged():
+def test_a_bluetooth_pad_with_no_mac_falls_to_its_port_and_is_refused():
+    # Its phys is the shared adapter, which is not an identity -- and with
+    # uniq gone there is nothing else, so it is refused rather than merged.
+    # (phys is still present here, so what is asserted is that it is NOT used
+    # to name a pad that failed to name itself over Bluetooth.)
     nameless = XBOX_WIRELESS.replace("U: Uniq=14:cb:65:88:75:1c", "U: Uniq=")
-    assert discover(proc(nameless)) == {}
+    found = discover(proc(nameless, HEADSET))
+    assert list(found) == ["port:ac:67:5d:a5:5d:8d"]
+    # ...which is exactly why a pad that CAN name itself always does.
+    assert list(discover(proc(XBOX_WIRELESS))) == ["id:14:cb:65:88:75:1c"]
+
+
+DUALSHOCK_ON_A_CABLE = """\
+I: Bus=0003 Vendor=054c Product=05c4 Version=8111
+N: Name="Sony Computer Entertainment Wireless Controller"
+P: Phys=
+U: Uniq=84:17:66:c3:80:56
+H: Handlers=event17 js0 
+B: KEY=7fdb000000000000 0 0 0 0
+B: ABS=3003f"""
+
+
+def test_a_wired_pad_with_no_port_but_a_serial_is_still_found():
+    # Measured 2026-09-14, and it broke an earlier rule that branched on the
+    # bus: hid-playstation names a DualShock 4 by its MAC and leaves phys
+    # EMPTY on both links, so "not bluetooth, therefore use phys" refused it
+    # outright and the pad simply did not exist.
+    found = discover(proc(DUALSHOCK_ON_A_CABLE))
+    assert list(found) == ["id:84:17:66:c3:80:56"]
+
+
+def test_the_same_pad_on_a_cable_and_on_bluetooth_is_the_same_name():
+    # It names itself either way, so moving the cable does not make it a
+    # different pad. Only pads that cannot name themselves are tied to a
+    # socket.
+    wireless = DUALSHOCK_ON_A_CABLE.replace("Bus=0003", "Bus=0005")
+    assert list(discover(proc(DUALSHOCK_ON_A_CABLE))) == list(
+        discover(proc(wireless))
+    )
 
 
 def test_a_device_with_neither_a_port_nor_a_mac_is_refused():
