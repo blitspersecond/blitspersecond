@@ -160,10 +160,22 @@ def test_narrowing_twice_is_a_mistake_and_says_so(world):
         asking.until(Button.FACE_SOUTH)
 
 
-def test_narrowing_to_nothing_is_a_mistake(world):
+def test_narrowing_to_something_that_is_not_a_button_is_a_mistake(world):
     pads, _ = machine(world, "bt:aa")
-    with pytest.raises(ValueError):
-        pads.identify().until()
+    with pytest.raises(TypeError):
+        pads.identify().until("start")
+
+
+def test_accept_resolves_against_the_pad_that_answers(world):
+    # "Start, or whatever this pad calls yes." On an Xbox pad that is
+    # FACE_SOUTH; on a Nintendo one it would be FACE_EAST, and the request is
+    # written without knowing which will turn up.
+    pads, readers = machine(world, "bt:aa")
+    asking = pads.identify().until(Button.START | Button.ACCEPT)
+    press(readers["bt:aa"], BTN_SOUTH)
+    pads.cut(1)
+    assert asking.completed
+    assert asking.value.mapper.ACCEPT is Button.FACE_SOUTH
 
 
 def test_closing_interrupts_an_open_question(world):

@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 
 from blitspersecond.input.request import Request
 
-from .button import Button
+from .button import Button, ButtonCondition, ButtonPredicate, resolve
 from .pad import PadEvent, PadWindow
 
 if TYPE_CHECKING:
@@ -36,14 +36,14 @@ class Identification(Request):
     advanced by the cut and read whenever the game gets round to it.
     """
 
-    __slots__ = ("_buttons", "_value")
+    __slots__ = ("_condition", "_value")
 
     def __init__(self) -> None:
         super().__init__()
-        self._buttons: frozenset[Button] | None = None
+        self._condition: ButtonCondition | None = None
         self._value: "Pad | None" = None
 
-    def until(self, *buttons: Button) -> "Identification":
+    def until(self, condition: ButtonCondition) -> "Identification":
         """Narrow this to a press of one of these. Returns self, so the call
         site reads as one phrase.
 
@@ -52,16 +52,20 @@ class Identification(Request):
         do, which is what "Press Start to begin" means when two pads are on
         the table and only one person is ready.
 
-        `Button.START` is usually the one to ask for, and it needs no special
-        handling: Menu, Options and plus all arrive as `START` already.
+            pads.identify().until(Button.START | Button.ACCEPT)
+
+        reads as "start, or whatever this pad calls yes", and the second half
+        resolves differently per family -- south on an Xbox or Sony pad, east
+        on a Nintendo one. That resolution happens per pad when the answer
+        arrives, because it cannot happen when the question is written.
         """
-        if not buttons:
-            raise ValueError("until() needs at least one button")
-        if self._buttons is not None:
+        if not isinstance(condition, (Button, ButtonPredicate)):
+            raise TypeError("until() takes a Button condition")
+        if self._condition is not None:
             raise RuntimeError("this request already has a condition")
         if not self.listening:
             raise RuntimeError("this request is no longer listening")
-        self._buttons = frozenset(buttons)
+        self._condition = condition
         return self
 
     @property
@@ -83,11 +87,12 @@ class Identification(Request):
         """Did this pad's settled interval answer the question?"""
         if not self.listening:
             return
-        if self._buttons is None:
+        if self._condition is None:
             matched = deliberate
         else:
+            wanted = resolve(self._condition, pad.mapper.ACCEPT)
             matched = any(
-                fact.kind is PadEvent.PRESS and fact.button in self._buttons
+                fact.kind is PadEvent.PRESS and fact.button in wanted
                 for fact in window.facts
             )
         if matched:

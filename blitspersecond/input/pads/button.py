@@ -10,7 +10,9 @@ answered without opening it.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum, auto
+from typing import TypeAlias
 
 
 class Button(Enum):
@@ -46,6 +48,9 @@ class Button(Enum):
     # Named for POSITION, because position is the only thing that held. The
     # letters move between vendors and the function moves between games --
     # FACE_SOUTH is jump in one game and confirm in the next.
+    def __or__(self, other) -> "ButtonPredicate":
+        return ButtonPredicate._combine(self, other)
+
     FACE_SOUTH = auto()
     FACE_EAST = auto()
     FACE_WEST = auto()
@@ -87,3 +92,76 @@ class Button(Enum):
     # vendor has it, so it passes both tests above. It is refused because it
     # is already the player's: it turns their pad off and controls their
     # media, and a game binding it does not gain a control, it takes one away.
+
+
+@dataclass(frozen=True)
+class ButtonPredicate:
+    """One-of-these, composed with `|`.
+
+    `Button.FACE_SOUTH | Button.START` matches either. The vocabulary stays a
+    plain enum and this sits beside it, so a `Button` is still a button and
+    never accidentally a set of them.
+    """
+
+    buttons: tuple[Button, ...]
+    #: Also match whatever THIS PAD calls confirm, which is a different
+    #: physical position per family -- south for Xbox and Sony, east for
+    #: Nintendo. Carried as a flag rather than a resolved button because it
+    #: cannot be resolved until there is a pad to resolve it against, and a
+    #: request is written before anybody has touched one.
+    conventional_accept: bool = False
+
+    @classmethod
+    def _combine(cls, left, right) -> "ButtonPredicate":
+        parts: list[Button] = []
+        accept = False
+        for condition in (left, right):
+            if isinstance(condition, Button):
+                candidates: tuple[Button, ...] = (condition,)
+            elif isinstance(condition, ButtonPredicate):
+                candidates = condition.buttons
+                accept |= condition.conventional_accept
+            else:
+                return NotImplemented
+            for button in candidates:
+                if button not in parts:
+                    parts.append(button)
+        return cls(tuple(parts), accept)
+
+    def __or__(self, other) -> "ButtonPredicate":
+        return self._combine(self, other)
+
+    def __repr__(self) -> str:
+        parts = [f"Button.{button.name}" for button in self.buttons]
+        if self.conventional_accept:
+            parts.append("Button.ACCEPT")
+        return " | ".join(parts) or "Button.ACCEPT"
+
+
+ButtonCondition: TypeAlias = Button | ButtonPredicate
+
+#: "Whatever this pad calls confirm." Not an eleventh button -- a predicate
+#: with nothing in it but the flag, so `Button.START | Button.ACCEPT` reads as
+#: one phrase and resolves per pad at the moment there is a pad.
+#:
+#: It is not in the enum because it is not a position. Every other name in
+#: this vocabulary says where a thumb goes; this one says what a FAMILY means
+#: by yes, and those two are different kinds of fact.
+Button.ACCEPT = ButtonPredicate((), conventional_accept=True)
+
+
+def resolve(condition: ButtonCondition, accept: Button) -> frozenset[Button]:
+    """Which buttons this condition means, for a pad whose confirm is `accept`.
+
+    Resolution is per pad and deliberately late: the same request matches
+    FACE_SOUTH on an Xbox pad and FACE_EAST on a Nintendo one, and neither is
+    knowable when the request is written.
+    """
+    if isinstance(condition, Button):
+        return frozenset((condition,))
+    if isinstance(condition, ButtonPredicate):
+        buttons = set(condition.buttons)
+        if condition.conventional_accept:
+            buttons.add(accept)
+        return frozenset(buttons)
+    raise TypeError(f"expected a Button condition, got {type(condition).__name__}")

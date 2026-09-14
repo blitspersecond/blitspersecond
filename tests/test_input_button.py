@@ -50,7 +50,6 @@ def test_the_vocabulary_is_exactly_these_and_will_not_grow():
         ("HOME", "it is the player's -- it turns their pad off"),
         ("PS", "it is the player's -- it turns their pad off"),
         ("CAPTURE", "added by one vendor after the convergence"),
-        ("ACCEPT", "a family convention, resolved by the mapper"),
     ],
 )
 def test_what_is_deliberately_not_a_button(absent, because):
@@ -58,6 +57,22 @@ def test_what_is_deliberately_not_a_button(absent, because):
     # its own reason. The parametrisation IS the record: a name here is a
     # question already answered, not one nobody thought of.
     assert not hasattr(Button, absent), because
+
+
+def test_accept_exists_but_is_not_an_eleventh_button():
+    # "Whatever this pad calls confirm" is not a position, and every other
+    # name in the vocabulary is one. It is a predicate with nothing in it but
+    # the flag, so `Button.START | Button.ACCEPT` reads as one phrase and
+    # resolves per pad when there is a pad to resolve against.
+    from blitspersecond.input.pads.button import ButtonPredicate, resolve
+
+    assert isinstance(Button.ACCEPT, ButtonPredicate)
+    assert Button.ACCEPT not in list(Button)
+    assert len(Button) == len(SETTLED)
+    # The same condition, two families, two answers.
+    condition = Button.START | Button.ACCEPT
+    assert resolve(condition, Button.FACE_SOUTH) == {Button.START, Button.FACE_SOUTH}
+    assert resolve(condition, Button.FACE_EAST) == {Button.START, Button.FACE_EAST}
 
 
 def test_a_button_is_not_an_integer_in_disguise():
