@@ -158,13 +158,19 @@ and it takes a rect and a turn together to answer, which only the atlas holds.
 **See atlas.md**; what matters here is that a pillar arrives holding packed
 row patterns, ready to be stamped.
 
-## Every pillar fills a plane, and no two do it the same way
+## Three pillars fill a plane, and no two do it the same way
 
 | pillar | | how | cost shape |
 |---|---|---|---|
 | tilemap | **retained** | stamps a tile's bits as it places the quad; a coarse scroll slides whole words and rows, a fine one writes nothing | episodic |
 | sprite | **rebuilt** | cleared and refilled, grouped by pose, one batched scatter a group | continuous |
 | console | **packed** | packs the cell rows a write marked, all five planes together | proportional to what changed |
+
+**A pillar does not have to fill one, and the quad pillar does not.** It
+allocates no plane, refuses `collidable` outright and is deliberately absent
+from this table — see [Collision is impossible](quads.md#collision-is-impossible).
+Filling a plane is what a collidable pillar does; it is not what makes
+something a pillar.
 
 **They diverge because retention does.** Kris, 2026-09-05: *"tiles are
 retained, sprites aren't which is why we have different optimisation paths."*
@@ -291,6 +297,14 @@ A pillar implements four members and inherits everything above:
 
 The bare base supplies none of them, so an ordinary layer refuses the question
 rather than answering `False` about a mask it never had.
+
+**The first of the four is also how a pillar declines**, which is why a
+presentation-only pillar needs no opt-out flag and no empty planes to hand
+back. The base already refuses; the quad pillar overrides `_collision_refusal()`
+only to say why in its own words, and leaves the other three members
+unimplemented. Tilemap is the conditional case in between — it refuses an RGBA
+sheet and admits an indexed one — so the same member spans "never", "not this
+one" and "always".
 
 **Plane keys are opaque, including their type.** A sprite sheet authors
 strings — `attack`, `body_hurt`; a console authors the four glyph plane
