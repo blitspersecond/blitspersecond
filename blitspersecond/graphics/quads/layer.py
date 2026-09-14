@@ -9,7 +9,7 @@ from typing import Iterator, Optional, Sequence, Tuple, Union
 import numpy as np
 from pyglet.gl import GL_TEXTURE0, GL_TEXTURE1, glActiveTexture, glBindTexture
 
-from blitspersecond.common import Rect
+from blitspersecond.common import SCREEN, Rect
 
 from ..atlas import Atlas
 from ..internal.layer import Layer
@@ -37,6 +37,12 @@ class QuadCommands:
     shape as Sprite presentations. Texture names become integer ids once via
     :meth:`Quads.texture_id`; command and packed clip geometry then enter as
     ordinary NumPy writes with no scalar setter bridge.
+
+    Read each property at the point of use. They re-slice the layer's current
+    arenas, which a later append may have replaced; an ndarray kept across one
+    is writing into storage nothing reads any more, and the generation check
+    will not catch it because the block itself is still live. The chapter says
+    why this door does not guard against that.
     """
 
     __slots__ = (
@@ -290,7 +296,6 @@ class Quads(Layer):
             self._clip_points[start:stop] = clip_points
             self._clip_spans[self._count] = (start, len(clip_points))
             self._clip_count = stop
-        self._has_crops |= source is not None
         self._count += 1
         self._dirty = True
 
@@ -449,9 +454,13 @@ class Quads(Layer):
             self._clip_points,
             self._count,
             len(self._atlas),
-            640.0,
-            360.0,
+            float(SCREEN.width),
+            float(SCREEN.height),
         )
+        # Derived here rather than tracked at the doors: the kernel has just
+        # normalised every surviving source to unit coordinates, so one read
+        # of the survivors answers it and neither `add()` nor `extend()` has a
+        # flag to keep in step with a cull it cannot see.
         self._has_crops = bool(
             np.any(self._sources[: self._count] != _FULL_SOURCE)
         )

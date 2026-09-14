@@ -21,6 +21,10 @@ otherwise return plausible geometry.
 import numpy as np
 from numba import njit
 
+from blitspersecond.common import SCREEN
+
+from ..atlas import RECT_DTYPE
+
 __all__ = ["compact_commands", "expand_geometry", "warm"]
 
 _warmed = False
@@ -326,7 +330,15 @@ def expand_geometry(corners, clip_spans, clip_points, positions, owners, indices
 
 
 def warm() -> None:
-    """Load the compiled signature before a quad layer can reach presentation."""
+    """Load the compiled signature before a quad layer can reach presentation.
+
+    The arrays are empty but their dtypes are not arbitrary. Numba keys a
+    compiled signature on them, so warming one the layer never calls would
+    load a signature for nothing and leave the real first frame to compile --
+    a hitch, with no error to say why. The two that are not this module's own
+    choice are therefore taken from the definitions the layer passes rather
+    than spelled again here.
+    """
     global _warmed
     if _warmed:
         return
@@ -338,13 +350,13 @@ def warm() -> None:
         np.zeros(0, dtype=np.int32),
         np.zeros((0, 4), dtype=np.float64),
         np.zeros((0, 4, 2), dtype=np.float32),
-        np.zeros((0, 4), dtype=np.int32),
+        np.zeros((0, 4), dtype=RECT_DTYPE),
         spans,
         clips,
         0,
         0,
-        640.0,
-        360.0,
+        float(SCREEN.width),
+        float(SCREEN.height),
     )
     expand_geometry(
         corners,
