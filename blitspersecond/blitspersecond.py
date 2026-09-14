@@ -5,6 +5,7 @@ from blitspersecond.common import SCREEN, SingletonMeta, fps
 from blitspersecond.graphics.internal import Layers
 from blitspersecond.input import InputBoundary
 from blitspersecond.input.kbm import KeyboardIngress, MouseIngress
+from blitspersecond.input.pads import Pads
 from blitspersecond.system import Logger, Config, Metrics
 
 from .internal import Clock, Display, EngineState, EventBus, Lifecycle, Loop
@@ -180,6 +181,9 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         """
         if self._display is not None and not self._display.closed:
             self._display.close()
+        # Pads hold a file descriptor each; the other devices hold nothing
+        # the bus does not take with it.
+        self._input.close()
 
     @property
     def clock(self) -> Clock:
@@ -295,6 +299,18 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         second kind of device to shape it.
         """
         return self._input.mouse
+
+    @property
+    def pads(self) -> Pads:
+        """Every gamepad, settled onto the frame boundary.
+
+        Two ways in, and they are different modes. `pads.gamepad` is whichever
+        one somebody used -- the single-player path, where a game never thinks
+        about identity and a title screen asks `pad.mapper.label(...)` so it
+        prompts with the letters on that plastic. Iterating gives every
+        connected pad, which is what a couch game wants before seats exist.
+        """
+        return self._input.pads
 
     @property
     def metrics(self) -> Metrics:

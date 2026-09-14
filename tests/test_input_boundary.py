@@ -6,6 +6,7 @@ Until the mouse landed there was one device and the guarantee was asserted
 rather than exercised. These are the tests that exercise it.
 """
 
+import pytest
 from pyglet.window import key
 
 from blitspersecond.common import Location, fps
@@ -14,6 +15,17 @@ from blitspersecond.input import InputBoundary
 from blitspersecond.input.kbm import PRIMARY, KeyEvent, MouseEvent
 from blitspersecond.internal import EventBus
 from blitspersecond.internal.window import integer_viewport
+from blitspersecond.input.pads import pads as pads_module
+
+
+@pytest.fixture(autouse=True)
+def no_real_pads(monkeypatch):
+    """A machine with no gamepads, whatever is plugged into this one.
+
+    Without this the boundary opens every pad on the developer's desk, and
+    the suite would pass or fail depending on what was charged.
+    """
+    monkeypatch.setattr(pads_module, "discover", dict)
 
 
 def _boundary(rate: fps = fps.SIXTY):
@@ -108,3 +120,42 @@ def test_the_devices_describe_the_same_interval_not_the_same_events():
     assert [f.kind for f in inputs.keyboard.stream.newest.facts] == [
         KeyEvent.PRESS
     ]
+
+
+def test_one_cut_reaches_the_pads_as_well():
+    _, inputs = _boundary()
+    for frame in range(4):
+        inputs.cut(frame)
+    # No pads here, but the collection was cut on every frame -- which is what
+    # keeps a pad plugged in at frame 200 from being discovered at 260.
+    assert len(inputs.pads) == 0
+
+
+def test_the_three_devices_answer_a_resume_differently_on_purpose():
+    # One call, three answers, each correct for its device. The keyboard
+    # assumes neutral because it cannot ask; the pointer keeps its position
+    # because that is state rather than history; pads ask, because they can.
+    events, inputs = _boundary()
+    events.dispatch_event("on_key_press", key.LEFT, 0)
+    events.dispatch_event("on_mouse_motion", 1278, 0, 1278, -719)
+    inputs.cut(1)
+    where = inputs.mouse.stream.newest.scan.position
+    assert where == Location(639, 359)
+
+    inputs.flush()
+    inputs.cut(2)
+
+    keyboard = inputs.keyboard.stream.newest.scan
+    mouse = inputs.mouse.stream.newest.scan
+    assert keyboard.held == frozenset()      # assumed neutral
+    assert keyboard.cleared is True
+    assert mouse.position == where           # kept: it is wherever it is
+    assert mouse.delta == (0.0, 0.0)         # but the motion was discarded
+
+
+def test_closing_releases_what_the_devices_hold():
+    _, inputs = _boundary()
+    inputs.cut(0)
+    inputs.close()
+    inputs.close()      # twice is safe; teardown runs on half-built things
+    assert len(inputs.pads) == 0

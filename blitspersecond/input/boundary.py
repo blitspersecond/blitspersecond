@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Callable
 
 from blitspersecond.common import fps
 from blitspersecond.input.kbm import KeyboardIngress, MouseIngress
+from blitspersecond.input.pads import Pads
 
 if TYPE_CHECKING:
     from blitspersecond.internal.events import EventBus
@@ -25,7 +26,7 @@ if TYPE_CHECKING:
 class InputBoundary:
     """Every input device the engine owns, cut on one frame boundary."""
 
-    __slots__ = ("keyboard", "mouse")
+    __slots__ = ("keyboard", "mouse", "pads")
 
     def __init__(
         self,
@@ -46,13 +47,47 @@ class InputBoundary:
         # device's dependency through is this object's job; deciding anything
         # with it is not.
         self.mouse = MouseIngress(events, rate, viewport)
+        # Pads take neither the bus nor the window: their transport is the
+        # kernel and they find themselves. What they share with the other two
+        # is the only thing this object is for -- the cut below.
+        self.pads = Pads(rate)
 
     def cut(self, frame: int) -> None:
         """Settle every device's interval. Called once per frame by `Loop`."""
         self.keyboard.cut(frame)
         self.mouse.cut(frame)
+        self.pads.cut(frame)
 
     def flush(self) -> None:
-        """Discard input that arrived while the engine was not ticking."""
+        """Reconcile every device with reality after a gap in ticking.
+
+        **The devices answer this differently, and the difference is the whole
+        point of it being one call.** Wall time passed that no frame accounts
+        for, so what accumulated meanwhile describes a game nobody was
+        playing -- every device discards that. What they cannot agree on is
+        what is true NOW:
+
+        - the **keyboard assumes neutral**, because there is no way to ask it
+          what is still down, and a key let go during the pause would stay
+          held for good otherwise;
+        - the **pointer keeps its position**, which is state rather than
+          history and is wherever it is whether or not anybody was watching;
+        - **pads ask**, because they can. A player holding a direction
+          through a pause still holds it, and synthesising a release they did
+          not perform would be inventing input.
+
+        One call, three answers, each correct for its device. See
+        `docs/bps/INPUT_STREAM.md`, *Held state has to be reconciled too*.
+        """
         self.keyboard.flush()
         self.mouse.flush()
+        self.pads.flush()
+
+    def close(self) -> None:
+        """Release what the devices hold. Safe to call twice.
+
+        Only pads own anything: the keyboard and the pointer are subscriptions
+        to a bus that is going away anyway, where a pad holds an open file
+        descriptor per device.
+        """
+        self.pads.close()
