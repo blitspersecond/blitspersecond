@@ -72,6 +72,25 @@ leaving orderly process teardown parked inside PortAudio. A deterministic
 blocked-write test covers that ordering; ordinary WASAPI open, write and close
 were also exercised on Windows without an xrun.
 
+**A real endpoint removal does not block, so it does not reach that path.**
+Powering off a Bluetooth headset mid-tone raised
+`AUDCLNT_E_DEVICE_INVALIDATED` out of the write after 495 blocks and zero
+xruns; the worker exited, `engine._running` went false, and `close()` returned
+in 0.0ms with no thread left to join. The deterministic fake remains the only
+coverage of the abort-before-join ordering, because WASAPI invalidates the
+client rather than leaving a write parked.
+
+**A stream does not follow the default, and the process cannot see a new
+endpoint.** A tone opened on the speakers kept playing there for 30 seconds
+while the headset returned and took the system default back -- correct, since
+a stream is bound to the index chosen at open. But the in-process device list
+never changed either: PortAudio enumerates at initialise and does not look
+again, so the headset stayed invisible until `sounddevice._terminate()` and
+`_initialize()`. Any recovery onto a replacement device therefore needs
+PortAudio torn down first, which makes it a process-wide step rather than
+something `Driver` can do alone. Whether to recover at all is on the board;
+today an invalidated endpoint is terminal for the run.
+
 ## A mono output is refused at the boundary
 
 The device Stage must be a `MixingDesk`. The driver clips the settled stereo
