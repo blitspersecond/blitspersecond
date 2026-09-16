@@ -247,3 +247,106 @@ def test_absolute_dwm_phase_is_never_nudged_by_interval_heuristic(monkeypatch):
 
     assert session._phase == dwm.phase
     assert session.phase_shifts == 0
+
+
+def test_a_dwm_grid_re_reads_its_reference_and_follows_it(monkeypatch):
+    """The other half of the contract above.
+
+    `_watch_phase` refuses to move this grid on application-side evidence.
+    Re-reading the reference itself is not that: DWM's reported period is
+    quantised, so a session that sampled a tail value walks off the real
+    vblank until it looks again.
+    """
+    first = clock(143.998848, phase=50.0)
+    moved = clock(143.998848, phase=50.00025)
+    session, _display, _logger, _calls, _metadata = make_session(
+        monkeypatch, clocks=(first, moved)
+    )
+    assert session._phase == first.phase
+
+    session._next_reanchor = 0.0
+    session._reanchor()
+
+    assert session._phase == pytest.approx(moved.phase)
+    assert session.reanchors == 1
+    assert session.reanchor_worst == pytest.approx(0.00025)
+
+
+def test_re_anchoring_moves_the_phase_and_never_the_period(monkeypatch):
+    """Re-timing mid-run would change slot spacing under a running game."""
+    first = clock(143.998848, phase=50.0)
+    faster = clock(144.002995, phase=50.001)
+    session, _display, _logger, _calls, _metadata = make_session(
+        monkeypatch, clocks=(first, faster)
+    )
+    period, rate = session._period, session._refresh_rate
+
+    session._next_reanchor = 0.0
+    session._reanchor()
+
+    assert session._period == period
+    assert session._refresh_rate == rate
+    assert session._phase == pytest.approx(faster.phase)
+
+
+def test_a_stale_dwm_prediction_is_the_same_grid(monkeypatch):
+    """DWM retains a prediction while the desktop needs no new work.
+
+    The vblank it then reports is whole periods in the past. Folding the
+    correction to the nearest grid line makes that read as no move at all,
+    which is what it is -- every phase congruent to the grid IS the grid.
+    """
+    first = clock(143.998848, phase=50.0)
+    stale = clock(143.998848, phase=50.0 - 3.0 / 143.998848)
+    session, _display, _logger, _calls, _metadata = make_session(
+        monkeypatch, clocks=(first, stale)
+    )
+
+    session._next_reanchor = 0.0
+    session._reanchor()
+
+    assert session._phase == pytest.approx(first.phase)
+    assert session.reanchor_worst == pytest.approx(0.0, abs=1e-9)
+
+
+def test_the_reference_is_not_re_read_every_frame(monkeypatch):
+    """A freshly anchored grid is already where it should be."""
+    first = clock(143.998848, phase=50.0)
+    session, _display, _logger, calls, _metadata = make_session(
+        monkeypatch, clocks=(first, clock(143.998848, phase=99.0))
+    )
+    calls.clear()
+
+    session._reanchor()
+
+    assert calls == []
+    assert session.reanchors == 0
+    assert session._phase == first.phase
+
+
+def test_a_silent_dwm_leaves_the_adopted_grid_where_it_is(monkeypatch):
+    """A grid with a stale reference still beats no grid at all."""
+    first = clock(143.998848, phase=50.0)
+    session, _display, _logger, _calls, _metadata = make_session(
+        monkeypatch, clocks=(first, None)
+    )
+
+    session._next_reanchor = 0.0
+    session._reanchor()
+
+    assert session._phase == first.phase
+    assert session.reanchors == 0
+
+
+def test_a_notional_grid_has_no_reference_to_re_read(monkeypatch):
+    """Nothing to ask, and asking would import a Win32 probe off-platform."""
+    session, _display, _logger, calls, _metadata = make_session(
+        monkeypatch, path="x11", clocks=(None,)
+    )
+    calls.clear()
+    session._next_reanchor = 0.0
+
+    session.wait_for(0)
+
+    assert calls == []
+    assert session.reanchors == 0

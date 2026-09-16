@@ -62,6 +62,21 @@ _RESERVE_WINDOW = 90
 # extra arithmetic -- so cap it and keep half the interval as real sleep.
 _RESERVE_CEILING = 0.5
 
+# How often a DWM-referenced grid re-reads its own reference.
+#
+# DWM reports `qpcRefreshPeriod` as an INTEGER count of QPC ticks. At a 10MHz
+# QPC and a 144Hz panel the true period is 69444.44 ticks, which is not
+# representable, so the reported value dithers -- 69443 to 69448 measured over
+# 4,000 samples, a 72ppm spread. A session sampling that once keeps whatever
+# it got, and the resulting rate error walks the grid off DWM's real vblank at
+# up to 0.015ms/s: half a slot period in under four minutes, which is the slow
+# beat a short run cannot see.
+#
+# Re-reading once a second holds each correction to about 0.015ms -- an order
+# of magnitude under the frame-to-frame jitter it is correcting within. That
+# is what makes a snap safe here and a slew unnecessary.
+_REANCHOR_SECONDS = 1.0
+
 # Phase search. The notional grid's offset from the real one is unknown and
 # unmeasurable, and almost all offsets are fine. The bad case is landing
 # within timing jitter of a real vblank, where frames cross the boundary
@@ -173,6 +188,8 @@ class PresentationSession:
         self._phase_shifts = 0
         self._recent_work: deque[float] = deque(maxlen=_RESERVE_WINDOW)
         self._late = 0
+        self._reanchors = 0
+        self._reanchor_worst = 0.0
 
         # The re-timed rate rides on the grid line rather than getting one of
         # its own: two adjacent "Pacing ..." lines said the same thing twice,
@@ -255,10 +272,13 @@ class PresentationSession:
 
         **No spin, and no submission lead on this path.** Both follow from
         the target being an interval rather than an instant: `sleep` lands
-        within 0.080ms of where it is asked to, which is two orders of
-        magnitude finer than a slot, so sharpening it buys accuracy against a
-        requirement that does not exist. The only lead anywhere is Win32's,
-        folded into the phase by `dwm.py`.
+        well inside a slot, so sharpening it buys accuracy against a
+        requirement that does not exist. The margin is not the same on every
+        platform -- Linux overshoots by 0.080ms worst case against a 6.944ms
+        slot, Windows by up to 1.022ms -- so the conclusion holds on both, but
+        on Windows by a factor of seven rather than eighty. Measured figures
+        are in `bps/reference/engine/pacing.md`. The only lead anywhere is
+        Win32's, folded into the phase by `dwm.py`.
 
         Wakes at the FRAME rate rather than the panel rate, because the slot
         is computed rather than polled for.
@@ -267,6 +287,8 @@ class PresentationSession:
         overrun case: the frame goes up at once and `anchor` restarts the
         cycle from where it actually landed.
         """
+        if self._uses_dwm_clock:
+            self._reanchor()
         remaining = self.slot_for(frame) - perf_counter()
         if remaining > 0:
             sleep(remaining)
@@ -386,6 +408,59 @@ class PresentationSession:
             f"(shift {self._phase_shifts})."
         )
 
+    def _reanchor(self) -> None:
+        """Move a DWM-referenced grid back onto DWM's live vblank.
+
+        `_watch_phase` refuses to correct this grid, and is right to: an
+        external reference must not be overridden by guesses made from
+        application-side intervals. But that reference was read ONCE, at
+        session start, and the rate it came with is quantised (see
+        `_REANCHOR_SECONDS`). Re-reading the same reference is not the thing
+        `_watch_phase` refuses; it is the opposite of it.
+
+        **Only the phase moves.** Re-timing the period mid-run would change
+        slot spacing under a running game and drag `_accept_rate` with it.
+        Phase alone is sufficient: resetting the accumulated offset every
+        second holds the residual to whatever one second of drift produces.
+
+        The correction is folded into plus or minus half a period, so the grid
+        stays congruent to the one existing slot indices were computed against
+        and the numbering never jumps. That also makes a stale DWM prediction
+        harmless -- DWM can retain a composition prediction while the desktop
+        needs no new work, and a `qpcVBlank` in the past is congruent to the
+        live one.
+
+        Silent when DWM stops answering: the grid it already has is better
+        than no grid, and `_synchronise_grid` owns giving up on this path.
+        """
+        now = perf_counter()
+        if now < self._next_reanchor:
+            return
+        self._next_reanchor = now + _REANCHOR_SECONDS
+        clock = _query_dwm_clock(self._presentation_path_name)
+        if clock is None:
+            return
+        offset = (clock.phase - self._phase) % self._period
+        if offset > self._period * 0.5:
+            offset -= self._period
+        self._phase += offset
+        self._reanchors += 1
+        self._reanchor_worst = max(self._reanchor_worst, abs(offset))
+
+    @property
+    def reanchors(self) -> int:
+        """Times the DWM-referenced grid was moved back onto its reference."""
+        return self._reanchors
+
+    @property
+    def reanchor_worst(self) -> float:
+        """The largest single phase correction, in seconds.
+
+        Worth reading: a correction much larger than a second of drift means
+        something moved the grid that was not the quantised rate.
+        """
+        return self._reanchor_worst
+
     @property
     def interval(self) -> float:
         """Wall seconds between the last two frames reaching the screen.
@@ -493,6 +568,9 @@ class PresentationSession:
             else:
                 self._rejected_dwm_rate = None
         self._last_slot_index = None
+        # A grid that was just anchored does not need re-reading yet. Set
+        # here so construction, an output change and a resume all agree.
+        self._next_reanchor = perf_counter() + _REANCHOR_SECONDS
         off_pattern = getattr(self, "_off_pattern", None)
         if off_pattern is not None:
             off_pattern.clear()

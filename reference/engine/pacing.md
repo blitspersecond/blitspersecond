@@ -188,6 +188,7 @@ whole refresh.
 | no refresh rate at all | logged; paces against 60Hz, and the capture header records the rate as unavailable |
 | a DWM clock disagreeing with the window's mode by more than 1% | logged as a warning once per distinct mismatch; falls back to the notional grid |
 | a DWM query that fails, or a secondary output | falls back to the notional grid, silently |
+| a DWM query that fails during a re-anchor | keeps the grid it has, silently; a stale reference still beats no reference, and giving up on the path is `_synchronise_grid`'s decision rather than this one's |
 | no rate within 1% of the authored one that divides the panel | logged as a warning; paces at the authored rate and accepts the periodic repeat. Needs a reported rate far from any integer, so a low refresh — 30.4Hz gives 60.8fps, +1.33% |
 | a frame-pacing sink that cannot save | logged as an error at shutdown; the run is unaffected |
 
@@ -417,6 +418,61 @@ boundary. Adopting DWM's absolute period and phase removes that drift. The 1.25m
 submission inside DWM's interval ahead of its vblank; it is not an attempt to
 hit the boundary, and it does not make DWM's downstream queue deterministic.
 
+**But the reference has to be re-read, because the rate it arrives with is
+quantised.** `qpcRefreshPeriod` is an INTEGER count of QPC ticks, and at a
+10MHz QPC a 144Hz panel wants 69,444.44 of them. That is not representable, so
+DWM dithers. Measured over 4,000 samples on 2026-09-16:
+
+| ticks | implied rate | share |
+|---|---|---|
+| 69443 | 144.002995 Hz | 3.5% |
+| 69444 | 144.000922 Hz | 17.0% |
+| **69445** | **143.998848 Hz** | **64.7%** |
+| 69446 | 143.996774 Hz | 7.0% |
+| 69447 | 143.994701 Hz | 6.6% |
+| 69448 | 143.992628 Hz | 1.3% |
+
+One tick is 14.4ppm and the observed spread is 72ppm. A session samples this
+**once** and keeps it, which makes startup a lottery it does not know it is
+playing: about two thirds of runs draw the modal 69445 and never drift at all,
+and the rest walk off DWM's real vblank in proportion to how many ticks out
+they landed. Measured, with the engine running and DWM's live `qpcVBlank`
+sampled every tick:
+
+| adopted | ticks out | drift |
+|---|---|---|
+| 143.998848 Hz | 0 | −0.0005 ms/s |
+| 144.000922 Hz | 1 | +0.0136 ms/s |
+| 143.996774 Hz | 1 | −0.0151 ms/s |
+| 144.002995 Hz | 2 | +0.0285 ms/s |
+
+Linear in the tick error, and repeatable to 0.0002 ms/s between runs that drew
+the same value. At the worst of those the grid walks half a slot period in
+**two minutes** — the slow beat this document says a fifteen-minute run is
+needed to expose, and invisible to every short run: `pace` was 99.7–99.9%,
+`late` was 0, and `phase_shifts` was 0 throughout, the last because
+`_watch_phase` is disabled here and so cannot report it.
+
+So the grid re-reads its own reference once a second (`_REANCHOR_SECONDS`) and
+folds the correction to the nearest grid line. **Only the phase moves** —
+re-timing the period mid-run would change slot spacing under a running game.
+Folding also makes a stale DWM prediction a no-op: DWM retains a prediction
+while the desktop needs no new work, and a `qpcVBlank` whole periods in the
+past is congruent to the live one. With it, drift falls to ±0.0005 ms/s
+whatever was drawn at startup, and the largest single correction observed was
+**0.0779ms** — an order of magnitude under the frame-to-frame jitter it is
+correcting within, which is what makes a snap safe and a slew unnecessary. The
+query costs 37µs, once a second, inside a `sleep` that was going to happen
+anyway.
+
+This is not the thing `_watch_phase` refuses. That refusal is about not
+overriding an external reference with guesses made from application-side
+intervals; this is asking the same reference again.
+
+`testsuite/tools/dwm_grid_drift.py` reproduces both halves — `--periods` for
+the quantisation histogram without opening a window, and a timed run for the
+drift slope.
+
 The one way an arbitrary phase can still be wrong is *straddling*, and that has
 its own section.
 
@@ -524,11 +580,22 @@ pump with only scheduler resolution around it.
 
 **What decides the start in the end is `sleep`.** The target is arithmetic; the
 tick begins wherever the syscall returns. Linux/CPython 3.14 lands within
-0.080ms of target worst case. Windows advertises a 1ms timer resolution and in
-practice does considerably better — Python has used a high-resolution waitable
-timer there since 3.11 — but no BPS measurement stands behind that. Whatever a
-sleep overshoots by is taken out of the engine's working time, which is one
-reason the reserve is a doubled worst case rather than a tight estimate.
+0.080ms of target worst case. **Windows is an order of magnitude coarser, and
+now measured** (2026-09-16, CPython 3.14.7, Windows 11 26200): asking for a
+60fps interval overshoots by 0.241ms median, 0.485ms p90 and 0.704ms worst;
+asking for `_SLEEP_FLOOR` itself overshoots by 0.522ms median and 1.022ms
+worst. Python's high-resolution waitable timer is doing its job — this is not
+the 15.6ms default quantum — but it is nowhere near Linux's figure, and
+importing pyglet and sounddevice does not improve it, so nothing in the stack
+is quietly raising the global timer period.
+
+Whatever a sleep overshoots by is taken out of the engine's working time, which
+is one reason the reserve is a doubled worst case rather than a tight estimate.
+The consequence on Windows is that a 1ms `_SLEEP_FLOOR` can be consumed
+entirely by its own overshoot, so the floor only holds where the reserve is
+floored — a game whose frame work is trivially cheap. At any realistic frame
+cost `max(work) * 2` dominates and the floor never binds, which is why a 12s
+and a 15s run at 60fps both reported `late = 0`.
 
 The variation has to live somewhere. A frame can only be shown *on* a slot and
 slots are not evenly spaced against the tick rate, so either the pump is uneven
@@ -563,7 +630,10 @@ counted.
 **The correction moves a belief, not a frame.** Any offset is as valid as any
 other, so relocating an arbitrary phase to another arbitrary phase costs
 nothing but the one frame it lands on. This never runs on the DWM path, which
-has a real phase reference and would be discarding it.
+has a real phase reference and would be discarding it. That path keeps its
+grid honest by re-reading the reference instead — see `_REANCHOR_SECONDS`
+above, and note that the two are not alternatives to each other: one infers a
+phase, the other is told one.
 
 Measured on XWayland/GNOME at 144Hz with two consoles composited statically:
 
