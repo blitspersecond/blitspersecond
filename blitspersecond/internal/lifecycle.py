@@ -54,9 +54,9 @@ class EngineState(Enum):
     per-iteration lifecycle boundary, which goes with it.
 
     Still open, and no longer waiting on evidence: the board card that was to
-    supply it is declined, because the Windows test machine has sleep disabled
-    by design. The question was never about sleep anyway -- it is whether
-    anything else will ever want that boundary.
+    supply it is declined, because the Windows test machine cannot sleep. The
+    question was never about sleep anyway -- it is whether anything else will
+    ever want that boundary.
     """
 
     CREATED = auto()

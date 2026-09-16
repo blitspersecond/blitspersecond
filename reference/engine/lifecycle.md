@@ -291,34 +291,13 @@ asleep — measured on the reference box as 70,801s (~19.7h) of sleep the
 monotonic clock never saw. The process freezes, the pacing clock freezes with
 it, and the loop continues on resume. Windows is the unknown: `perf_counter()`
 is `QueryPerformanceCounter` there, and nothing has logged it either side of a
-real suspend — nor will it here, because the Windows test machine has sleep
-disabled by design so that a shared NTFS volume can be handed over safely. The
-reading that would answer it without an instrumented suspend is preserved on
-the declined card: `QueryInterruptTime` is biased and
+real suspend — nor will it here, because the Windows test machine cannot
+sleep. The reading that would answer it without an instrumented suspend is
+preserved on the declined card: `QueryInterruptTime` is biased and
 `QueryUnbiasedInterruptTime` is not, so whichever of them `perf_counter()`
-tracks after any sleep is the answer. What remains after that is display-side — surface validity, and a
-refresh rate that changed while outputs were re-enumerated — which lands on
-`Display`.
-
-**A whole night of it, survived by accident.** 2026-09-16, Kris: the engine was
-left running overnight on the Linux box, the machine slept, and after waking it
-and logging back in the engine was still running correctly. Nothing was designed
-for that. `suspend()` and `resume()` were never called — no game code exists to
-call them — so **the suspension arc was not entered at any point**. The clock
-analysis above predicts the pacing half; this is the first evidence for the
-display-side remainder, and it says the GL surface stayed valid across a
-suspend, a resume and a re-login.
-
-It is a field observation rather than a measurement — one occurrence, judged by
-eye, nothing capturing — so it does not close the question. But it is the
-strongest evidence so far that the arc is not load-bearing for the case it
-most looks like it exists for, because that case arrived and the arc slept
-through it.
-
-**None of this transfers to Windows.** Kris: *"nobody expects windows to even
-wake on sleep without the mouse stopping working or something."* The
-expectation there is low, it is unmeasured, and the test machine cannot be used
-to raise it.
+tracks after any sleep is the answer. What remains after that is
+display-side — surface validity, and a refresh rate that changed while
+outputs were re-enumerated — which lands on `Display`.
 
 **The transition table is provisional and has no tests.** There is no test file
 for `Lifecycle` at all: not the legal moves, not the deferred-request timing,
