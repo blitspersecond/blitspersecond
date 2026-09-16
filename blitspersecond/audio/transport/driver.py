@@ -12,10 +12,21 @@ rest. Synthesis happens on this thread rather than inside a PortAudio
 callback, so a slow block delays audio instead of corrupting it -- and stays
 off the sixteen milliseconds the simulation and the picture share.
 
+`_silence` is the one exception, and it exists because the rule is true: with
+no device there is no clock, so the only way to keep audio time moving while
+one is missing is to count it out. Nothing else in this file does.
+
 **Startup is a readiness handshake.** `start()` returns only once the device
 is open, the stream is running, and it has accepted the first block. Device
 failures come back to the caller with a traceback rather than disappearing
 into a background thread and leaving silence to explain itself.
+
+**A device that goes away is followed, not fatal.** Batteries run out and
+Bluetooth drops; neither ends the run. A write that fails while the driver is
+not closing discards the dead stream, cycles PortAudio so it enumerates again,
+and opens the current system default. With nothing at all to open the driver
+goes `silent` -- still running, still advancing audio time -- and keeps
+looking.
 
 **There is no pause or resume**, deliberately. Once started the stream runs
 until `close()`, through suspension, backgrounding and everything else: a
@@ -32,6 +43,15 @@ from numpy import clip, empty, float32
 from ..constants import BLOCK_SIZE, SAMPLE_RATE
 from .devices import default_output_device
 from ..synth.engine import AudioEngine
+
+#: One engine block of wall time. Only ever used when there is no device to
+#: pace against; see `Driver._silence`.
+_BLOCK_SECONDS = BLOCK_SIZE / SAMPLE_RATE
+
+#: How often a silent driver goes looking for a device again. Each attempt
+#: costs a PortAudio teardown and reinitialise -- about 33ms measured -- so
+#: this is deliberately far slower than a block.
+_RETRY_SECONDS = 1.0
 
 _NEW = "new"
 _STARTING = "starting"
@@ -56,11 +76,26 @@ def _load_sounddevice():
 class Driver:
     """Let one long-lived output stream drive one AudioEngine."""
 
-    def __init__(self, engine: AudioEngine, latency="low"):
+    def __init__(self, engine: AudioEngine, latency="low", *, logger=None):
         if not isinstance(engine, AudioEngine):
             raise TypeError(f"expected AudioEngine, got {type(engine)}")
         self._engine = engine
         self._latency_request = latency
+        # Optional so the tests can drive a Driver with no logging rig, but
+        # the engine always passes one: losing a device used to be entirely
+        # silent, which is how a flat headset ended a run with no evidence.
+        self._logger = logger
+        #: Whether the stream is started, so teardown knows to stop it first.
+        self._active = False
+        #: True while there is no device to write to at all.
+        self._silent = False
+        self._silent_deadline = 0.0
+        self._retry_at = 0.0
+        #: Times a device went away mid-run and was followed or mourned.
+        self.device_losses = 0
+        #: Blocks rendered and thrown away because there was nowhere to put
+        #: them. Nonzero means the player heard nothing for that long.
+        self.silent_blocks = 0
         self._condition = Condition()
         self._closing = Event()
         self._thread: Thread | None = None
@@ -160,33 +195,28 @@ class Driver:
             # disappears, it can instead be the thing preventing teardown.
             # abort() is the immediate, discard-pending-buffers operation and
             # is deliberately issued by the closing thread before the join.
-            stream.abort()
+            try:
+                stream.abort()
+            except BaseException:
+                # The stream read above may already be the worker's cast-off:
+                # a close racing a device loss can reach a stream the worker
+                # is discarding, and aborting one of those raises. The join
+                # below is what teardown actually depends on, and a stream
+                # nobody is writing to cannot hold it.
+                pass
         thread.join()
 
     # -- the worker -------------------------------------------------------
 
     def _run(self):
-        stream = None
-        stream_active = False
         error = None
+        stream = None
         try:
             sounddevice = _load_sounddevice()
-            selector = default_output_device(sounddevice)
-            info = sounddevice.query_devices(selector, kind="output")
-            host = sounddevice.query_hostapis(info["hostapi"])
-            self._device = f"{host['name']}: {info['name']}"
-            stream = sounddevice.OutputStream(
-                samplerate=SAMPLE_RATE,
-                channels=2,
-                dtype="float32",
-                # The host picks its own period. The engine block and the
-                # device block are deliberately independent: one write may
-                # carry one engine block without forcing PipeWire, ALSA,
-                # WASAPI, USB or Bluetooth to adopt 400 samples.
-                blocksize=0,
-                latency=self._latency_request,
-                device=selector,
-            )
+            # The FIRST open is deliberately not recoverable. `start()` is
+            # waiting on it, and a machine with no output device at all is a
+            # failure the caller asked for and should get a traceback from.
+            stream = self._open(sounddevice)
             with self._condition:
                 self._stream = stream
 
@@ -199,7 +229,7 @@ class Driver:
             # never asked for audio that does not exist yet.
             first = self._prepare(self._engine.advance())
             stream.start()
-            stream_active = True
+            self._active = True
             self._epoch = perf_counter()
             # Always a one-directional OutputStream, so `.latency` is a plain
             # float; the tuple form is for duplex streams.
@@ -213,7 +243,21 @@ class Driver:
                 self._condition.notify_all()
 
             while not self._closing.is_set():
-                self._write(stream, self._prepare(self._engine.advance()))
+                if stream is None:
+                    # Nothing to write to. Audio time still has to move, and
+                    # the device is retried on a far slower cadence than a
+                    # block -- each retry costs a PortAudio recycle.
+                    self._silence()
+                    if perf_counter() >= self._retry_at:
+                        stream = self._reopen(sounddevice)
+                    continue
+                try:
+                    self._write(stream, self._prepare(self._engine.advance()))
+                except BaseException as caught:
+                    # Teardown re-raises; a device that went away does not.
+                    if self._closing.is_set():
+                        raise
+                    stream = self._lost(sounddevice, stream, caught)
         except BaseException as caught:
             # abort() commonly wakes a blocking write by making it fail. Once
             # close was requested that is the mechanism, not a device fault.
@@ -221,7 +265,7 @@ class Driver:
                 error = caught
         finally:
             if stream is not None:
-                if stream_active:
+                if self._active:
                     try:
                         stream.stop()
                     except BaseException as caught:
@@ -239,6 +283,148 @@ class Driver:
                 self._error = error
                 self._state = _FAILED if error is not None else _CLOSED
                 self._condition.notify_all()
+
+    # -- following the device ---------------------------------------------
+
+    def _open(self, sounddevice):
+        """Open an unstarted stream on whatever the system default is NOW.
+
+        Unstarted because the first block has to exist before the device is
+        allowed to ask for one, and the caller decides when that is true.
+        """
+        selector = default_output_device(sounddevice)
+        info = sounddevice.query_devices(selector, kind="output")
+        host = sounddevice.query_hostapis(info["hostapi"])
+        self._device = f"{host['name']}: {info['name']}"
+        return sounddevice.OutputStream(
+            samplerate=SAMPLE_RATE,
+            channels=2,
+            dtype="float32",
+            # The host picks its own period. The engine block and the
+            # device block are deliberately independent: one write may
+            # carry one engine block without forcing PipeWire, ALSA,
+            # WASAPI, USB or Bluetooth to adopt 400 samples.
+            blocksize=0,
+            latency=self._latency_request,
+            device=selector,
+        )
+
+    def _lost(self, sounddevice, stream, caught):
+        """A write failed and it was not teardown. Go and find a device.
+
+        Batteries run out and Bluetooth drops. Neither is an error condition,
+        and neither is a reason to end a running game's audio. Returns the
+        replacement stream, or None to go quiet and keep trying.
+        """
+        self.device_losses += 1
+        self._log(
+            "warning",
+            f"Audio device lost ({type(caught).__name__}: {caught}). "
+            f"Following the system default.",
+        )
+        self._discard(stream)
+        return self._reopen(sounddevice)
+
+    def _reopen(self, sounddevice):
+        """Recycle PortAudio, then open the system default if there is one.
+
+        **The recycle is not optional.** PortAudio enumerates devices when it
+        initialises and never looks again, so a process that lost its endpoint
+        cannot SEE the replacement until the library is brought back up --
+        measured on Windows as a returning headset staying invisible for a
+        full thirty seconds until exactly this was done. Without it, "reopen
+        the default" can reopen the endpoint that just died.
+        """
+        self._retry_at = perf_counter() + _RETRY_SECONDS
+        self._recycle(sounddevice)
+        try:
+            stream = self._open(sounddevice)
+            stream.start()
+        except BaseException as caught:
+            self._quieten(f"No audio device available ({caught}).")
+            return None
+        self._active = True
+        self._latency = float(cast(float, stream.latency))
+        self._stream_blocksize = int(stream.blocksize)
+        self._stream_samplerate = float(stream.samplerate)
+        with self._condition:
+            self._stream = stream
+        if self._silent:
+            self._silent = False
+            self._log("info", f"Audio returned on {self._device}.")
+        else:
+            self._log("info", f"Audio followed the default to {self._device}.")
+        return stream
+
+    @staticmethod
+    def _recycle(sounddevice):
+        """Tear PortAudio down and bring it back, so it enumerates again."""
+        terminate = getattr(sounddevice, "_terminate", None)
+        initialize = getattr(sounddevice, "_initialize", None)
+        if terminate is None or initialize is None:
+            return  # a test double, or a build without the seam
+        try:
+            terminate()
+            initialize()
+        except BaseException:
+            # A library that will not cycle is not a reason to stop trying to
+            # play. The open that follows fails honestly if it matters.
+            pass
+
+    def _discard(self, stream):
+        """Release a stream whose device is gone, expecting failure.
+
+        Unlike terminal teardown, nothing here is worth reporting: stopping
+        and closing a dead endpoint raises routinely, and says nothing the
+        caller could act on.
+        """
+        if self._active:
+            try:
+                stream.stop()
+            except BaseException:
+                pass
+            self._active = False
+        try:
+            stream.close()
+        except BaseException:
+            pass
+        with self._condition:
+            self._stream = None
+
+    def _quieten(self, why):
+        """Enter silence, saying so once rather than once per retry."""
+        with self._condition:
+            self._stream = None
+        if not self._silent:
+            self._silent = True
+            self._silent_deadline = perf_counter()
+            self._log("warning", f"{why} Running silently and retrying.")
+
+    def _silence(self):
+        """Advance one block with nowhere to put it.
+
+        **The one timer in this file, and it is the exception that proves the
+        rule.** Everywhere else the device is the clock. With no device there
+        is no clock, and audio time still has to move -- otherwise a dropout
+        queues every scheduled write and fires them in a burst the moment a
+        device returns, and the engine's inbox grows for as long as the
+        silence lasts.
+
+        Paced against a running deadline rather than by sleeping a block at a
+        time, because `sleep` overshoots -- 0.24ms median on Windows against
+        an 8.33ms block -- and silence that runs three percent slow is still
+        wrong.
+        """
+        self._prepare(self._engine.advance())
+        self.silent_blocks += 1
+        self._silent_deadline += _BLOCK_SECONDS
+        remaining = self._silent_deadline - perf_counter()
+        if remaining > 0:
+            sleep(remaining)
+
+    def _log(self, level, message):
+        if self._logger is not None:
+            getattr(self._logger, level)(message)
 
     def _prepare(self, bus):
         """Clip the settled block into the reusable device buffer.
@@ -292,6 +478,16 @@ class Driver:
         return self._epoch
 
     @property
+    def silent(self) -> bool:
+        """Running, but with no device to write to.
+
+        Not a failure: the graph is live, audio time is moving, and a device
+        is being looked for. A game may want to say so on screen.
+        """
+        with self._condition:
+            return self._silent
+
+    @property
     def error(self) -> BaseException | None:
         return self._error
 
@@ -301,8 +497,15 @@ class Driver:
             if self._latency is None
             else f"{self._latency * 1000:.1f}ms"
         )
+        losses = (
+            f"  device_losses={self.device_losses}"
+            f"  silent_blocks={self.silent_blocks}"
+            if self.device_losses or self.silent_blocks
+            else ""
+        )
         return (
             f"xruns={self.xruns}"
+            f"{losses}"
             f"  worst_write={self.worst_write * 1000:.2f}ms"
             f"  blocks_written={self.blocks_written}"
             f"  stream_blocksize={self._stream_blocksize}"

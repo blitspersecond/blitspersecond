@@ -86,10 +86,41 @@ while the headset returned and took the system default back -- correct, since
 a stream is bound to the index chosen at open. But the in-process device list
 never changed either: PortAudio enumerates at initialise and does not look
 again, so the headset stayed invisible until `sounddevice._terminate()` and
-`_initialize()`. Any recovery onto a replacement device therefore needs
-PortAudio torn down first, which makes it a process-wide step rather than
-something `Driver` can do alone. Whether to recover at all is on the board;
-today an invalidated endpoint is terminal for the run.
+`_initialize()`.
+
+## Losing a device is not the end of the run
+
+**The driver follows the system default.** A write that fails while the driver
+is not closing is treated as the device going away, not as a fault: the dead
+stream is discarded, PortAudio is cycled so it enumerates again, and the
+current default is opened. Measured on Windows by powering a Bluetooth headset
+off mid-tone -- the loss was noticed at 17.20s and audio was running on the USB
+speakers at 17.30s, a **100ms gap with no xruns**, after which the run
+continued normally for the rest of its window and closed in 15.9ms.
+
+The cycle is what makes this work rather than an optimisation. Without it the
+process cannot see the replacement, so "reopen the default" would reopen the
+endpoint that just died. It also means recovery is process-wide, and depends
+on the engine owning the only PortAudio stream in the process -- an invariant
+this design now relies on.
+
+**With genuinely nothing to open, the driver goes silent rather than failing.**
+`silent` is a running state: the graph is live, audio time is still moving, and
+a device is retried every second. It ends when one appears.
+
+Silence is the one place a timer enters this file. Everywhere else the device
+is the clock; with no device there is no clock, and audio time still has to
+advance -- otherwise a dropout queues every scheduled write and fires them in a
+burst the moment a device returns, and the engine's inbox grows for as long as
+the silence lasts. `_silence` paces against a running deadline rather than
+sleeping a block at a time, because `sleep` overshoots by 0.24ms median on
+Windows against an 8.33ms block.
+
+**The failure is no longer silent in the other sense either.** The driver takes
+a logger and says when a device is lost, when it is followed, and once -- not
+once per retry -- when it has gone quiet. Before this, a flat headset stopped
+the audio with no log line, no exception and nothing polling `driver.error`,
+so the first evidence was a player noticing.
 
 ## A mono output is refused at the boundary
 

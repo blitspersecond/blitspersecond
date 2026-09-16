@@ -12,6 +12,7 @@ that never reaches RUNNING fails its wait instead of blocking the suite.
 """
 
 import threading
+import time
 
 import numpy as np
 import pytest
@@ -66,6 +67,9 @@ class _SoundDevice:
     def __init__(self):
         self.stream: _Stream | None = None
         self.raise_on_open = None
+        self.opened: list[_Stream] = []
+        self.terminations = 0
+        self.initialisations = 0
 
     def query_devices(self, selector, kind=None):
         return {"name": "Fake Output", "hostapi": 0}
@@ -79,7 +83,33 @@ class _SoundDevice:
         if self.raise_on_open is not None:
             raise self.raise_on_open
         self.stream = _Stream(**kwargs)
+        self.opened.append(self.stream)
         return self.stream
+
+    # PortAudio only enumerates devices when it initialises, so following the
+    # system default means cycling it. Counted rather than stubbed, because
+    # skipping it is the bug it exists to prevent.
+    def _terminate(self):
+        self.terminations += 1
+
+    def _initialize(self):
+        self.initialisations += 1
+
+
+class _Logger:
+    def __init__(self):
+        self.infos = []
+        self.warnings = []
+        self.errors = []
+
+    def info(self, message):
+        self.infos.append(message)
+
+    def warning(self, message):
+        self.warnings.append(message)
+
+    def error(self, message):
+        self.errors.append(message)
 
 
 def _desk(engine) -> MixingDesk:
@@ -301,18 +331,147 @@ def test_close_aborts_a_write_that_will_not_return(engine, fake):
     assert driver.error is None
 
 
-def test_a_device_failing_mid_stream_releases_the_engine(engine, fake):
+def _wait(predicate, timeout=2.0):
+    """Poll rather than sleep a fixed time: a slow box must not fail this."""
+    deadline = time.perf_counter() + timeout
+    while time.perf_counter() < deadline:
+        if predicate():
+            return True
+        threading.Event().wait(0.002)
+    return False
+
+
+def test_a_device_lost_mid_stream_is_followed_rather_than_fatal(engine, fake):
+    """Batteries run out and Bluetooth drops. The run does not end with them.
+
+    This replaces a contract that said the opposite. Losing a device used to
+    release the engine and leave the process silent for good, which is not a
+    reasonable thing to ask a player to restart a game over.
+    """
     driver = Driver(engine)
     driver.start()
-    fake.stream.fail_on_write = 1
-    for _ in range(200):
-        if not driver.running:
-            break
-        threading.Event().wait(0.005)
-    driver.close()
+    first = fake.stream
+    first.fail_on_write = len(first.writes)
 
-    assert engine._running is False
-    assert isinstance(driver.error, RuntimeError)
+    assert _wait(lambda: fake.stream is not first), "no replacement was opened"
+    try:
+        assert driver.running is True
+        assert driver.silent is False
+        assert driver.error is None
+        assert engine._running is True
+        assert driver.device_losses == 1
+    finally:
+        driver.close()
+
+
+def test_the_replacement_is_found_by_cycling_portaudio(engine, fake):
+    """PortAudio enumerates at initialise and never looks again.
+
+    Measured on Windows: a headset that came back stayed invisible to the
+    process for thirty seconds until the library was torn down and brought
+    up. Reopening without this can reopen the endpoint that just died.
+    """
+    driver = Driver(engine)
+    driver.start()
+    fake.stream.fail_on_write = len(fake.stream.writes)
+
+    assert _wait(lambda: fake.terminations >= 1)
+    try:
+        assert fake.initialisations >= 1
+    finally:
+        driver.close()
+
+
+def test_no_device_at_all_goes_silent_instead_of_failing(engine, fake, monkeypatch):
+    """Silence is a running state, not a dead one."""
+    monkeypatch.setattr(driver_module, "_RETRY_SECONDS", 0.01)
+    monkeypatch.setattr(driver_module, "_BLOCK_SECONDS", 0.001)
+    driver = Driver(engine)
+    driver.start()
+    fake.raise_on_open = RuntimeError("no such device")
+    fake.stream.fail_on_write = len(fake.stream.writes)
+
+    assert _wait(lambda: driver.silent)
+    try:
+        assert driver.running is True
+        assert driver.error is None
+        assert engine._running is True
+        # Audio time keeps moving, so a dropout does not queue every
+        # scheduled write into a burst when a device returns.
+        blocks = driver.silent_blocks
+        assert _wait(lambda: driver.silent_blocks > blocks)
+    finally:
+        driver.close()
+
+
+def test_silence_ends_when_a_device_comes_back(engine, fake, monkeypatch):
+    monkeypatch.setattr(driver_module, "_RETRY_SECONDS", 0.01)
+    monkeypatch.setattr(driver_module, "_BLOCK_SECONDS", 0.001)
+    driver = Driver(engine)
+    driver.start()
+    fake.raise_on_open = RuntimeError("no such device")
+    fake.stream.fail_on_write = len(fake.stream.writes)
+    assert _wait(lambda: driver.silent)
+
+    fake.raise_on_open = None
+
+    assert _wait(lambda: driver.silent is False), "never came back"
+    try:
+        assert driver.running is True
+        assert driver.error is None
+    finally:
+        driver.close()
+
+
+def test_a_lost_device_is_reported_rather_than_swallowed(engine, fake):
+    """The defect this whole arc came from: it used to say nothing at all."""
+    logger = _Logger()
+    driver = Driver(engine, logger=logger)
+    driver.start()
+    first = fake.stream
+    first.fail_on_write = len(first.writes)
+
+    assert _wait(lambda: fake.stream is not first)
+    try:
+        assert any("lost" in message.lower() for message in logger.warnings)
+    finally:
+        driver.close()
+
+
+def test_silence_is_announced_once_rather_than_once_per_retry(
+    engine, fake, monkeypatch
+):
+    monkeypatch.setattr(driver_module, "_RETRY_SECONDS", 0.001)
+    monkeypatch.setattr(driver_module, "_BLOCK_SECONDS", 0.001)
+    logger = _Logger()
+    driver = Driver(engine, logger=logger)
+    driver.start()
+    fake.raise_on_open = RuntimeError("no such device")
+    fake.stream.fail_on_write = len(fake.stream.writes)
+    assert _wait(lambda: driver.silent)
+    blocks = driver.silent_blocks
+    assert _wait(lambda: driver.silent_blocks > blocks + 20)
+
+    try:
+        silent = [m for m in logger.warnings if "silently" in m]
+        assert len(silent) == 1, silent
+    finally:
+        driver.close()
+
+
+def test_closing_a_silent_driver_still_returns(engine, fake, monkeypatch):
+    monkeypatch.setattr(driver_module, "_RETRY_SECONDS", 0.01)
+    monkeypatch.setattr(driver_module, "_BLOCK_SECONDS", 0.001)
+    driver = Driver(engine)
+    driver.start()
+    fake.raise_on_open = RuntimeError("no such device")
+    fake.stream.fail_on_write = len(fake.stream.writes)
+    assert _wait(lambda: driver.silent)
+
+    done = threading.Event()
+    threading.Thread(target=lambda: (driver.close(), done.set()), daemon=True).start()
+    assert done.wait(5.0), "close() did not return while silent"
+    assert driver.error is None
 
 
 # -- the device boundary --------------------------------------------------

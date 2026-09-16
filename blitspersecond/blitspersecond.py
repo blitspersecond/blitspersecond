@@ -141,7 +141,7 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         # `start()` is exactly when a game builds its voices -- so readiness
         # belongs at the top of `Loop.run`, once the graph is settled.
         self._audio = AudioEngine()
-        self._audio_driver = Driver(self._audio)
+        self._audio_driver = Driver(self._audio, logger=self._logger)
         # Declared before warm-up so teardown has something to look at if
         # warm-up dies half-built. Every subsystem added below gets the same
         # treatment: named here, built during STARTING, checked in _teardown.
