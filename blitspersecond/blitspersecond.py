@@ -1,6 +1,8 @@
 from typing import TYPE_CHECKING, Callable, Optional, cast
 
 
+from blitspersecond.audio import AudioEngine
+from blitspersecond.audio.transport import Driver
 from blitspersecond.common import SCREEN, SingletonMeta, fps
 from blitspersecond.graphics.internal import Layers
 from blitspersecond.input import InputBoundary
@@ -128,6 +130,18 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         # the things a game reaches for should not be owned by the screen it
         # is deliberately not allowed to name.
         self._layers = Layers()
+        # Sound. Constructed here rather than during warm-up because
+        # neither touches a device: an AudioEngine is a graph and a Driver is
+        # a thread that has not started. What blocks is `start()`, below. One
+        # of each, for the life of the process -- there is no second engine
+        # and no reopening, which is why a game reaches `bps.audio` and never
+        # builds one.
+        # The device is NOT opened here. Starting the driver freezes the
+        # audio topology, and the window between this constructor and
+        # `start()` is exactly when a game builds its voices -- so readiness
+        # belongs at the top of `Loop.run`, once the graph is settled.
+        self._audio = AudioEngine()
+        self._audio_driver = Driver(self._audio)
         # Declared before warm-up so teardown has something to look at if
         # warm-up dies half-built. Every subsystem added below gets the same
         # treatment: named here, built during STARTING, checked in _teardown.
@@ -142,11 +156,11 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         self._event_bus.push_handlers(on_engine_state=self._on_engine_state)
 
         # Warm-up happens HERE, not in the loop: constructing an engine blocks
-        # until it is ready to be run. Opening the display today; the audio
-        # readiness gate will block in the same stretch. Presentation
-        # deadlines and the first tick baseline deliberately do not exist yet,
-        # so slow hardware startup cannot become a false first-frame stall or
-        # a catch-up batch -- Loop establishes those when it actually starts.
+        # until it is ready to be run. Opening the display, but NOT starting
+        # audio -- see `Loop.run`. Presentation deadlines and the first tick
+        # baseline deliberately do not exist yet, so slow hardware startup
+        # cannot become a false first-frame stall or a catch-up batch --
+        # Loop establishes those when it actually starts.
         self._lifecycle.starting()
         try:
             self._display = Display(
@@ -179,11 +193,31 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         fail part-way and stop from inside the constructor, so this runs
         against a half-built engine as readily as a fully-built one.
         """
+        # Audio first: it owns the only thread the engine has, and bringing
+        # it down before the window means nothing is still pulling a graph
+        # while the rest is dismantled.
+        self._audio_driver.close()
         if self._display is not None and not self._display.closed:
             self._display.close()
         # Pads hold a file descriptor each; the other devices hold nothing
         # the bus does not take with it.
         self._input.close()
+
+    @property
+    def audio(self) -> AudioEngine:
+        """The audio graph: build voices on it and schedule writes to them.
+
+        There is one of these and this is it, held open by a device that
+        started before the game did. A game connects Stages to
+        `bps.audio.output` and everything it schedules is heard.
+
+        **Alpha, and low-level on purpose.** This is the surface for building
+        an instrument, not for playing a sound effect -- there is no
+        `play(...)`, no voice allocation and no polyphony policy, because
+        inventing that before a real game needs it is how the last audio API
+        went wrong. See `blitspersecond.audio`.
+        """
+        return self._audio
 
     @property
     def clock(self) -> Clock:

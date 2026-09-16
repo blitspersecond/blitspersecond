@@ -175,6 +175,12 @@ class Loop:
         lifecycle.servicing()
 
         try:
+            # Audio reaches readiness HERE, not in the constructor. Starting
+            # the driver freezes the audio graph, so it has to happen after
+            # the game has built one -- and before the baselines below, so
+            # that opening a device (and, later, compiling kernels) cannot be
+            # mistaken for a stalled first frame.
+            engine._audio_driver.start()
             # The baselines come into existence at the moment the loop does,
             # never during the constructor's warm-up -- that is what keeps
             # slow hardware startup from reading as a first-frame stall.

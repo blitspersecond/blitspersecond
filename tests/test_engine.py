@@ -9,6 +9,7 @@ implementation detail of the metaclass.
 import pytest
 
 from blitspersecond import BlitsPerSecond, EngineState, fps
+from blitspersecond.audio import AudioEngine, MixingDesk
 from blitspersecond.system import Config, Logger
 
 
@@ -99,3 +100,51 @@ def test_engine_state_is_reachable_from_the_package_root():
     """
     engine = BlitsPerSecond()
     assert engine.state is EngineState.RUNNING
+
+
+# -- audio ---------------------------------------------------------------
+# The ordering below is the whole subject. Starting the driver FREEZES the
+# audio graph, and the window between constructing the engine and calling
+# `start()` is exactly when a game builds its voices. Starting it during
+# warm-up was tried and broke that: every `bps.audio.source(...)` raised.
+# `Loop.run` opens the device instead, after the graph exists and before the
+# pacing baselines, so device activation cannot read as a stalled first frame.
+
+
+def test_the_engine_exposes_one_audio_graph():
+    engine = BlitsPerSecond()
+    assert isinstance(engine.audio, AudioEngine)
+    assert engine.audio is engine.audio
+
+
+def test_constructing_the_engine_does_not_open_the_audio_device():
+    """Warm-up opens the window; the loop opens the device."""
+    engine = BlitsPerSecond()
+    assert engine._audio_driver.running is False
+
+
+def test_a_game_can_build_its_audio_graph_before_starting():
+    """The regression this section exists for: topology must still be open."""
+    engine = BlitsPerSecond()
+    desk = engine.audio.output
+    assert isinstance(desk, MixingDesk)
+    voice = engine.audio.source()
+    desk.connect(voice)
+
+    assert desk.registers_for(voice)["level"] == 1.0
+
+
+def test_the_audio_graph_is_frozen_once_the_device_is_driven():
+    engine = BlitsPerSecond()
+    engine.audio._running = True
+    try:
+        with pytest.raises(RuntimeError):
+            engine.audio.source()
+    finally:
+        engine.audio._running = False
+
+
+def test_teardown_releases_the_audio_worker():
+    engine = BlitsPerSecond()
+    engine._teardown()
+    assert engine.audio._running is False
