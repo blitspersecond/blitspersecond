@@ -224,6 +224,16 @@ class Loop:
                     elif was_backgrounded and not lifecycle.backgrounded:
                         presentation.foregrounded()
 
+                    # The audio worker follows the system default on its own
+                    # thread; this is where that becomes something a game can
+                    # hear about. A one-slot mailbox, so a run that never
+                    # loses a device pays one None check per frame.
+                    notice = engine._audio_driver.take_notice()
+                    if notice is not None:
+                        engine._event_bus.dispatch_event(
+                            "on_audio_device", notice[0]
+                        )
+
                     # Lifecycle requests land between event dispatch and the
                     # swap, never part-way through a coherent game tick.
                     # Resuming invalidates the grid -- wall time passed that

@@ -565,3 +565,67 @@ def test_play_runs_and_closes(engine, fake):
 def test_play_refuses_a_negative_duration(engine, fake):
     with pytest.raises(ValueError):
         play(engine, -1.0)
+
+
+def test_a_followed_device_is_offered_to_the_loop_to_publish(engine, fake):
+    """The worker records; the main thread dispatches.
+
+    Not a style preference. A handler runs on whichever thread dispatches,
+    and the audio thread is the wrong one twice over: a slow handler there
+    costs xruns, and game code reached from it would be off the main thread.
+    """
+    driver = Driver(engine)
+    driver.start()
+    assert driver.take_notice() is None, "a clean start is not news"
+    first = fake.stream
+    first.fail_on_write = len(first.writes)
+
+    assert _wait(lambda: fake.stream is not first)
+    try:
+        notice = driver.take_notice()
+        assert notice is not None
+        assert notice[0] == driver.device
+        assert notice[0] is not None
+        # A mailbox, not a queue: taking it leaves nothing behind.
+        assert driver.take_notice() is None
+    finally:
+        driver.close()
+
+
+def test_going_silent_is_published_as_no_device(engine, fake, monkeypatch):
+    monkeypatch.setattr(driver_module, "_RETRY_SECONDS", 0.01)
+    monkeypatch.setattr(driver_module, "_BLOCK_SECONDS", 0.001)
+    driver = Driver(engine)
+    driver.start()
+    driver.take_notice()
+    fake.raise_on_open = RuntimeError("no such device")
+    fake.stream.fail_on_write = len(fake.stream.writes)
+
+    assert _wait(lambda: driver.silent)
+    try:
+        assert driver.take_notice() == (None,)
+        assert driver.device is None
+    finally:
+        driver.close()
+
+
+def test_only_the_latest_device_is_kept_for_the_loop(engine, fake, monkeypatch):
+    """An older answer about where the audio is is never the one to act on."""
+    monkeypatch.setattr(driver_module, "_RETRY_SECONDS", 0.001)
+    monkeypatch.setattr(driver_module, "_BLOCK_SECONDS", 0.001)
+    driver = Driver(engine)
+    driver.start()
+    fake.raise_on_open = RuntimeError("no such device")
+    fake.stream.fail_on_write = len(fake.stream.writes)
+    assert _wait(lambda: driver.silent)
+    fake.raise_on_open = None
+    assert _wait(lambda: driver.silent is False)
+
+    try:
+        # Silence and the return both happened before anyone looked. What is
+        # waiting is where the audio IS, not a log of how it got there.
+        notice = driver.take_notice()
+        assert notice == (driver.device,)
+        assert notice[0] is not None
+    finally:
+        driver.close()

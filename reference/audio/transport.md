@@ -116,6 +116,24 @@ the silence lasts. `_silence` paces against a running deadline rather than
 sleeping a block at a time, because `sleep` overshoots by 0.24ms median on
 Windows against an 8.33ms block.
 
+**A game can hear about it.** `on_audio_device(device)` goes up whenever the
+answer to "where is the audio" changes: the device name when one is open, and
+`None` on going silent. It is published when it CHANGES, which for most runs
+means never.
+
+The driver does not dispatch it. The worker leaves a one-slot mailbox and the
+loop publishes it on the main thread, because a handler runs on whichever
+thread dispatches and the audio thread is the wrong one twice over -- a slow
+handler there costs xruns, and game code reached from it would be touching the
+game off the main thread. A mailbox rather than a queue: what a game wants is
+where the audio IS, and an older answer is never the one to act on. A run that
+never loses a device pays one `None` check per frame.
+
+Verified end to end by powering a headset off during a real engine run: the
+loss was logged, the default was followed to the USB speakers, and the handler
+ran on the main thread with the new device name, with no xruns and the game
+still running.
+
 **The failure is no longer silent in the other sense either.** The driver takes
 a logger and says when a device is lost, when it is followed, and once -- not
 once per retry -- when it has gone quiet. Before this, a flat headset stopped

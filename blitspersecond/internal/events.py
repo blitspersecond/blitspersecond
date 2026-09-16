@@ -19,3 +19,13 @@ class EventBus(EventDispatcher):
 # here decides which window events are worth forwarding.
 for _event_type in _PygletWindow.event_types:
     EventBus.register_event_type(_event_type)
+
+#: Where the audio actually is: the device name, or None while there is no
+#: device at all and the engine is running silently. Published when it
+#: CHANGES, which for most runs means never.
+#:
+#: Dispatched by the loop rather than by the audio worker that discovered it.
+#: A handler runs on whichever thread dispatches, and the audio thread is the
+#: wrong one twice over -- a slow handler there costs xruns, and game code
+#: reached from it would be touching the game off the main thread.
+EventBus.register_event_type("on_audio_device")

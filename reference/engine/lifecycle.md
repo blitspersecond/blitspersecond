@@ -75,6 +75,10 @@ That is the whole of it — nothing else should reach `_lifecycle`.
 | `on_background` | the compositor stopped presenting us |
 | `on_foreground` | it started again |
 
+`on_audio_device(device)` is published on the same bus but is **not** a
+lifecycle event and does not come from here -- the audio driver discovers it
+and the loop dispatches it. See `reference/audio/transport.md`.
+
 The momentary states earn their place here and nowhere else: `SUSPENDING` and
 `RESUMING` exist so an observer gets a hook *during* a transition rather than
 only after it.

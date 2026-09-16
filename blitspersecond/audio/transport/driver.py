@@ -96,6 +96,11 @@ class Driver:
         #: Blocks rendered and thrown away because there was nowhere to put
         #: them. Nonzero means the player heard nothing for that long.
         self.silent_blocks = 0
+        #: The last device change the loop has not published yet. Set on the
+        #: worker, taken on the main thread: the audio thread must not walk a
+        #: handler stack, both because a slow handler there costs xruns and
+        #: because game code reached from it would be on the wrong thread.
+        self._notice: tuple[str | None] | None = None
         self._condition = Condition()
         self._closing = Event()
         self._thread: Thread | None = None
@@ -354,6 +359,8 @@ class Driver:
             self._log("info", f"Audio returned on {self._device}.")
         else:
             self._log("info", f"Audio followed the default to {self._device}.")
+        with self._condition:
+            self._notice = (self._device,)
         return stream
 
     @staticmethod
@@ -399,6 +406,8 @@ class Driver:
             self._silent = True
             self._silent_deadline = perf_counter()
             self._log("warning", f"{why} Running silently and retrying.")
+            with self._condition:
+                self._notice = (None,)
 
     def _silence(self):
         """Advance one block with nowhere to put it.
@@ -476,6 +485,22 @@ class Driver:
         """`perf_counter()` when the stream started, for correlating with the
         simulation clock from outside. The engine itself never reads it."""
         return self._epoch
+
+    @property
+    def device(self) -> str | None:
+        """What is being written to, or None while silent."""
+        with self._condition:
+            return None if self._silent else self._device
+
+    def take_notice(self) -> tuple[str | None] | None:
+        """Pop the last device change, for the caller to publish.
+
+        A one-slot mailbox rather than a queue: what a game wants is where
+        the audio IS, and an older answer is never the one to act on.
+        """
+        with self._condition:
+            notice, self._notice = self._notice, None
+            return notice
 
     @property
     def silent(self) -> bool:
