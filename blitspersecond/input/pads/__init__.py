@@ -8,7 +8,7 @@
     evdev.py     the Linux transport: discovery, identity, calibration,
                  and reading reports at the cut.
 
-The audit this is being rebuilt from is `docs/bps/PADS_PORT.md`.
+The chapter is `bps/reference/input/pads.md`.
 """
 
 from .button import Button, ButtonCondition

@@ -933,7 +933,7 @@ class Console(Layer):
         the gap comes back blank. Blank in the CURRENT pen, which is the one
         place we go further than AMOS did -- so a pen swapped since the last
         write shows in the new lines, not the old ones.
-        See docs/references/amos/05-06-text.md.
+        The lineage is AMOS Professional, chapter 5.6, *Text*.
 
         A tile layer's `scroll` is a DIFFERENT idea under the same name: an
         absolute camera position, a property, moving the VIEW and destroying

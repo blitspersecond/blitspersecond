@@ -1,34 +1,25 @@
 """The AudioEngine: the sample clock, the write timeline, and one demand.
 
-Everything in the graph is pulled from here. `advance()` settles the terminal
-Stage for one block, commits that block's register writes, and moves the
-clock forward by exactly one block. Nothing else advances audio time -- not a
-wall clock, not the game, not a Stage.
+`advance()` settles the terminal Stage for one block, commits that block's
+register writes, and moves the clock forward by exactly one block. Nothing
+else advances audio time.
 
-**Control arrives as one relative timeline.** `schedule()` takes events whose
-`dt` is a sample offset from a common origin, and the audio worker picks that
-origin when it admits the whole batch. A caller never reads the moving clock,
-so a score's internal timing cannot be smeared by a late first event, and a
-one-event batch travels exactly the same road as a complete piece of music.
+**Control is one relative timeline.** `dt` is an offset from an origin the
+audio worker picks when it admits the batch, so a caller never reads the
+moving clock and a score's internal timing cannot be smeared by a late first
+event.
 
-**A scheduled future can be withdrawn, by naming the node it addresses.**
-`cancel()` drops the unresolved writes aimed at a Stage or at one of its
-input lanes, and `schedule(..., replacing=...)` does both as one command.
-Identity is the graph's own -- a write already carries the Stage it is for,
-so there is no separate handle or group name to mint, keep, or get wrong.
-
-The law is the same boundary `dt=0` means: **a target's unresolved writes end
-at the first unresolved block.** Cancellation is never retroactive, because a
-block that has been rendered is a fact. It is also purely a control
-operation: withdrawing a source's writes stops it being told to do anything
-new, and the echo and reverb downstream of it go on ringing until they drain,
-which is what the quiescence machinery is for and what a listener expects.
+**A scheduled future is withdrawn by naming the node it addresses.** Identity
+is the graph's own -- a write already carries its Stage -- so there is no
+handle or group name to mint. The law: a target's unresolved writes end at the
+first unresolved block, never retroactively.
 
 **Topology is construction-time state.** Building Stages, connecting them and
 replacing the output all raise once a Driver owns the engine. The runtime
-surface is `schedule()` and `cancel()` and nothing else: rewiring a live graph
-would mean mutating the worker's objects underneath it, which needs a command
-contract that does not exist rather than an unsynchronised write.
+surface is `schedule()` and `cancel()` and nothing else; live rewiring would
+mean mutating the worker's objects underneath it.
+
+Registers, the timeline and cancellation: `bps/reference/audio/control.md`.
 """
 
 from collections.abc import Iterable, Mapping

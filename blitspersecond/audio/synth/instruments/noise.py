@@ -9,7 +9,7 @@ def noise_drum(
     engine: AudioEngine,
     *,
     seed: int = 0,
-    colour: float = 2_400.0,
+    tone: float = 2_400.0,
     resonance: float = 0.65,
     attack: float = 0.0005,
     decay: float = 0.13,
@@ -19,14 +19,15 @@ def noise_drum(
     """The shaped-noise root: snares and shakers are this at two tunings.
 
     White noise has every frequency, so where the band sits IS the
-    instrument; the envelope decides whether it reads as a hit or a hiss.
+    instrument -- that is what `tone` moves; the envelope decides whether it
+    reads as a hit or a hiss.
     Each preset takes its own `seed`, so two of them are audibly different
     instruments rather than the same noise twice.
     """
     return engine.source(
         Program(
             lambda: Noise(seed),
-            lambda: BandPass(colour, q=resonance),
+            lambda: BandPass(tone, q=resonance),
             lambda: Envelope(attack, 0.0, decay, 0.0, 0.0),
             lambda: Tanh(drive),
             lambda: Gain(level),
@@ -39,7 +40,7 @@ def snare(engine: AudioEngine, *, seed: int = 0, level: float = 1.0):
     return noise_drum(
         engine,
         seed=seed,
-        colour=2_400.0,
+        tone=2_400.0,
         resonance=0.65,
         attack=0.0005,
         decay=0.13,
@@ -72,7 +73,7 @@ def shaker(engine: AudioEngine, *, seed: int = 2, level: float = 1.0):
     return noise_drum(
         engine,
         seed=seed,
-        colour=7_200.0,
+        tone=7_200.0,
         resonance=0.62,
         attack=0.0004,
         decay=0.055,

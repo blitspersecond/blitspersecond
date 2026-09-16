@@ -90,7 +90,7 @@ class CacheableResource:
     def __init_subclass__(cls, **kwargs) -> None:
         super().__init_subclass__(**kwargs)
         # Each subclass gets its OWN table. Inheriting one from the base
-        # would have every PixelBuffer and every Sound in one keyspace.
+        # would have every PixelBuffer and every Sample in one keyspace.
         cls._instances = WeakValueDictionary()
         if "__init__" in cls.__dict__:
             raise TypeError(

@@ -257,8 +257,8 @@ player never passed through. The keyboard could never have shown that.
 
 Where a transport cannot carry ordered transitions, the window says so rather
 than pretending — a reader learns the fidelity it has instead of being quietly
-wrong on one platform. `docs/bps/INPUT_STREAM.md` holds the standing detail,
-including the Windows measurement that is still owed.
+wrong on one platform. What each transport can and cannot carry is the table
+above; what is still unmeasured is under *Still open*.
 
 ## Where input stops
 

@@ -4,8 +4,10 @@ These are two different things wearing one word, and keeping them apart is
 the point of this module.
 
 A `Program` is a **blueprint** -- a tuple of zero-argument factories, holding
-no DSP state and belonging to nobody. `Program(Square, Envelope)` is a patch,
-written once and usable everywhere.
+no DSP state and belonging to nobody. `Program(Square, lambda: Envelope(...))`
+is a patch, written once and usable everywhere. An Operator that takes
+construction arguments is wrapped, because what is stored is the factory: a
+bare class is only spellable where the class needs nothing.
 
 A `_BoundProgram` is what you get when that blueprint is wired to a Stage:
 real Operators, with real state, belonging to exactly one lane. Wiring the

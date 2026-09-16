@@ -25,7 +25,8 @@ instead, which is worth having and is not urgent.
 [pads.md](pads.md) owns physical devices and their identity, and hands over
 here. Nothing in the engine imports this today.
 
-The design record is `docs/bps/CONTROLLERS.md`, *Pads and Ports*, with the
-rulings in `docs/bps/PADS_PORT.md`, *Prior art: seats were built, promoted,
-and deleted*, and the archived arc in `deprecated/player.dead/`. The board
-card *Build Ports when a couch game forces it* carries what is open.
+**A seat is not a pad**, and the two were conflated once: an earlier player
+layer was built, promoted and then deleted, and separating the physical device
+from the durable route is the correction that came out of it. That is why this
+page exists at all rather than the work simply being unstarted. The board card
+*Build Ports when a couch game forces it* carries what is open.

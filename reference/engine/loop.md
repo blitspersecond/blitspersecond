@@ -71,14 +71,20 @@ to `Layers` — see [layers.md](../graphics/layers.md).
 legitimately can — the brackets around servicing, and one boundary per
 iteration — and never mutates it.
 
-**Audio, which is not in the engine at all yet.** Worth stating because
-"everything that happens every frame" invites the assumption that it will
-arrive here, and the intent is that it does not: a blocking worker paced by
-output-device backpressure is a third clock domain, referencing neither the
-frame count nor the slot grid, and a tick issues audio *events* rather than
-work for the loop to pump. That is a design position taken in advance, not an
-arrangement this file can be read to confirm. `docs/bps/audio.md` holds it
-until the subsystem lands.
+**Audio, which is serviced nowhere in here.** Worth stating because
+"everything that happens every frame" invites the assumption that it must
+arrive somewhere, and it does not: a blocking worker paced by output-device
+backpressure is a third clock domain, referencing neither the frame count nor
+the slot grid, and a tick issues audio *events* rather than work for this loop
+to pump.
+
+The loop touches it exactly once, and not per frame.
+`engine._audio_driver.start()` runs at the top of `run()` — after the game has
+built its graph, because
+starting freezes the audio topology, and before the presentation baselines
+exist, because opening a device blocks and would otherwise read as a stalled
+first frame. From there the worker runs itself until teardown.
+[audio](../audio/audio.md) owns it.
 
 ### Where time goes
 

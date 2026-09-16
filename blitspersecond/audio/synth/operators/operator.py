@@ -4,12 +4,17 @@ An Operator is one step of DSP. It takes a lane's `Bus`, does its work **in
 place** on that bus's current block, and returns the bus. Nothing is
 allocated, and the block it was handed is the block it hands on.
 
-An Operator has no setters, and a game never calls one. It declares registers
--- `frequency`, `gate`, `level` -- and `control()` hands it the settled values
-plus this block's timestamped writes just before `process()` runs. Whether a
-write lands between two samples is then the Operator's own business, which is
-why a note can start anywhere inside a block rather than on the nearest
-boundary.
+**Arity is declared by inheritance.** `Operator` is unary and positional-only;
+`Compositor` widens that and is only ever the HEAD of a chain. Inheriting from
+the right one is the declaration -- there is no `*inputs` on a unary operator
+to make the two look alike.
+
+An Operator has no setters and a game never calls one. It declares registers
+and `control()` hands it the settled values plus this block's timestamped
+writes just before `process()` runs.
+
+The vocabulary, the costs and the quiescence rules:
+`bps/reference/audio/operators.md`.
 """
 
 from types import MappingProxyType
@@ -130,15 +135,10 @@ class Compositor(Operator):
     """An Operator that consumes more than one lane at once.
 
     Only ever the HEAD of a Program: the chain hands the first operator every
-    prepared lane, and every operator after it the single bus produced so far.
-    So a compositor reduces N lanes to one, and everything downstream of it is
-    ordinary unary work.
+    prepared lane and every operator after it the single bus produced so far.
 
-    Widening the unary base is deliberate and is what keeps arity legible in
-    the type: a class inherits from `Operator` or from `Compositor`, and that
-    is the declaration. The default here is the identity on one lane, so a
-    subclass that forgets to override is a passthrough rather than a silent
-    reducer.
+    The default is the identity on one lane, so a subclass that forgets to
+    override is a passthrough rather than a silent reducer.
     """
 
     def process(self, *inputs: Bus) -> Bus:

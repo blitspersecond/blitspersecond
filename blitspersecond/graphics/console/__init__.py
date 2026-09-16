@@ -40,7 +40,7 @@ package documents itself only as far as someone editing these files needs.
 
 Neighbouring pages: `bps/reference/graphics/layers.md` for the draw order and where
 blend belongs, `bps/reference/graphics/collision.md` for the masks, and
-`docs/bps/INPUT_STREAM.md` for what feeds `echo` until that has a chapter.
+`bps/reference/input/text.md` for what feeds `echo`.
 """
 
 from .charset import CharSet

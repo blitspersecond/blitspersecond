@@ -27,7 +27,6 @@ dependencies = [
     "numpy>=2.4.6",         # every pixel buffer and tile batch
     "pillow>=12.3.0",       # resources/image.py: asset decode
     "sounddevice>=0.5.5",   # audio/driver: PortAudio output
-    "scipy>=1.18.0",        # audio/operators: biquad lfilter
     "numba>=0.66.0",        # audio/operators: stateful kernels
     "colorama>=0.4.6",      # system/monitor/logger.py
 ]

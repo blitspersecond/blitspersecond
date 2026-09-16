@@ -16,35 +16,20 @@ from .operator import Operator
 class _Pan(Operator):
     """One desk strip's stereo placement: -1 hard left, 0 centre, +1 right.
 
-    **Constant power, not constant amplitude.** The two gains are `cos` and
-    `sin` of one quarter-turn, so their squares always sum to one: a sound
-    swept across the image holds its loudness, with no dip as it crosses the
-    middle.
+    **Constant power.** The two gains are `cos` and `sin` of one quarter-turn, so
+    their squares sum to one and a sound swept across the image holds its
+    loudness. Centre is `sqrt(0.5)` per channel, which is not a centred signal
+    made quieter -- the PAIR carries the same power as a hard-panned one.
 
-    Centre is `sqrt(0.5)` in each channel rather than 1.0, and that is not a
-    centred signal being made quieter -- the PAIR still carries the same power
-    as a hard-panned one, which is the whole point. Measured against a
-    hard-panned signal, centre is +0.00 dB in stereo.
+    What the law costs is mono: folded to one channel the halves add as amplitude
+    rather than power, so centre comes back **+3 dB** against hard-panned. That
+    trade, and whether this is the law BPS wants, is open on the board.
 
-    What it does cost is mono. Folded to one channel the two halves add as
-    amplitude rather than power, so a centred signal comes back **+3 dB**
-    against a hard-panned one. That is the real trade this law makes, and the
-    reason DAWs offer several: constant amplitude is the mirror image, mono-
-    safe but with a 3 dB hole in the middle of every stereo sweep. Whether
-    this is the law BPS wants is an open question; see the board.
-
-    `sqrt((1-p)/2)` and `sqrt((1+p)/2)` are equally constant-power and need no
-    transcendentals. They agree with these exactly at hard left, centre and
-    hard right, and differ in between -- this form is linear in ANGLE, that
-    one linear in power. Cost is not the reason to choose: the scalar path
-    here computes one cos and one sin per SEGMENT, not per sample, which
-    measured at 0.029% of a block budget per strip.
-
-    **An Operator for its registers, not for the chain.** It inherits the
-    scope, register and `control` machinery, but mono in and stereo out
-    cannot wear the unary `process(bus)` shape, so the work happens in
-    `route()` and this never appears in a Program. It is structural: the desk
-    builds one per strip and nothing else may.
+    **An Operator for its registers, not for the chain.** It inherits the scope,
+    register and `control` machinery, but mono in and stereo out cannot wear the
+    unary `process(bus)` shape, so the work happens in `route()` and **this must
+    never appear in a Program**. The desk builds one per strip and nothing else
+    may.
     """
 
     scope = RegisterScope.LANE

@@ -1,34 +1,32 @@
 """A Stage: one node of the audio graph, and everything common to all of them.
 
-A Stage is where a `Program` is bound, where registers live, and where the
-graph is *pulled* from. Nothing pushes audio: the engine demands its terminal
-Stage, that Stage demands whatever feeds it, and the demand walks depth-first
-to the sources. One pull per block, and the answer is cached.
+Nothing pushes audio: the engine demands its terminal Stage, that Stage
+demands whatever feeds it, and the demand walks depth-first to the sources.
 
-Stage owns four mechanisms that every concrete form inherits:
+Stage owns four mechanisms every concrete form inherits, and each exists to
+stop a specific bug:
 
-**The settled cache.** A Stage renders at most once per block. Fan-out is
-therefore free and, more importantly, correct -- one oscillator feeding six
-lanes advances its phase once, not six times.
+**The settled cache** -- a Stage renders at most once per block. This is
+correctness before it is speed: one oscillator feeding six lanes must advance
+its phase ONCE, or the six hear different signals.
 
-**The feedback boundary.** A pull that arrives while this Stage is already
-rendering gets its PREVIOUS settled output instead of recursing. That is what
-makes a cycle in the graph terminate and read as a one-block delay rather
-than as a stack overflow.
+**The feedback boundary** -- a pull arriving while this Stage is rendering
+gets its PREVIOUS settled output. That makes a cycle terminate and read as one
+block of delay rather than as a stack overflow.
 
-**Quiescence.** A Stage that is silent and has nothing left to produce is
-skipped entirely, so a hundred idle voices cost nothing. Being wrong in one
-direction is inaudible and in the other direction is a dropped note, so every
-uncertainty here resolves to "stay awake".
+**Quiescence** -- a Stage that is silent with nothing left to produce is
+skipped. **Every uncertainty here resolves to staying awake**: being wrong
+that way costs CPU, and being wrong the other way drops a note.
 
-**Control filtering.** Each Operator is handed only the writes naming
-registers it actually declared, already resolved against any signal driving
-them.
+**Control filtering** -- each Operator is handed only the writes naming
+registers it declared, already resolved against any signal driving them.
 
-Stage deliberately has no `connect()`. Audio inputs are the business of the
-concrete forms -- a source has none, and giving the base one would let a
-source silently become an effect. Register *signals* are common to all of
-them, so those live here.
+Stage deliberately has no `connect()`. Audio inputs belong to the concrete
+forms -- a source has none, and giving the base one would let a source
+silently become an effect. Register *signals* are common to all, so they live
+here.
+
+Stages, lanes and the pull: `bps/reference/audio/graph.md`.
 """
 
 from abc import ABC, abstractmethod

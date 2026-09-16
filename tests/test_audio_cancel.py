@@ -26,7 +26,7 @@ from blitspersecond.audio.synth.engine import AudioEngine
 from blitspersecond.audio.synth.operators import Echo, Gain, Operator, PCM
 from blitspersecond.audio.synth.program import Program
 from blitspersecond.audio.synth.registers import RegisterSpec
-from blitspersecond.audio.sound import Sound
+from blitspersecond.audio.sample import Sample
 
 
 class _Tone(Operator):
@@ -307,7 +307,7 @@ def test_a_lane_target_must_actually_be_connected(engine):
 def _stems(engine, count=10):
     """Ten PCM voices into one desk, as a stem player is shaped."""
     sounds = [
-        Sound(f"stem{index}", np.linspace(-1.0, 1.0, 40_000) * (index + 1) / 10, 48_000)
+        Sample(f"stem{index}", np.linspace(-1.0, 1.0, 40_000) * (index + 1) / 10, 48_000)
         for index in range(count)
     ]
     desk = engine.mixing_desk()

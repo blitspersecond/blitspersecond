@@ -6,8 +6,9 @@ from ..program import Program
 
 #: The TR-808's six square oscillators, moved to the nearest useful primes.
 #: Werner, Abel and Smith measured the originals at 205.3, 304.4, 369.6 and
-#: 522.7 Hz, with the two band-pass sections centred at 540 and 800 --
-#: `docs/references/tr_808_cymbal_a_physically_informed_circuit_bendable_digital.pdf`.
+#: 522.7 Hz, with the two band-pass sections centred at 540 and 800 -- see
+#: *A Physically-Informed, Circuit-Bendable, Digital Model of the Roland
+#: TR-808 Cymbal*, DAFx-14.
 #:
 #: **Primes, so the bank is pairwise coprime -- originally so that it could
 #: be pregenerated.** A set of whole-number frequencies repeats every
@@ -36,7 +37,7 @@ def metal_drum(
     frequencies=METAL_BANK,
     *,
     duty: float = 0.48,
-    colour: float = 6_500.0,
+    tone: float = 6_500.0,
     resonance: float = 1.35,
     attack: float = 0.0005,
     decay: float = 0.045,
@@ -53,7 +54,7 @@ def metal_drum(
     return engine.source(
         Program(
             lambda: Metal(frequencies, duty=duty),
-            lambda: BandPass(colour, q=resonance),
+            lambda: BandPass(tone, q=resonance),
             lambda: Tanh(drive),
             lambda: Envelope(attack, 0.0, decay, 0.0, 0.0),
             lambda: Gain(level),
@@ -65,7 +66,7 @@ def hat(engine: AudioEngine, openness: float = 0.0, *, level: float = 1.0):
     """One hat, anywhere from closed to open.
 
     `openness` moves six tunings together -- longer decay, softer attack,
-    darker colour, less drive -- because that is what opening a hi-hat
+    darker tone, less drive -- because that is what opening a hi-hat
     actually does to the sound, not just how long it lasts.
     """
     openness = float(openness)
@@ -73,7 +74,7 @@ def hat(engine: AudioEngine, openness: float = 0.0, *, level: float = 1.0):
         raise ValueError("openness must be between 0 and 1")
     return metal_drum(
         engine,
-        colour=6_500.0 - 400.0 * openness,
+        tone=6_500.0 - 400.0 * openness,
         resonance=1.35 - 0.15 * openness,
         attack=0.0005 + 0.0005 * openness,
         decay=0.045 + 0.435 * openness,
@@ -88,7 +89,7 @@ def cowbell(engine: AudioEngine, *, level: float = 1.0):
         engine,
         COWBELL_BANK,
         duty=0.47,
-        colour=760.0,
+        tone=760.0,
         resonance=0.90,
         attack=0.001,
         decay=0.16,
@@ -101,7 +102,7 @@ def cymbal(engine: AudioEngine, *, level: float = 1.0):
     """The full bank, bright, and ringing for most of a second."""
     return metal_drum(
         engine,
-        colour=5_800.0,
+        tone=5_800.0,
         resonance=1.45,
         attack=0.001,
         decay=0.80,

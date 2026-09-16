@@ -3,7 +3,7 @@
 The window is where the pointer physically is; 640x360 is what receives it.
 Everything here exists to turn the first into the second.
 
-See `docs/bps/INPUT_STREAM.md`.
+See `bps/reference/input/pointer.md`.
 """
 
 from __future__ import annotations

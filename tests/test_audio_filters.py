@@ -177,21 +177,21 @@ def test_a_cutoff_write_takes_effect_at_its_sample():
 def test_coefficients_are_computed_once_when_nothing_moves():
     low_pass = LowPass(1_000.0)
     _through(low_pass, _tone(300.0, blocks=8))
-    first = low_pass._b
+    first = low_pass._coefficients_cache
     _through(low_pass, _tone(300.0, blocks=4))
-    assert low_pass._b is first
+    assert low_pass._coefficients_cache is first
 
 
 def test_a_write_recomputes_them():
     low_pass = LowPass(1_000.0)
     _through(low_pass, _tone(300.0, blocks=2))
-    before = low_pass._b
+    before = low_pass._coefficients_cache
     _through(
         low_pass,
         _tone(300.0, blocks=2),
         writes=[RegisterWrite(0, None, (("cutoff", 4_000.0),))],
     )
-    assert low_pass._b is not before
+    assert low_pass._coefficients_cache is not before
 
 
 def test_writes_are_offset_from_the_engine_clock():

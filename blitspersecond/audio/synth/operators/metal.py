@@ -32,9 +32,8 @@ class Metal(Operator):
     That period is not only a musical property. **A bank that repeats
     exactly can be generated once and then read back**, which is what the
     frequencies in `METAL_BANK` were chosen to allow. This implementation
-    does not do that yet: it computes every partial every block, at about
-    0.71% of a block budget for six of them against 0.01% for a table
-    lookup. See the board.
+    does not do that yet -- it computes every partial every block. See the
+    board, and `bps/reference/audio/instruments.md`.
 
     **The rectangle is asymmetric on purpose.** Its two levels are `1 - duty`
     and `-duty`, so whatever the duty cycle the mean is exactly zero. A naive

@@ -2,14 +2,17 @@
 
 Audio allocates nothing per block. At 120 advances a second across however
 many voices are sounding, an array built per operator per block is the one
-shape that turns synthesis into a garbage collection problem -- so every
-mono signal in the engine is a row of ONE float32 slab, handed out by
-`BlockPool` and owned by a `Block`.
+shape that turns synthesis into a garbage collection problem -- so every mono
+signal in the engine is a row of ONE float32 slab.
 
-A `Block` is a stable integer handle, not an array. It resolves its row on
-every access, because claiming past the end of the slab reallocates it and
-anything holding the old array would be writing into memory the pool no
-longer reads.
+**A `Block` is a stable integer handle, not an array, and `data` is resolved
+per access.** Caching that array is the bug this module exists to prevent:
+claiming past the end of the slab REALLOCATES it, which can happen on another
+voice, in another part of the graph, between two lines of the operator holding
+it. A view into the old slab keeps working, silently, against memory nothing
+plays.
+
+The pool, the rings and the footprint: `bps/reference/audio/blocks.md`.
 """
 
 from numpy import bool_, copyto, float32, ndarray, zeros
@@ -146,14 +149,12 @@ class StereoBlock:
     """`BLOCK_SIZE` interleaved stereo sample pairs: `(BLOCK_SIZE, 2)` float32.
 
     Shares a name with `Block` and almost nothing else. It owns its array
-    outright instead of renting a pool row, because there is exactly one of
-    these per mixing desk strip plus one per desk -- a handful for the whole
-    engine, against a row per lane per voice on the mono side. A pool earns
-    its keep at the second scale and is pure indirection at the first.
+    outright instead of renting a pool row -- there is one per desk strip plus
+    one per desk, against a row per lane per voice on the mono side.
 
-    Stereo appears only at the very end of the graph. Everything upstream is
-    mono, and a desk strip is where a mono signal is placed between the two
-    speakers, so nothing before that point has a second channel to carry.
+    `swap` exchanges the array itself rather than a row ID: with no slab to be
+    reallocated there is nothing an array reference can go stale against, which
+    is the one problem `Block`'s indirection exists to solve.
     """
 
     def __init__(self):

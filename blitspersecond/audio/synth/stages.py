@@ -148,17 +148,13 @@ class CompositeStage(_InputStage[_Connection]):
 class ApplyStage(_InputStage[_Connection]):
     """Every input meets in ONE Program, at its first Operator.
 
-    The cross-input shape: RingMod multiplying two lanes together, Duck using
-    a second lane to push down the first. The head Operator reduces the lanes
-    to one bus and the rest of the chain is ordinary unary work.
+    **Lanes keep their positions, so a sleeping one is still passed.** Unlike a
+    Composite, where a silent lane can be left out of a sum, here lane order is
+    meaning -- Duck's first input is the signal and its second is the control --
+    so dropping a quiet lane would promote the one after it.
 
-    **Lanes keep their positions, so a sleeping one is still passed.** Unlike
-    a Composite, where a silent lane can simply be left out of a sum, here
-    lane order is meaning -- Duck's first input is the signal and its second
-    is the control. Dropping a quiet lane would promote the one after it.
-
-    Requires a Program. There is no sensible default: with nothing to reduce
-    them, several inputs have no single answer.
+    Requires a Program: with nothing at the head to reduce them, several inputs
+    have no single answer.
     """
 
     def __init__(self, engine: StageEngine, program: Program):

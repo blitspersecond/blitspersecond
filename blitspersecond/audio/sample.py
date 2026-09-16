@@ -1,4 +1,4 @@
-"""`Sound`: a recorded sample, decoded once and shared by everything playing it."""
+"""`Sample`: a recording, decoded once and shared by everything playing it."""
 
 import wave
 from os.path import abspath
@@ -9,38 +9,27 @@ from numpy import asarray, float32, frombuffer, isfinite, ndarray
 from blitspersecond.common import CacheableResource
 
 
-class Sound(CacheableResource):
+class Sample(CacheableResource):
     """Decoded mono samples at their own rate, ready for `PCM` to play.
 
-    Two roads into one constructor, told apart by whether samples come with
-    it:
+        shout = Sample("yeah1.wav")              # decoded from disk
+        bleep = Sample("bleep", data, 8_000)     # from an array in hand
 
-        shout = Sound("yeah1.wav")                 # decoded from disk
-        bleep = Sound("bleep", samples, 8_000)     # from an array in hand
+    **Immutable, and that is what makes it shareable.** The array is read-only
+    from load, so every Stage playing one file reads the same memory and none of
+    them has to know they are sharing. That is also why this interns without
+    offering a `copy()`: there is nothing here to escape from, since a second
+    identical `Sample` would differ in no way a program could observe.
 
-    **Immutable, and that is what makes it shareable.** The array is marked
-    read-only at load and nothing here can change it, so every Stage playing
-    the same file reads the same memory and no one has to know they are
-    sharing. `PCM` indexes straight into it at sample rate rather than taking
-    a copy per voice.
+    **The recording keeps its own rate**, and `PCM` resamples as it plays --
+    resampling at load would fix the pitch at unity forever. `rate` is therefore
+    NOT `SAMPLE_RATE`, and keeping those two apart is the point of storing it.
 
-    That immutability is also why this interns without offering a `copy()`.
-    A `PixelBuffer` needs one because a caller may want to draw into their own
-    pixels, and interning without an escape would make that impossible. There
-    is nothing here to escape from -- a second identical `Sound` would differ
-    from the first in no way a program could observe, so handing back the
-    first is not a compromise. What interning buys is the decode: naming a
-    file in ten places decodes it once.
+    **Mono, by folding.** A stereo file is averaged on the way in, because the
+    graph is mono until the mixing desk and a recording carrying its own image
+    could not be placed.
 
-    **The sample keeps its own rate.** A 22 kHz recording is stored at 22 kHz
-    and resampled by `PCM` as it plays, because that is where the speed
-    register lives -- resampling at load would fix the pitch at unity forever
-    and cost memory to do it.
-
-    **Mono, by folding.** A stereo file is averaged down on the way in. The
-    graph is mono until the mixing desk, where position is a `pan` on a Stage
-    rather than something baked into a recording; a sample carrying its own
-    stereo image could not be placed.
+    The file profile, interning and playback: `bps/reference/audio/sample.md`.
     """
 
     _filename: str
@@ -68,23 +57,23 @@ class Sound(CacheableResource):
         if data is None:
             if rate is not None:
                 raise TypeError(
-                    "Sound(path) reads the rate from the file -- pass samples "
+                    "Sample(path) reads the rate from the file -- pass data "
                     "as well to declare one"
                 )
             self._filename = abspath(source)
             samples, rate = _decode(self._filename)
         else:
             if rate is None:
-                raise TypeError("Sound(name, samples, rate) needs a rate")
+                raise TypeError("Sample(name, data, rate) needs a rate")
             self._filename = source
             samples = asarray(data, dtype=float32).copy()
 
         if samples.ndim != 1 or samples.size == 0:
-            raise ValueError(f"{source}: sound data must be a non-empty mono array")
+            raise ValueError(f"{source}: a Sample must hold a non-empty mono array")
         if not isfinite(samples).all():
-            raise ValueError(f"{source}: sound data has non-finite samples")
+            raise ValueError(f"{source}: sample data has non-finite values")
         if int(rate) <= 0:
-            raise ValueError(f"{source}: sound sample rate must be positive")
+            raise ValueError(f"{source}: sample rate must be positive")
 
         samples.setflags(write=False)
         self._data = samples
@@ -102,7 +91,12 @@ class Sound(CacheableResource):
 
     @property
     def rate(self) -> int:
-        """The recording's own sample rate in Hz, not the engine's."""
+        """The recording's own rate in Hz.
+
+        **Not `SAMPLE_RATE`**, and keeping the two apart is the whole point of
+        storing it: this is what the file was recorded at, and `PCM` resamples
+        from here onto the engine's rate as it plays.
+        """
         return self._rate
 
     @property
@@ -115,7 +109,7 @@ class Sound(CacheableResource):
 
     def __repr__(self) -> str:
         return (
-            f"Sound({self._filename!r}, {len(self._data)} samples "
+            f"Sample({self._filename!r}, {len(self._data)} samples "
             f"@ {self._rate}Hz, {self.duration:.2f}s)"
         )
 

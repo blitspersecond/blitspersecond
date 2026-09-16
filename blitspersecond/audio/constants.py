@@ -11,29 +11,22 @@ SAMPLE_RATE = 48_000
 #: writes exactly this many samples, every Block is this long, and the clock
 #: moves by this much or not at all.
 #:
-#: **400 is the knee of the cost curve, and that is the whole reason for it.**
-#: Block size trades CPU against responsiveness: fixed per-block overhead is
-#: amortised over a longer block while the working set stays resident, so cost
-#: falls as the block grows and every wait gets longer. Swept offline on a
-#: Ryzen 7 5700X3D with 32 voices across 128 stages, the curve is flat above
-#: 400 and steep below it -- 800 saves 5 points of CPU and doubles every wait,
-#: while 200 costs 10 points more to save four milliseconds. 400 is where the
-#: marginal CPU per millisecond of latency turns over. The numbers, and the
-#: method: `docs/bps/synth-findings.md`.
+#: **400 is the knee of a cost curve, and nothing else.** Two things follow,
+#: and both are easy to get wrong:
 #:
-#: It is also exactly half a 60Hz simulation step (48000/60 == 800), and that
-#: is a coincidence with no authority in it. It is convenient -- one tick is
-#: two blocks with no remainder, which is what would let a game-facing "in N
-#: frames" become samples without a rounding rule -- but it is not why the
-#: number is 400, and it must not be defended as though it were. **If a knee
-#: and a frame relationship ever disagree, the knee wins.** The knee is a fact
-#: about one CPU's cache and context-switch costs rather than about audio, so
-#: another machine gets the sweep re-run, not this number copied.
+#: - It is also exactly half a 60Hz step (48000/60 == 800), and that is a
+#:   COINCIDENCE with no authority in it. Convenient, but not why the number
+#:   is 400, and it must not be defended as though it were. **If a knee and a
+#:   frame relationship ever disagree, the knee wins.**
+#: - The knee is a fact about one CPU's cache and context-switch costs rather
+#:   than about audio, so another machine gets the sweep RE-RUN, not this
+#:   number copied.
 #:
-#: Deliberately independent of the host's period. The output stream is opened
-#: with `blocksize=0`, leaving that to whichever of PipeWire, ALSA, WASAPI,
-#: USB or Bluetooth is on the other end; one blocking write carries one whole
-#: block without forcing the device to adopt this size.
+#: Deliberately independent of the host's period: the output stream opens with
+#: `blocksize=0`, so one blocking write carries one whole block without
+#: forcing the device to adopt this size.
+#:
+#: The sweep, the figures and the method: `bps/reference/audio/audio.md`.
 BLOCK_SIZE = 400
 
 #: `[0, 1, 2, ... BLOCK_SIZE-1]`, for oscillators turning a per-sample step

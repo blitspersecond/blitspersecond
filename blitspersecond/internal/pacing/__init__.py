@@ -52,7 +52,8 @@ Two things this package must never become, both of which look like
 simplifications from inside it: something that grants ticks, and something
 that polls every slot. `bps/reference/engine/pacing.md` is the authority --
 the design, the measurements, the alternatives it refuses, and what is still
-open. `docs/multi-display-findings.md` owns the multi-output observations.
+open. Multi-output behaviour is observed but not yet written up; the board
+carries what is open there.
 
 The spatial counterpart -- WHERE the internal screen lands on the window --
 is `internal/window/viewport.py`, and is a much simpler problem.

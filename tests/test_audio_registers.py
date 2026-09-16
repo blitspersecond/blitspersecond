@@ -67,15 +67,15 @@ def test_true_is_not_a_frequency():
 def test_a_structured_value_is_kept_as_itself():
     """PCM's `sound` holds a SoundSpec; nothing may rebuild it from a number."""
 
-    class Sound:
+    class Sample:
         pass
 
-    original = Sound()
+    original = Sample()
     spec = RegisterSpec(original)
 
-    assert spec.normalize("sound", original) is original
+    assert spec.normalize("sample", original) is original
     with pytest.raises(TypeError):
-        spec.normalize("sound", 3.0)
+        spec.normalize("sample", 3.0)
 
 
 def test_a_string_is_never_a_number():

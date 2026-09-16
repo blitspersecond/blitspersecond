@@ -21,7 +21,7 @@ from numpy import (
 from ..bus import Bus
 from ...constants import BLOCK_SIZE, SAMPLE_RATE
 from ..registers import RegisterSpec, RegisterWrite
-from ...sound import Sound
+from ...sample import Sample
 from .operator import Operator
 
 #: The block's sample offsets in float64, which the shared float32 ramp in
@@ -34,62 +34,41 @@ _OFFSETS.setflags(write=False)
 
 
 class PCM(Operator):
-    """Play a `Sound` from its start on a rising gate, resampled as it goes.
+    """Play a `Sample` from its start on a rising gate, resampled as it goes.
 
-    A sampler voice, and deliberately no more than that: it is a source like
-    `Sine` or `Noise`, sits at the head of a Program, and everything that
-    happens to a recording afterwards -- envelope, filter, pan -- is the same
-    vocabulary anything else gets. A drum machine is `PCM` into `Gain`; a
-    voice line is `PCM` on its own.
+    A sampler voice and no more: a source like `Sine` or `Noise`, at the head of a
+    Program, with envelope, filter and pan downstream as for anything else.
 
-    **The gate edge is what starts it, not the write.** Raising `gate`
-    rewinds to the cue point and plays; lowering it stops dead. Holding it
-    high does not loop or retrigger, so a sound that has run out stays
-    finished until the gate falls and rises again -- which makes a rapid
-    retrigger a deliberate pair of writes rather than something that can
-    happen by accident.
+    **The gate edge is what starts it, not the write.** Raising `gate` rewinds to
+    the cue point and plays; lowering it stops dead. Holding it high does not loop
+    or retrigger, so a rapid retrigger is a deliberate pair of writes.
 
-    **`playhead` is the cue point AND the seek**, in seconds, and which of
-    the two it is depends on whether it is written. Holding a value, it is
-    where the next gate edge starts from. WRITTEN, it moves the head then and
-    there -- under a running sound that is a jump cut, under a stopped one it
-    parks the head and waits. Scrubbing is a stream of writes; seeking is
-    one; playing a region is a write and a gate, with a second gate write
-    timed at the out point.
+    **`playhead` is the cue point AND the seek**, in seconds, and which it is
+    depends on whether it is WRITTEN. Holding a value it is where the next gate
+    edge starts; written, it moves the head there and then. Seconds rather than
+    samples so it survives `sample` being written and means the same thing at
+    every recorded rate.
 
-    A sampler never touches it. The default is zero, so a gate edge rewinds
-    to the start exactly as it would if the register did not exist -- which
-    is why a drum hit is still one write and not two.
+    **`speed` is a resampling ratio, and so it is a pitch.** There is no
+    time-stretching. **Speed zero freezes rather than stops** -- it holds the
+    sample it reached, and `gate` is what silences a voice.
 
-    **`speed` is a resampling ratio, and so it is a pitch.** The recording's
-    own rate is the other half: a 22 kHz sample at speed 1.0 plays at its
-    recorded pitch by reading 0.459 of a stored sample per output sample,
-    interpolating between neighbours. Doubling the speed raises it an octave
-    and halves its duration, exactly as a tape or a tracker does, because
-    there is no time-stretching here and pretending otherwise would be a
-    different and much larger instrument.
+    Writing a different `Sample` restarts at the cue point, because a position
+    measured in the old recording means nothing in the new one.
 
-    **Speed zero freezes rather than stops.** It holds whichever sample it had
-    reached, which is a click or a drone rather than silence, and `gate` is
-    what silences a voice. A speed register that stopped the sound would be a
-    second gate with different manners.
-
-    Writing a different `Sound` to the `sound` register restarts it at the
-    cue point, because a position measured in the old recording means nothing
-    in the new one. In seconds it at least means the same thing in both,
-    which is the other half of why `playhead` is not in samples.
+    The full contract: `bps/reference/audio/sample.md`.
     """
 
-    def __init__(self, sound: Sound, speed: float = 1.0):
-        if not isinstance(sound, Sound):
-            raise TypeError(f"expected Sound, got {type(sound).__name__}")
+    def __init__(self, sample: Sample, speed: float = 1.0):
+        if not isinstance(sample, Sample):
+            raise TypeError(f"expected Sample, got {type(sample).__name__}")
         self.registers = MappingProxyType(
             {
-                "sound": RegisterSpec(sound),
+                "sample": RegisterSpec(sample),
                 "speed": RegisterSpec(float(speed), minimum=0.0, unit="ratio"),
                 # Where a gate edge starts from, and where a write jumps to.
                 # Seconds rather than the recording's own samples, so it
-                # survives the `sound` register being written and means the
+                # survives the `sample` register being written and means the
                 # same thing at every recorded rate.
                 "playhead": RegisterSpec(0.0, minimum=0.0, unit="seconds"),
                 "gate": RegisterSpec(False),
@@ -102,7 +81,7 @@ class PCM(Operator):
         #: Whether a gate edge has started it and it has not run out.
         self.active = False
 
-        self._sound = sound
+        self._sample = sample
         self._gate = False
         self._sounded_this_block = False
         self._clock = 0
@@ -128,24 +107,24 @@ class PCM(Operator):
 
     def process(self, bus: Bus) -> Bus:
         self._sounded_this_block = False
-        sound = cast(Sound, self._registers["sound"])
+        sample = cast(Sample, self._registers["sample"])
         speed = cast(float, self._registers["speed"])
         playhead = cast(float, self._registers["playhead"])
         gate = cast(bool, self._registers["gate"])
         # No seek at the top of a block: the settled view still carries
         # whatever was last written, and re-reading it as a seek would drag
         # the head back to the cue point a hundred and twenty times a second.
-        self._synchronise(sound, gate, playhead, seeked=False)
+        self._synchronise(sample, gate, playhead, seeked=False)
 
         output = bus.current.data
         start = 0
         for write in self._writes:
             stop = write.timestamp - self._clock
-            self._generate(output, start, stop, sound, speed)
+            self._generate(output, start, stop, sample, speed)
             seeked = False
             for name, value in write.values:
-                if name == "sound":
-                    sound = cast(Sound, value)
+                if name == "sample":
+                    sample = cast(Sample, value)
                 elif name == "speed":
                     speed = cast(float, value)
                 elif name == "playhead":
@@ -153,10 +132,10 @@ class PCM(Operator):
                     seeked = True
                 else:
                     gate = cast(bool, value)
-            self._synchronise(sound, gate, playhead, seeked)
+            self._synchronise(sample, gate, playhead, seeked)
             start = stop
 
-        self._generate(output, start, BLOCK_SIZE, sound, speed)
+        self._generate(output, start, BLOCK_SIZE, sample, speed)
         return bus
 
     def _output_quiescent(self, output: Bus, input_quiescent: bool) -> bool:
@@ -166,30 +145,30 @@ class PCM(Operator):
         # has not had a chance to emit anything yet.
         return not self._sounded_this_block and not self.active
 
-    def _synchronise(self, sound: Sound, gate: bool, playhead: float, seeked: bool):
+    def _synchronise(self, sample: Sample, gate: bool, playhead: float, seeked: bool):
         """Fold register values into playback state, at one instant.
 
         `seeked` says the playhead was WRITTEN here, which is not the same as
         it holding a value. A write moves the head; a value merely says where
         the next gate edge will start.
         """
-        if sound is not self._sound:
+        if sample is not self._sample:
             # A new recording starts at the cue point, and inherits whatever
             # the gate is doing: swapped in under a held gate, it plays.
-            self._sound = sound
-            self.position = playhead * sound.rate
+            self._sample = sample
+            self.position = playhead * sample.rate
             self.active = gate
         if gate != self._gate:
             self._gate = gate
             if gate:
-                self.position = playhead * sound.rate
+                self.position = playhead * sample.rate
             self.active = gate
         elif seeked:
-            # Mid-playback, so the head moves under a sound that is already
+            # Mid-playback, so the head moves under a sample that is already
             # running. Stopped, it moves silently and waits there.
-            self.position = playhead * sound.rate
+            self.position = playhead * sample.rate
 
-    def _generate(self, output, start: int, stop: int, sound: Sound, speed: float):
+    def _generate(self, output, start: int, stop: int, sample: Sample, speed: float):
         length = stop - start
         if length <= 0:
             return
@@ -199,11 +178,11 @@ class PCM(Operator):
             return
         self._sounded_this_block = True
 
-        data = sound.data
+        data = sample.data
         last = len(data) - 1
         # One output sample advances this far through the recording: the two
         # rates and the speed register, in one number.
-        step = sound.rate / SAMPLE_RATE * speed
+        step = sample.rate / SAMPLE_RATE * speed
 
         if step == 0.0:
             samples.fill(data[min(int(self.position), last)])

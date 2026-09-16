@@ -77,7 +77,7 @@ class InputBoundary:
           not perform would be inventing input.
 
         One call, three answers, each correct for its device. See
-        `docs/bps/INPUT_STREAM.md`, *Held state has to be reconciled too*.
+        `bps/reference/input/keyboard.md`, on reconciling against ground truth.
         """
         self.keyboard.flush()
         self.mouse.flush()

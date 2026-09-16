@@ -64,8 +64,8 @@ stub.
 
 What the player did, settled onto the engine's frame boundary. The overview
 page carries the shape — the cut every device settles onto, one flush with
-three answers, and where the devices genuinely differ. `docs/bps/` holds the
-standing authority for transport fidelity and the Windows measurement.
+three answers, and where the devices genuinely differ, including which
+transports can report a fidelity the others cannot.
 
 | | |
 |---|---|
@@ -78,10 +78,27 @@ standing authority for transport fidelity and the Windows measurement.
 | [evdev.md](input/evdev.md) | the Linux transport: find, name, calibrate, read |
 | [ports.md](input/ports.md) | four durable routes for four people on a sofa — **deferred**, and the page says why |
 
-## Not started
+## [Audio](audio/audio.md)
 
-Audio. `docs/bps/audio.md` holds the standing authority until its chapter
-exists.
+Making a sound, from a wave in an array to a block the sound card has taken.
+The overview page carries the shape — the 400-sample block, the pulled graph,
+control as timestamped register writes, and the one thread in the engine.
+
+**(Alpha)** marks the subject, not one chapter. The machinery is settled; the
+layer a game reaches for does not exist, so a game builds voices and schedules
+writes at sample offsets. The overview says exactly what is missing.
+
+| | |
+|---|---|
+| [graph.md](audio/graph.md) | stages, lanes and the pull: the four forms, the settled cache, and how a silent voice costs nothing |
+| [control.md](audio/control.md) | registers and the timeline: what a write is, when it lands, and driving a register from audio |
+| [blocks.md](audio/blocks.md) | one slab, stable row IDs, the delay ring, and why nothing is allocated per block |
+| [operators.md](audio/operators.md) | the 24 operators, what each costs, and arity declared by inheritance |
+| [sample.md](audio/sample.md) | a recording and playing one: the accepted WAV profile, and `PCM` |
+| [instruments.md](audio/instruments.md) | the presets: three roots, eight names, and the level they are not levelled against |
+| [transport.md](audio/transport.md) | the device thread and the offline renderer: the blocking write as a clock |
+
+## Not started
 
 **Capture methodology is not a chapter.** Taking and reading a frame-pacing
 capture is a runbook, useless away from a terminal, so it lives in the tools:
@@ -91,5 +108,6 @@ says what the numbers have to be; the tools say how to get them.
 
 ---
 
-`docs/bps/writing-a-reference-chapter.md` is the process these are written by,
-including when a chapter is due and what happens to the source once one ships.
+Every chapter states what its subject does today, with the figures measured
+rather than estimated, and says plainly where something is unresolved. Where a
+page reads thin, the subject is thin — **(Alpha)** marks that explicitly.

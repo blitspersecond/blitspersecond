@@ -103,6 +103,7 @@ to write. Reading `bps.clock.frame` is reading [clock.md](clock.md)'s subject.
 | `bps.width`, `bps.height` | 640x360, fixed | [display.md](display.md) |
 | `bps.layers` | the draw order | [layers.md](../graphics/layers.md) |
 | `bps.keyboard` | the keyboard, cut onto the frame boundary | [input](../input/input.md) |
+| `bps.audio` | the audio graph: build voices on it, schedule writes to them | [audio](../audio/audio.md) |
 | `bps.metrics`, `bps.logger`, `bps.config` | the sinks, and the one that is not | [system](../system/system.md) |
 | `bps.background` | the clear colour. **Temporary**, and its own docstring says what deletes it | — |
 
@@ -158,14 +159,18 @@ what a half-built engine does when warm-up fails.
 | presentation | panel slots | the panel, discovered by measurement |
 | audio | samples, as an integer | the output device's backpressure |
 
-**Audio is a design position taken in advance, not something the tree can be
-read to confirm** — it is not in the engine at all yet. The intent is that it
-does not arrive in the loop: a blocking worker paced by device backpressure
-references neither the frame count nor the slot grid, and a tick issues audio
-*events* rather than work for the loop to pump. Nothing shares a timeline with
-anything else, so there is nothing for a sliding grid to slide against.
-`docs/bps/audio.md` holds that position until the subsystem lands;
-[clock.md](clock.md) argues why it does not contradict the fixed step.
+**Audio does not arrive in the loop, and the tree confirms it.** A blocking
+worker paced by output-device backpressure references neither the frame count
+nor the slot grid, and a tick issues audio *events* rather than work for the
+loop to pump. Nothing shares a timeline with anything else, so there is
+nothing for a sliding grid to slide against. It is the engine's only thread
+and its only exception to polling at the frame cut, because the device's
+blocking write is the one back-pressure signal that comes from the hardware
+rather than from a guess about it.
+
+The loop's single point of contact is `start()`, at the top of `Loop.run`:
+[audio](../audio/audio.md) owns the rest, and [clock.md](clock.md) argues why
+a third clock domain does not contradict the fixed step.
 
 ## Where the engine stops
 

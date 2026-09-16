@@ -130,7 +130,7 @@ class BlitsPerSecond(metaclass=SingletonMeta):
         # the things a game reaches for should not be owned by the screen it
         # is deliberately not allowed to name.
         self._layers = Layers()
-        # Sound. Constructed here rather than during warm-up because
+        # Sample. Constructed here rather than during warm-up because
         # neither touches a device: an AudioEngine is a graph and a Driver is
         # a thread that has not started. What blocks is `start()`, below. One
         # of each, for the life of the process -- there is no second engine
