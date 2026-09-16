@@ -278,7 +278,8 @@ contract with it, and the loop stops consulting the lifecycle mid-iteration at
 all — it would only bracket it. The real question is whether anything else will
 ever want to land at that boundary, and backgrounding is the obvious candidate:
 it currently sits *outside* it, hand-latched as `was_backgrounded` in
-`Loop.run`. On the board as *Bottom out backgrounding and OS sleep behaviour*.
+`Loop.run`. The board card that held this question is declined; the decision
+belongs with *Settle and enforce the lifecycle transition table*.
 
 **OS sleep is a smaller hazard than the pacing code braces for, on Linux at
 least.** `perf_counter()` is `CLOCK_MONOTONIC`, which does not count time spent
@@ -286,7 +287,12 @@ asleep — measured on the reference box as 70,801s (~19.7h) of sleep the
 monotonic clock never saw. The process freezes, the pacing clock freezes with
 it, and the loop continues on resume. Windows is the unknown: `perf_counter()`
 is `QueryPerformanceCounter` there, and nothing has logged it either side of a
-real suspend. What remains after that is display-side — surface validity, and a
+real suspend — nor will it here, because the Windows test machine has sleep
+disabled by design so that a shared NTFS volume can be handed over safely. The
+reading that would answer it without an instrumented suspend is preserved on
+the declined card: `QueryInterruptTime` is biased and
+`QueryUnbiasedInterruptTime` is not, so whichever of them `perf_counter()`
+tracks after any sleep is the answer. What remains after that is display-side — surface validity, and a
 refresh rate that changed while outputs were re-enumerated — which lands on
 `Display`.
 

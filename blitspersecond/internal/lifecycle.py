@@ -52,6 +52,11 @@ class EngineState(Enum):
     `bps/reference/engine/lifecycle.md` before removing it -- the arc lifts
     out as one seam, but its single call site is the loop's ONLY
     per-iteration lifecycle boundary, which goes with it.
+
+    Still open, and no longer waiting on evidence: the board card that was to
+    supply it is declined, because the Windows test machine has sleep disabled
+    by design. The question was never about sleep anyway -- it is whether
+    anything else will ever want that boundary.
     """
 
     CREATED = auto()
