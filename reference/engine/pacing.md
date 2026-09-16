@@ -158,6 +158,12 @@ the design has been broken rather than tuned badly.
 | 40Hz cap, as a Steam Deck sets | below the crossover: presentation thins out and the simulation rate holds |
 | two unlike outputs | drag the window between them. The simulation rate must not change — that is the decoupling proof, and on Linux the *presentation* rate wrongly will not either |
 
+The rebuilt Windows engine passed the two-output round trip on 2026-09-16. On
+the 144 Hz primary, the 60 Hz secondary, both straddles and the return, every
+four-second phase delivered 59.44–59.98 simulation frames per second. The
+presentation clock changed from DWM's measured 143.998848 Hz to a notional
+60 Hz grid and back while the simulation stayed at its 60 fps target.
+
 Beyond steady state, five runs are worth taking: **15 minutes or more**, which
 is what exposes a slow beat; **occlusion**, where stall detection must fire and
 recover; **suspend and resume**, where no catch-up burst may appear;

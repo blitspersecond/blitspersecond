@@ -223,10 +223,10 @@ intent belonging to whoever reads it — so an axis stays a value.
 
 | | keyboard | pointer | pads |
 |---|---|---|---|
-| transport | the window system | the window system | the kernel, one file per pad |
+| transport | the window system | the window system | evdev on Linux; GameInput on Windows |
 | how many | one, by construction | one, by construction | unbounded, no cap |
 | identity | none needed | none needed | a fingerprint, and a stable id on first deliberate use |
-| normalisation at ingress | the identity function | window pixels to screen pixels | evdev codes to the closed vocabulary |
+| normalisation at ingress | the identity function | window pixels to screen pixels | transport codes to the closed vocabulary |
 | after a gap in ticking | assumes neutral | keeps its position | asks the device |
 | absence of a control | — | a mouse only proves a button by pressing it | a pad only proves an axis by moving it |
 | vendor differences | the OS has already applied them | the OS has already normalised them; no mappers, ever | a mapper per family, editorial only |
@@ -255,10 +255,11 @@ evdev hands over the kernel's own groups, so two axes the kernel says moved
 together become *one* `DIRECTION` fact rather than an intermediate position the
 player never passed through. The keyboard could never have shown that.
 
-Where a transport cannot carry ordered transitions, the window says so rather
-than pretending — a reader learns the fidelity it has instead of being quietly
-wrong on one platform. What each transport can and cannot carry is the table
-above; what is still unmeasured is under *Still open*.
+On Windows the reader walks `GetNextReading` from its previous packet rather
+than sampling `GetCurrentReading` once per tick. At 60 Hz on the measured Xbox
+pad, current-state polling saw 405 changes while the history walk retained 521,
+including batches of three packets in one tick. The history cursor therefore
+preserves paths that a final-state poll has already flattened.
 
 ## Where input stops
 
@@ -288,6 +289,6 @@ said once.
 
 **Ports is deferred**, not missing — see [ports.md](ports.md).
 
-**A Windows pad's history is unmeasured.** Whether a pad window there can carry
-ordered transitions or must declare itself a diffed snapshot is a measurement
-nobody has taken, and it is carded.
+**The wider Windows hardware survey remains open.** GameInput history,
+disconnect/reconnect and cursor expiry are measured; names, control claims and
+link identity still need the rest of the physical pad set.

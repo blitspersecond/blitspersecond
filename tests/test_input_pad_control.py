@@ -3,6 +3,8 @@
 See `docs/bps/PADS_PORT.md`.
 """
 
+import sys
+
 import pytest
 
 from blitspersecond.input.pads import Axis, Button, Direction, direction
@@ -139,6 +141,7 @@ def test_a_digital_stick_reaches_full_deflection_rather_than_a_fraction():
 # -- which axis is which, per device --------------------------------------
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="requires Linux evdev ioctl")
 def test_a_declared_but_empty_axis_is_not_an_axis():
     # Real pads do this for controls they do not have: both Bluetooth Xbox
     # pads on the test desk declare ABS_RX/ABS_RY with range (0, 0), and a

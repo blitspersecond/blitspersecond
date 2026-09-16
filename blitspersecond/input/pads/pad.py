@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, auto
 from types import MappingProxyType
-from typing import Mapping
+from typing import Mapping, NamedTuple
 
 from blitspersecond.common import fps
 from blitspersecond.input.stream import InputStream, InputWindow
@@ -106,6 +106,19 @@ class PadScan:
 
 
 PadWindow = InputWindow[PadScan, PadFact]
+
+
+class Reading(NamedTuple):
+    """One observed full-state packet from a snapshot-shaped transport.
+
+    GameInput readings are device packets, but each carries a complete
+    gamepad state. Keeping this type distinct from `Snapshot` preserves the
+    important truth at the cut: walking packets is observed history, while a
+    snapshot is state asked for after history was unavailable.
+    """
+
+    buttons: frozenset[int]
+    axes: dict[int, int]
 
 
 #: Travel past which a trigger reads as a button. XInput's own figure.
@@ -211,9 +224,15 @@ class PadIngress:
             self._replace(self._reader.snapshot(), pressed, released, facts)
 
         for item in self._reader.read():
-            if isinstance(item, Snapshot):
-                resynced = True
-                self._replace(item, pressed, released, facts)
+            if isinstance(item, (Snapshot, Reading)):
+                resynced = resynced or isinstance(item, Snapshot)
+                self._replace(
+                    item,
+                    pressed,
+                    released,
+                    facts,
+                    changed_only=isinstance(item, Reading),
+                )
             else:
                 self._apply(item, pressed, released, facts)
 
@@ -278,7 +297,16 @@ class PadIngress:
                 )
             )
 
-    def _axis(self, code: int, raw: int, pressed, released, facts) -> None:
+    def _axis(
+        self,
+        code: int,
+        raw: int,
+        pressed,
+        released,
+        facts,
+        *,
+        changed_only: bool = False,
+    ) -> None:
         name = self._reader.layout.axes.get(code)
         if name is None:
             return  # a control outside the vocabulary; dropped here
@@ -289,6 +317,8 @@ class PadIngress:
             # raw would be worse than not reporting it.
             return
         value = span.travel(raw) if trigger else span.centred(raw)
+        if changed_only and self._axes[name] == value:
+            return
         self._axes[name] = value
         facts.append(
             PadFact(PadEvent.AXIS, None, name, value, None, frozenset(self._held))
@@ -321,7 +351,15 @@ class PadIngress:
                 PadFact(PadEvent.RELEASE, button, None, 0.0, None, before)
             )
 
-    def _replace(self, snapshot, pressed, released, facts) -> None:
+    def _replace(
+        self,
+        snapshot,
+        pressed,
+        released,
+        facts,
+        *,
+        changed_only: bool = False,
+    ) -> None:
         """Apply what the pad says is true, discarding what we thought.
 
         A snapshot REPLACES rather than adds: a button absent from it is up,
@@ -341,7 +379,14 @@ class PadIngress:
             elif code == ABS_HAT0Y:
                 hat = (hat[0], raw)
             else:
-                self._axis(code, raw, pressed, released, facts)
+                self._axis(
+                    code,
+                    raw,
+                    pressed,
+                    released,
+                    facts,
+                    changed_only=changed_only,
+                )
         if hat != self._hat:
             self._hat = hat
             self._direction = direction(*hat)

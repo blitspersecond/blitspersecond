@@ -21,6 +21,7 @@ from .pad import (
     PadEvent,
     PadFact,
     PadIngress,
+    Reading,
     PadScan,
     PadWindow,
 )
@@ -52,6 +53,7 @@ __all__ = [
     "PadEvent",
     "PadFact",
     "PadIngress",
+    "Reading",
     "Pads",
     "PadMapper",
     "PadReader",

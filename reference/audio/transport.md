@@ -65,6 +65,13 @@ being paused is not a reason to tear down an audio device, and reopening one
 is where the clicks live. `close()` is terminal teardown at process exit,
 beside the display closing.
 
+The worker publishes its active stream, and `close()` aborts that stream before
+joining the thread. The abort is intentionally issued from the closing thread:
+it releases a `write()` whose endpoint has stopped consuming rather than
+leaving orderly process teardown parked inside PortAudio. A deterministic
+blocked-write test covers that ordering; ordinary WASAPI open, write and close
+were also exercised on Windows without an xrun.
+
 ## A mono output is refused at the boundary
 
 The device Stage must be a `MixingDesk`. The driver clips the settled stereo
@@ -87,18 +94,17 @@ ALSA view, which is the right answer: the engine mixes into the same sink as
 everything else on the desktop rather than seizing the card or bypassing the
 user's volume.
 
-**Windows raises.**
+**Windows opens WASAPI's own current default output.** PortAudio's overall
+default there can be a legacy MME endpoint even when the same endpoint is
+available through WASAPI, so falling through to `None` silently picks the
+worse host API. **A wrong-but-working device reaches a player as bad latency
+and never as an error**, so the engine enumerates the host APIs, selects
+`Windows WASAPI`, and uses that host's `default_output_device`. If WASAPI or
+its default is absent, startup refuses rather than falling back.
 
-```
-NotImplementedError: Windows output selection is not built yet.
-```
-
-PortAudio's overall default there can be a legacy MME endpoint even when the
-useful one is available through WASAPI, so falling through to `None` would
-silently pick the worse device and sound like a mystery. **A wrong-but-working
-device reaches a player as bad latency and never as an error**, so the engine
-refuses instead. Selecting WASAPI's current default needs a topology query
-written against real hardware, which is its own pass.
+Measured on the native Windows test machine: PortAudio's process-wide default
+was device 5, `Headphones (MAJOR III BLUETOOTH)` through MME; WASAPI named the
+same endpoint as its default at device 20. The engine chooses 20.
 
 ## Diagnostics
 
@@ -183,10 +189,10 @@ stop asking.
 | threads | one, and this is it |
 | device output | stereo `(400, 2)` float32; mono is refused |
 | stream | 48 kHz, `blocksize=0`, latency requested as `"low"` |
-| platforms | Linux and macOS take PortAudio's default; **Windows raises** |
+| platforms | Linux and macOS take PortAudio's default; Windows takes WASAPI's default output |
 | pause / resume | none, by design |
 | restart after `close()` | `RuntimeError` |
 | rendering a driven engine | `RuntimeError`, and the reverse too |
 | `render()` duration | finite and non-negative; rounds up to whole blocks |
 | WAV output | 16-bit PCM at 48 kHz, mono or stereo; three channels raise |
-| `close()` | joins the worker with no timeout — see the Windows shutdown card |
+| `close()` | aborts the active stream, then joins the worker |

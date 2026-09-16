@@ -25,7 +25,21 @@ def no_real_pads(monkeypatch):
     Without this the boundary opens every pad on the developer's desk, and
     the suite would pass or fail depending on what was charged.
     """
-    monkeypatch.setattr(pads_module, "discover", dict)
+    class NoPads:
+        @staticmethod
+        def discover():
+            return {}
+
+        @staticmethod
+        def open_pad(_device):
+            raise AssertionError("there is no device to open")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        pads_module, "_transport_for_platform", lambda _logger: NoPads()
+    )
 
 
 def _boundary(rate: fps = fps.SIXTY):

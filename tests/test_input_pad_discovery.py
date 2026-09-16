@@ -8,6 +8,8 @@ reproducible without the pad.
 See `docs/bps/PADS_PORT.md`, *Identity: measured, not assumed*.
 """
 
+import sys
+
 import pytest
 
 from blitspersecond.input.pads import DualSenseMapper, XboxMapper
@@ -282,6 +284,7 @@ def test_the_ioctl_number_is_eviocgabs():
     assert _read_request(0x40 + ABS_X, 24) == 0x80184540
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="requires Linux evdev ioctl")
 def test_asking_a_pipe_for_axes_is_empty_rather_than_an_explosion():
     # Every axis answers ENOTTY on something that is not an input device, and
     # that is the same path a pad takes for an axis it does not have.
@@ -401,6 +404,7 @@ def test_the_order_of_reports_is_the_path_the_stick_took():
     os.close(writer)
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="requires Linux evdev ioctl")
 def test_history_before_a_drop_survives_and_everything_after_it_does_not():
     # A pipe answers ENOTTY to both ioctls, so the snapshot here is the empty
     # one. What is being asserted is the SHAPE: valid history, then a
@@ -423,6 +427,7 @@ def test_history_before_a_drop_survives_and_everything_after_it_does_not():
     os.close(writer)
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="requires Linux evdev ioctl")
 def test_the_snapshot_is_taken_after_the_drain_not_at_the_drop():
     # Reports between the drop and now are already reflected in what the
     # device says is true, so replaying them would apply stale history on top
@@ -436,6 +441,7 @@ def test_the_snapshot_is_taken_after_the_drain_not_at_the_drop():
     os.close(writer)
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="requires Linux evdev ioctl")
 def test_a_pad_keeps_working_after_a_drop():
     # An earlier draft muted the device permanently once desynced. A drop
     # loses state; it must not lose the pad.
@@ -450,6 +456,7 @@ def test_a_pad_keeps_working_after_a_drop():
     os.close(writer)
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="requires Linux evdev ioctl")
 def test_a_snapshot_can_be_asked_for_without_a_drop():
     # Resume wants exactly this: ticks stopped, the world moved on, and the
     # question is what is true now rather than what happened.

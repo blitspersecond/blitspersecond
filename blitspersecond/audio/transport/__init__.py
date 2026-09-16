@@ -17,8 +17,8 @@ as the single exception to the engine's poll-at-the-cut rule. **For the
 offline path there is no clock**, which is what makes a render deterministic
 and diffable.
 
-`devices.py` is where per-platform choices live, and Windows deliberately
-raises rather than opening the wrong endpoint.
+`devices.py` is where per-platform choices live. Windows selects WASAPI's own
+default output rather than accepting PortAudio's legacy MME default.
 
 The transports, the handshake and the device policy:
 `bps/reference/audio/transport.md`.

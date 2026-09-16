@@ -9,6 +9,7 @@ Design record: `bps/reference/input/pads.md`.
 
 from __future__ import annotations
 
+import sys
 from typing import TYPE_CHECKING
 
 from blitspersecond.common import fps
@@ -25,6 +26,28 @@ if TYPE_CHECKING:
     from blitspersecond.input.stream import InputStream
 
     from .pad import PadFact, PadScan
+
+
+class _EvdevTransport:
+    """The state-free Linux discovery/open pair, in the transport shape."""
+
+    def discover(self):
+        return discover()
+
+    def open_pad(self, device):
+        return open_pad(device)
+
+    def close(self) -> None:
+        pass
+
+
+def _transport_for_platform(logger):
+    """Build this collection's transport without process-global device state."""
+    if sys.platform == "win32":
+        from .gameinput import GameInput
+
+        return GameInput(logger=logger)
+    return _EvdevTransport()
 
 
 class _Gone:
@@ -206,6 +229,7 @@ class Pads:
         "_identification",
         "_logger",
         "_unopened",
+        "_transport",
     )
 
     def __init__(self, rate: fps, refresh_frames: int = REFRESH_FRAMES) -> None:
@@ -225,6 +249,7 @@ class Pads:
         # Per instance, never at import: a module-level Logger()
         # installs a handler before anything has configured one.
         self._logger = Logger()
+        self._transport = _transport_for_platform(self._logger)
 
     # -- enumeration ------------------------------------------------------
 
@@ -346,7 +371,7 @@ class Pads:
 
     def refresh(self) -> None:
         """Reconcile against the pads that are actually here."""
-        present = discover()
+        present = self._transport.discover()
 
         for fingerprint, pad in self._known.items():
             if pad.connected and fingerprint not in present:
@@ -357,7 +382,7 @@ class Pads:
             if pad is not None and pad.connected:
                 continue
             try:
-                reader = open_pad(device)
+                reader = self._transport.open_pad(device)
             except OSError as exc:
                 # Permissions, or it left between the scan and the open.
                 # Neither is exceptional and the next refresh tries again --
@@ -382,6 +407,7 @@ class Pads:
         """Release every device. Safe to call twice."""
         for pad in self._known.values():
             pad._disconnect()
+        self._transport.close()
         if self._identification is not None:
             self._identification._interrupt("CLOSED")
             self._identification = None

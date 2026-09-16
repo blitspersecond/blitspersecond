@@ -39,6 +39,7 @@ class _Stream:
         self.writes = []
         self.underflow = False
         self.fail_on_write = None
+        self.aborted = False
 
     def start(self):
         self.started = True
@@ -51,6 +52,9 @@ class _Stream:
 
     def stop(self):
         self.stopped = True
+
+    def abort(self):
+        self.aborted = True
 
     def close(self):
         self.closed = True
@@ -66,7 +70,9 @@ class _SoundDevice:
     def query_devices(self, selector, kind=None):
         return {"name": "Fake Output", "hostapi": 0}
 
-    def query_hostapis(self, index):
+    def query_hostapis(self, index=None):
+        if index is None:
+            return [{"name": "Windows WASAPI", "default_output_device": 0}]
         return {"name": "FakeAPI"}
 
     def OutputStream(self, **kwargs):
@@ -95,6 +101,9 @@ class _Tone(Operator):
 def fake(monkeypatch) -> _SoundDevice:
     module = _SoundDevice()
     monkeypatch.setattr(driver_module, "_load_sounddevice", lambda: module)
+    # Device-policy contracts have their own topology tests. Driver tests use
+    # a transport fake and should not vary with the host running the suite.
+    monkeypatch.setattr(driver_module, "default_output_device", lambda _: None)
     return module
 
 
@@ -254,6 +263,42 @@ def test_close_is_idempotent(engine, fake):
     driver = _started(engine, fake)
     driver.close()
     driver.close()
+
+
+def test_close_aborts_a_write_that_will_not_return(engine, fake):
+    entered = threading.Event()
+    released = threading.Event()
+
+    class _Blocking(_Stream):
+        def write(self, block):
+            if self.writes:
+                entered.set()
+                released.wait()
+            return super().write(block)
+
+        def abort(self):
+            super().abort()
+            released.set()
+
+    def output_stream(**kwargs):
+        fake.stream = _Blocking(**kwargs)
+        return fake.stream
+
+    fake.OutputStream = output_stream
+    driver = _started(engine, fake)
+    assert entered.wait(0.5)
+
+    closing = threading.Thread(target=driver.close, daemon=True)
+    closing.start()
+    closing.join(0.5)
+    if closing.is_alive():
+        # Keep a failed test from leaving its worker behind or hanging pytest.
+        released.set()
+        closing.join(0.5)
+
+    assert not closing.is_alive()
+    assert fake.stream.aborted is True
+    assert driver.error is None
 
 
 def test_a_device_failing_mid_stream_releases_the_engine(engine, fake):

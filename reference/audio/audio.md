@@ -249,7 +249,7 @@ writes its own voice allocator* on the board.
 | recordings | 16-bit WAV only, folded to mono, kept at their own rate |
 | threads | one, and it is the driver's |
 | allocation per block | none, with stable topology and settled delay depth |
-| platforms | Linux and macOS open PortAudio's default. Windows raises |
+| platforms | Linux and macOS open PortAudio's default; Windows opens WASAPI's default output |
 
 **Windows refuses rather than guessing.** PortAudio's overall default there
 can be a legacy MME endpoint even when the useful one is available through

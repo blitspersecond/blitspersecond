@@ -12,6 +12,7 @@ from blitspersecond.input.pads import (
     Button,
     Direction,
     PadEvent,
+    Reading,
 )
 from blitspersecond.input.pads.evdev import (
     ABS_HAT0X,
@@ -245,6 +246,35 @@ def test_an_ordinary_window_is_not_marked_resynced():
     stub, pad = ingress()
     stub.arrive(report((EV_KEY, BTN_SOUTH, 1)))
     assert pad.cut(1).scan.resynced is False
+
+
+def test_an_observed_full_state_reading_is_history_not_a_resync():
+    stub, pad = ingress()
+    stub.arrive(Reading(frozenset({BTN_SOUTH}), {ABS_X: 32767}))
+
+    window = pad.cut(1)
+
+    assert window.scan.resynced is False
+    assert window.scan.pressed == frozenset({Button.FACE_SOUTH})
+    assert window.scan.axes[Axis.LEFT_X] == 1.0
+
+
+def test_observed_full_states_emit_only_what_changed_between_packets():
+    stub, pad = ingress()
+    stub.arrive(Snapshot(frozenset(), {ABS_X: 0, ABS_Z: 0}))
+    pad.cut(0)
+    stub.arrive(
+        Reading(frozenset(), {ABS_X: 0, ABS_Z: 0}),
+        Reading(frozenset({BTN_SOUTH}), {ABS_X: 0, ABS_Z: 0}),
+        Reading(frozenset({BTN_SOUTH}), {ABS_X: 32767, ABS_Z: 0}),
+    )
+
+    window = pad.cut(1)
+
+    assert [fact.kind for fact in window.facts] == [
+        PadEvent.PRESS,
+        PadEvent.AXIS,
+    ]
 
 
 def test_a_disconnect_releases_everything_as_real_edges():

@@ -64,6 +64,9 @@ class Driver:
         self._condition = Condition()
         self._closing = Event()
         self._thread: Thread | None = None
+        # Published by the worker once PortAudio has opened it, so close()
+        # can abort a write that the endpoint has stopped consuming.
+        self._stream = None
         self._state = _NEW
         self._error: BaseException | None = None
 
@@ -138,9 +141,9 @@ class Driver:
         Not a gameplay state. This is teardown at process exit, beside the
         display closing.
 
-        A blocking write that the device has stopped consuming can hold the
-        worker inside PortAudio, and the join here would wait for it. Not seen
-        on the Linux path; see the deferred Windows shutdown card.
+        The active stream is published by the worker. Closing aborts it before
+        joining, so a blocking write whose endpoint has stopped consuming
+        cannot hold orderly process teardown.
         """
         with self._condition:
             thread = self._thread
@@ -151,6 +154,13 @@ class Driver:
                 self._state = _CLOSING
                 self._closing.set()
                 self._condition.notify_all()
+            stream = self._stream
+        if stream is not None:
+            # PortAudio's blocking write is normally the clock. If an endpoint
+            # disappears, it can instead be the thing preventing teardown.
+            # abort() is the immediate, discard-pending-buffers operation and
+            # is deliberately issued by the closing thread before the join.
+            stream.abort()
         thread.join()
 
     # -- the worker -------------------------------------------------------
@@ -177,6 +187,13 @@ class Driver:
                 latency=self._latency_request,
                 device=selector,
             )
+            with self._condition:
+                self._stream = stream
+
+            # A close racing device startup must not enter the first blocking
+            # write after the closer already found no stream to abort.
+            if self._closing.is_set():
+                return
 
             # One block rendered BEFORE the stream starts, so the device is
             # never asked for audio that does not exist yet.
@@ -198,7 +215,10 @@ class Driver:
             while not self._closing.is_set():
                 self._write(stream, self._prepare(self._engine.advance()))
         except BaseException as caught:
-            error = caught
+            # abort() commonly wakes a blocking write by making it fail. Once
+            # close was requested that is the mechanism, not a device fault.
+            if not self._closing.is_set():
+                error = caught
         finally:
             if stream is not None:
                 if stream_active:
@@ -215,6 +235,7 @@ class Driver:
 
             self._engine._running = False
             with self._condition:
+                self._stream = None
                 self._error = error
                 self._state = _FAILED if error is not None else _CLOSED
                 self._condition.notify_all()

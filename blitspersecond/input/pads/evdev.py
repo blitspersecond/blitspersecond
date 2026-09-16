@@ -9,7 +9,6 @@ Design record: `bps/reference/input/evdev.md`.
 from __future__ import annotations
 
 import errno
-import fcntl
 import os
 import re
 import struct
@@ -21,6 +20,17 @@ from blitspersecond.system.logger import Logger
 from .button import Button
 from .control import Axis
 from .mapper import PadMapper, mapper_for, model_for
+
+try:
+    import fcntl
+except ImportError:  # Win32: keep the Linux transport importable.
+    fcntl = None  # type: ignore[assignment]
+
+
+def _ioctl(fd: int, request: int, buffer: bytearray) -> None:
+    if fcntl is None:
+        raise OSError(errno.ENOSYS, "evdev ioctl is unavailable")
+    fcntl.ioctl(fd, request, buffer, True)
 
 _PROCFS = "/proc/bus/input/devices"
 
@@ -278,7 +288,7 @@ def axis_ranges(fd: int) -> dict[int, AxisRange]:
     for code in AXES:
         info = bytearray(_ABSINFO_SIZE)
         try:
-            fcntl.ioctl(fd, _read_request(0x40 + code, _ABSINFO_SIZE), info, True)
+            _ioctl(fd, _read_request(0x40 + code, _ABSINFO_SIZE), info)
         except OSError as exc:
             if exc.errno in (errno.EINVAL, errno.ENOTTY):
                 # NOT a swallowed error. This is the probe's ANSWER: the
@@ -631,7 +641,7 @@ class PadReader:
         buttons: set[int] = set()
         keys = bytearray(_KEY_BYTES)
         try:
-            fcntl.ioctl(self._fd, _read_request(0x18, _KEY_BYTES), keys, True)
+            _ioctl(self._fd, _read_request(0x18, _KEY_BYTES), keys)
         except OSError as exc:
             # Answer "nothing held" rather than guess -- but this has a
             # consequence a reader will see: every held button reads as
@@ -651,9 +661,7 @@ class PadReader:
         for code in self.ranges:
             info = bytearray(_ABSINFO_SIZE)
             try:
-                fcntl.ioctl(
-                    self._fd, _read_request(0x40 + code, _ABSINFO_SIZE), info, True
-                )
+                _ioctl(self._fd, _read_request(0x40 + code, _ABSINFO_SIZE), info)
             except OSError as exc:
                 # The axis was calibrated at open, so failing now is the
                 # device going away mid-snapshot rather than an absent

@@ -231,13 +231,19 @@ integer **is** the vocabulary.
 The same two halves every device produces — a scan of state and ordered facts —
 so a reader who has understood the keyboard has understood this.
 
-**Folding happens per REPORT, not per event.** The transport hands over the
-kernel's own simultaneity groups, and that is what the boundary is for: a
-diagonal is two axis changes the transport is telling us happened together, so
-it becomes **one** `DIRECTION` fact rather than a spurious intermediate
-position the player never passed through. Only a transport with simultaneity
-groups makes that available, which is why the keyboard could never have shown
-it.
+**Folding happens per transport packet, not per changed control.** On Linux an
+evdev `SYN_REPORT` is the kernel's own simultaneity group. On Windows a
+GameInput reading is the complete device state for one raw input packet; each
+reading is diffed against the preceding settled state. A diagonal therefore
+becomes **one** `DIRECTION` fact rather than a spurious intermediate position
+the player never passed through. Only a transport with packet boundaries makes
+that available, which is why the keyboard could never have shown it.
+
+GameInput's half-second history is walked from the previous reading on every
+cut. On an Xbox pad exercised at a 60 Hz cut rate, a current-state poll observed
+405 changes while the walk retained 521 ordered changes, with as many as three
+packets arriving in one cut and no cursor errors. An idle end-of-history walk
+cost 3.38 microseconds per device on that machine.
 
 An axis fact carries the value it moved *to*; the scan carries where everything
 settled. That split is what keeps a stick's path through a frame rather than
@@ -247,6 +253,12 @@ flattening it to wherever the stick finished.
 transport dropped events and the pad was asked what was true instead, so a
 release here may be a button nobody let go of. It is the pad's version of the
 keyboard's `cleared`, and the two should read alike.
+
+The first GameInput cut is a snapshot and is therefore `resynced`. If a hitch
+outlives the runtime's history, the expired cursor contributes one desync and a
+fresh snapshot; a measured ten-second hitch did exactly that. Disconnecting and
+reconnecting twice revived the same `Pad` object and fingerprint with a fresh
+cursor.
 
 `disconnected` is beside it and is a different event — the pad went away, its
 held buttons were released as real edges so a drag or a charge cannot stick,

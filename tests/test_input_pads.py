@@ -98,8 +98,16 @@ def world(monkeypatch):
         state.readers[dev.fingerprint] = reader
         return reader
 
-    monkeypatch.setattr(module, "discover", fake_discover)
-    monkeypatch.setattr(module, "open_pad", fake_open)
+    class Transport:
+        discover = staticmethod(fake_discover)
+        open_pad = staticmethod(fake_open)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        module, "_transport_for_platform", lambda _logger: Transport()
+    )
     return state
 
 
