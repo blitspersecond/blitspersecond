@@ -95,7 +95,7 @@ writes at sample offsets. The overview says exactly what is missing.
 | [blocks.md](audio/blocks.md) | one slab, stable row IDs, the delay ring, and why nothing is allocated per block |
 | [operators.md](audio/operators.md) | the 24 operators, what each costs, and arity declared by inheritance |
 | [sample.md](audio/sample.md) | a recording and playing one: the accepted WAV profile, and `PCM` |
-| [instruments.md](audio/instruments.md) | the presets: three roots, eight names, and the level they are not levelled against |
+| [instruments.md](audio/instruments.md) | the presets: three roots and seven tunings, and the level they are not levelled against |
 | [transport.md](audio/transport.md) | the device thread and the offline renderer: the blocking write as a clock |
 
 ## Not started

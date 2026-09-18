@@ -26,7 +26,7 @@ so where two things must sound at once they are two Stages.
 
 Every factory takes the owning `AudioEngine` and returns a `SourceStage`.
 
-## Three roots, ten names
+## Three roots and seven tunings
 
     drum        Pulse -> Resonator -> Tanh -> LowPass -> Gain
     noise_drum  Noise -> BandPass -> Envelope -> Tanh -> Gain

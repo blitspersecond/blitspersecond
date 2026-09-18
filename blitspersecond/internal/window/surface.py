@@ -16,6 +16,12 @@ from ..events import EventBus
 from ..pacing.path import detect_presentation_path
 from ..pacing.refresh_rate import get_refresh_rate
 
+#: What the window says before a game says anything. Deliberately the
+#: engine's name rather than pyglet's default of `sys.argv[0]`: an unnamed
+#: game is running on BPS, and a taskbar entry reading `main.py` says nothing
+#: about what it is.
+DEFAULT_TITLE = "BlitsPerSecond"
+
 if sys.platform == "win32":
     from pyglet.libs.win32.constants import WM_DISPLAYCHANGE
     from pyglet.window.win32 import Win32EventHandler
@@ -80,7 +86,7 @@ class Surface(pyglet.window.Window):
             vsync=environment_flag("BPS_VSYNC"),
             config=pyglet.gl.Config(double_buffer=True),
         )
-        self.set_caption("BlitsPerSecond")
+        self.set_caption(DEFAULT_TITLE)
         if False:  # FIXME: hardcoded display.fullscreen:
             self.set_location(screen.x, screen.y)
             self.set_visible(True)

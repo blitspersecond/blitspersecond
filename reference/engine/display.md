@@ -266,14 +266,22 @@ fractional one it refuses:
 | any dimension `<= 0` | `ValueError: presentation dimensions must be positive` |
 | window smaller than internal | `ValueError: 320x200 surface is smaller than 640x360 internal resolution` |
 
-**One function owns the mapping, and it has one caller today**: the present
-pass, mapping the internal screen out to window pixels. The inbound direction
-is not built — the pointer has not been ported yet, and when it is it reads
-back through this same function rather than deriving its own. Two functions
-would be two chances to disagree about where the picture is, and a
-disagreement there is a cursor that does not land where it points, visible
-only as a slight, unreproducible offset. Board: *Port the mouse into
-whole-pixel screen space*.
+**One function owns the mapping, and both directions now go through it.**
+The present pass calls `integer_viewport` to map the internal screen out to
+window pixels. The pointer comes back the other way from the same answer:
+`Display.viewport` recomputes the viewport from the surface's current size,
+the engine hands that to the input boundary as a callable rather than as a
+value, and the pointer resolves it once per cut. Two functions would be two
+chances to disagree about where the picture is, and a disagreement there is a
+cursor that does not land where it points — visible only as a slight,
+unreproducible offset.
+
+**The inbound direction inverts the viewport rather than calling the same
+function**, and it does two things the outbound one has no reason to: it
+flips y, pyglet's origin being bottom-left, and it clamps per axis so a
+pointer out in the letterbox margin slides along the edge it left through
+instead of stopping dead. Both belong to the chapter that owns the pointer:
+`bps/reference/input/pointer.md`.
 
 `scale` is also what the CRT pass keys its scanline period to, so the look
 follows the enlargement rather than being fixed in device pixels.
@@ -289,7 +297,8 @@ last boundary before the panel:
 
     TexCoord = vec2(in_tex_coords.x, 1.0 - in_tex_coords.y);
 
-That is the whole of it — `assets/shaders/framebuffer.vert`, on the four
+That is the whole of it — `blitspersecond/assets/shaders/framebuffer.vert`,
+on the four
 corners of the quad that presents the composed buffer. No image is stored,
 loaded or stamped inverted to compensate, and no other stage flips anything.
 
@@ -454,7 +463,13 @@ a handler attaches.
     Surface  ──tee──►  EventBus  ──►  Lifecycle  (on_close, on_hide, on_show,
                           │                       on_expose, on_activate)
                           ├──────►  KeyboardIngress  (gameplay keys)
+                          ├──────►  MouseIngress     (pointer, buttons, scroll)
                           └──────►  BlitsPerSecond   (on_engine_state)
+
+`Pads` is absent by nature rather than by omission: its transport is the
+kernel, not the window, so it has nothing here to subscribe to. The two that
+do subscribe are held by `InputBoundary`, which settles all three devices on
+one cut — `bps/reference/input/input.md`.
 
 **The tee fires exactly once per event, and the reason is not obvious.**
 `dispatch_event` is overridden, but pyglet's queue-drain path
@@ -532,6 +547,18 @@ own size and position instead.
 wait on file-backed configuration; this section is the one that changes when
 it lands.
 
+**The window is named `BlitsPerSecond` until a game names it.** Pyglet's
+default caption is `sys.argv[0]`, which puts `main.py` in the taskbar and says
+nothing about what is running; the engine's own name is the only honest answer
+available before a game has given one. A game replaces it through
+`bps.title`, which forwards to `set_caption` and reads back off
+`Surface.caption` — the window already holds the string and the window manager
+already holds a copy, so a third on `Display` could only be the one that goes
+stale, and it would go stale invisibly until somebody read the title back and
+disagreed with the title bar. Nothing is compared against the previous value
+either: each assignment is a call into the window system, so a title updated
+every frame is a window-system call every frame.
+
 **The refresh rate is a property of the window, not of the screen.**
 `Window.screen` is fixed at construction, so it answers where the window
 started rather than where it is. Win32's `get_window_screen()` uses
@@ -558,17 +585,5 @@ across adapters, so eligibility is Win32 plus primary and nothing less.
 - **One buffer is proven here and open on Windows.** Win32/DWM is a
   materially different present path and the measurement has not been repeated
   there.
-- **No live tests** cover `FrameHandoff` or `integer_viewport`; only
-  `bps/tests.reference/test_presentation.py` does.
-- **The input side of the tee will move.** Input is next for the full porting
-  process, so `KeyboardIngress` names a subscriber whose shape is about to
-  change. What this chapter owns — that the Surface is the sole producer and
-  the tee fires once — does not depend on it, but the diagram will need
-  re-reading when the port lands.
-
-## A note on the source
-
-`internal/display.py` imports a block of GL names — `glViewport`,
-`glBlendFunc`, `Mat4` and five more — that nothing in the file uses; all of
-its GL work is in `framebuffer.py`. Reading `display.py` as a module that
-touches GL is the mistake that block invites.
+- **`FrameHandoff` has no test coverage at all**, live or otherwise. It is
+  the one piece of the handoff nothing asserts.

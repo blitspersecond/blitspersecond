@@ -25,6 +25,11 @@ mouse.PRIMARY       the button vocabulary, on the object you already have
 mouse.SECONDARY     -- PRIMARY, SECONDARY, MIDDLE, BACK, FORWARD
 ```
 
+The buttons are a `MouseButton`, not a number, and the three verbs take one
+term each: `mouse.held(mouse.PRIMARY)` and `mouse.pressed(mouse.PRIMARY |
+mouse.SECONDARY)` are both questions this device answers. Why a type rather
+than pyglet's integer: [input.md](input.md), *Asking about controls*.
+
 A window's two halves:
 
 ```text
@@ -56,6 +61,10 @@ values and are read off the scan.
   `held` stays a set a game can enumerate;
 - **horizontal scroll and wheel tilt**, dropped in the handler rather than
   carried and ignored later.
+
+Asking the verbs about a bare number does raise, and that is the shared algebra
+refusing a term from no vocabulary rather than anything the pointer decides:
+[input.md](input.md), *Asking about controls*.
 
 Staging is bounded at **512 arrivals per frame**, dropped and counted in
 `dropped` past that. A 1000Hz pointer offers about seventeen events per frame
@@ -201,7 +210,7 @@ duplicate an input that has to exist anyway.
 
 ### Names mean, they do not locate
 
-`PRIMARY` and `SECONDARY` alias pyglet's `LEFT` and `RIGHT` **values**, and the
+`PRIMARY` and `SECONDARY` carry pyglet's `LEFT` and `RIGHT` **values**, and the
 names are the point. Handedness is the OS's job: libinput and the compositor
 apply the left-handed mapping below the engine, so by the time an event arrives
 pyglet's LEFT already *is* the player's primary button. Swapping again here
@@ -211,6 +220,12 @@ be added.
 This is the keyboard's layout rule in another costume: the OS has applied the
 player's own configuration, and the engine reads the result rather than the
 hardware.
+
+The values are pyglet's, so nothing is renumbered — what the vocabulary adds is
+a name a game can compose and the verbs will answer. **The swap happens once,
+at ingress**, so a scan and a fact carry the button a game asks about rather
+than an integer that merely hashes like one; a value beyond the ideal mouse
+fails to type and is the same event as being dropped.
 
 **There are no mappers here and never will be**, which is the sharpest
 difference from pads. The OS already normalises every mouse onto the ideal —

@@ -10,6 +10,7 @@ import pytest
 
 from blitspersecond import BlitsPerSecond, EngineState, fps
 from blitspersecond.audio import AudioEngine, MixingDesk
+from blitspersecond.internal.window.surface import DEFAULT_TITLE
 from blitspersecond.system import Config, Logger
 
 
@@ -148,3 +149,33 @@ def test_teardown_releases_the_audio_worker():
     engine = BlitsPerSecond()
     engine._teardown()
     assert engine.audio._running is False
+
+
+# -- the window's name ---------------------------------------------------
+# A property rather than a constructor argument, because the constructor is
+# the idempotent "engine exists" barrier: an argument there would be honoured
+# once and dropped by every later call. These pin the read-back, which is
+# what makes the absence of a mirrored copy on Display observable.
+
+
+def test_the_window_is_named_after_the_engine_until_a_game_names_itself():
+    assert BlitsPerSecond().title == DEFAULT_TITLE
+
+
+def test_a_game_can_name_the_window():
+    engine = BlitsPerSecond()
+    engine.title = "Green Hill Zone"
+    assert engine.title == "Green Hill Zone"
+
+
+def test_the_title_is_read_back_off_the_window_not_a_copy():
+    """`bps.title` answers what the window system was actually told.
+
+    Nothing between the engine and the surface stores it, so a title set
+    straight on the surface reads back through the facade unchanged. Were
+    Display mirroring the value, this is the test that would catch the
+    mirror going stale.
+    """
+    engine = BlitsPerSecond()
+    engine._display._surface.set_caption("Chemical Plant")
+    assert engine.title == "Chemical Plant"

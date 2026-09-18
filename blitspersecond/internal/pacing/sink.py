@@ -2,9 +2,9 @@
 
 This is a dependency inversion, and it is deliberate. `pacing` declares the
 shape of the sink it will call; `system.frame_pacing.FramePacingRecorder`
-happens to satisfy it; `display.Display` wires the two together. So nothing
-under `display/` imports the recorder, and the engine can run with no sink
-at all -- the capture is opt-in, and `None` is the normal case.
+happens to satisfy it; `internal/display.py` wires the two together. So
+nothing under `internal/pacing/` imports the recorder, and the engine can run
+with no sink at all -- the capture is opt-in, and `None` is the normal case.
 
 Kept out of `session.py` because it is an interface to something else, not
 part of running a frame. `session.py` is already the biggest thing in this

@@ -1,10 +1,11 @@
 """Strict boolean environment flags.
 
-Shared because two packages parse `BPS_*` flags -- `system.config`
-(`BPS_FULLSCREEN`) and `display.internal.pacing` (`BPS_FRAMEPACE_*`) -- and
-they must agree on the spellings. They used to be separate copies with
-subtly different signatures, which is a drift waiting to happen: a flag
-accepting "yes" in one subsystem and rejecting it in another.
+Shared because three sites parse `BPS_*` flags -- `system/config/config.py`
+(`BPS_FULLSCREEN`), `system/frame_pacing/recorder.py` (`BPS_FRAMEPACE_DURABLE`)
+and `internal/window/surface.py` (`BPS_VSYNC`) -- and they must agree on the
+spellings. They used to be separate copies with subtly different signatures,
+which is a drift waiting to happen: a flag accepting "yes" in one subsystem
+and rejecting it in another.
 """
 
 import os

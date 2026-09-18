@@ -60,6 +60,15 @@ _CLOSING = "closing"
 _CLOSED = "closed"
 _FAILED = "failed"
 
+#: How long `close()` waits for the worker to leave of its own accord before
+#: reaching for `abort()`. It is a "this endpoint has stopped" threshold, not
+#: a latency budget: one block is 8.3ms and the worst blocking write measured
+#: on a healthy sink here is 32ms, so this is roughly thirty blocks. Being
+#: wrong in the generous direction costs a slow shutdown; being wrong in the
+#: mean direction discards a few milliseconds of audio that was stopping
+#: anyway, so it is set nearer the latter.
+_CLOSE_GRACE = 0.25
+
 
 def _load_sounddevice():
     """Imported on use, not at module import.
@@ -181,9 +190,10 @@ class Driver:
         Not a gameplay state. This is teardown at process exit, beside the
         display closing.
 
-        The active stream is published by the worker. Closing aborts it before
-        joining, so a blocking write whose endpoint has stopped consuming
-        cannot hold orderly process teardown.
+        The worker is given a grace period to leave on its own, which on a
+        healthy device is one block. Only if it is still inside a blocking
+        write after that is the stream aborted -- an endpoint that has stopped
+        consuming must not be able to hold orderly process teardown.
         """
         with self._condition:
             thread = self._thread
@@ -195,11 +205,17 @@ class Driver:
                 self._closing.set()
                 self._condition.notify_all()
             stream = self._stream
-        if stream is not None:
-            # PortAudio's blocking write is normally the clock. If an endpoint
-            # disappears, it can instead be the thing preventing teardown.
-            # abort() is the immediate, discard-pending-buffers operation and
-            # is deliberately issued by the closing thread before the join.
+        # The worker leaves on its own as soon as the write it is inside
+        # returns, which on a healthy device is one block away. Wait for that
+        # first: aborting a stream the worker is still writing to is a
+        # concurrent touch of the same PortAudio stream from two threads, and
+        # on ALSA it reports mmap failures and costs seconds.
+        thread.join(timeout=_CLOSE_GRACE)
+        if thread.is_alive() and stream is not None:
+            # Still inside a write after the grace period, so the endpoint has
+            # stopped consuming and the blocking write is no longer the clock
+            # -- it is the thing preventing teardown. abort() discards pending
+            # buffers immediately and is what releases it.
             try:
                 stream.abort()
             except BaseException:
@@ -209,7 +225,7 @@ class Driver:
                 # below is what teardown actually depends on, and a stream
                 # nobody is writing to cannot hold it.
                 pass
-        thread.join()
+            thread.join()
 
     # -- the worker -------------------------------------------------------
 

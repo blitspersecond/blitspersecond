@@ -229,7 +229,7 @@ writes its own voice allocator* on the board.
 |---|---|
 | [operators.md](operators.md) | the 24 operators, what each costs, and the arity split that is declared by inheritance |
 | [sample.md](sample.md) | a recording and playing one: the accepted WAV profile, and `PCM`'s gate, playhead and speed |
-| [instruments.md](instruments.md) | the percussion presets: three roots, eight names, and the level they are not levelled against |
+| [instruments.md](instruments.md) | the percussion presets: three roots and seven tunings, and the level they are not levelled against |
 
 ### Out
 

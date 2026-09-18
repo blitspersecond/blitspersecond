@@ -169,25 +169,28 @@ a fact cannot be allowed to be.
 
 ## Asking about controls
 
-One algebra, every device. A `Button`, a key symbol and a `Direction` are all
-terms, and the shape of a question does not depend on which kind it holds:
+One algebra, every device. A `Button`, a key symbol, a `MouseButton` and a
+`Direction` are all terms, and the shape of a question does not depend on which
+kind it holds:
 
 ```python
 Button.FACE_SOUTH | Button.START        either of these
 key.LCTRL & key.LALT                    both at once
+mouse.PRIMARY & ~mouse.SECONDARY        one, without the other
 ~Direction.NEUTRAL                      the d-pad is doing something
 ```
 
-**The operators are defined rather than left alone, and they must be.** Two of
-the three vocabularies are integer-valued, each for its own good reason: a key
-symbol carries the transport's own number, so nothing is translated at ingress,
-and `Direction` is an `IntEnum` because numpad notation *is* the vocabulary
-there, so that 236 means on screen what it means on paper. Integers already
-implement `|`, `&` and `~` arithmetically, so an undefined operator does not
-raise: `LCTRL & LALT` evaluates to `LSHIFT`, and `DOWN | DOWN_RIGHT` to
-`DOWN_RIGHT`. Both are real members, so nothing downstream can tell. Defining
-the operators is what removes that, and a vocabulary lists `Composable` before
-its enum base so they shadow `int` rather than sit behind it.
+**The operators are defined rather than left alone, and they must be.** Three
+of the four vocabularies are integer-valued, each for its own good reason: a
+key symbol and a mouse button carry the transport's own number, so nothing is
+renumbered at ingress, and `Direction` is an `IntEnum` because numpad notation
+*is* the vocabulary there, so that 236 means on screen what it means on paper.
+Integers already implement `|`, `&` and `~` arithmetically, so an undefined
+operator does not raise: `LCTRL & LALT` evaluates to `LSHIFT`, and `DOWN |
+DOWN_RIGHT` to `DOWN_RIGHT`. Both are real members, so nothing downstream can
+tell. Defining the operators is what removes that, and a vocabulary lists
+`Composable` before its enum base so they shadow `int` rather than sit behind
+it.
 
 A term whose meaning only a device can supply is resolved late and refuses
 until it is. `Button.ACCEPT` is the case: which physical button means confirm
@@ -206,6 +209,13 @@ and a question is written before anybody has picked a pad up.
 to satisfy it lands — so a chord is *pressed* by whatever completes it, and
 something already satisfied is held rather than pressed again. That is one rule
 rather than a separate set for compositions.
+
+**Only a term from a vocabulary may be asked**, and a bare number is refused by
+all three verbs rather than tested. An unrelated value can look exactly like a
+control — `Motion.LEFT` and `key.LEFT` are both 0xff51 — so membership would
+answer questions nobody asked. A device that published transport integers as
+its public spelling would therefore be publishing something its own verbs
+refuse, which is why every vocabulary a game names is a type.
 
 A bare control is answered from the scan. A composed one is folded over the
 interval's facts, evaluating the expression at each transition — which is what
@@ -226,7 +236,7 @@ intent belonging to whoever reads it — so an axis stays a value.
 | transport | the window system | the window system | evdev on Linux; GameInput on Windows |
 | how many | one, by construction | one, by construction | unbounded, no cap |
 | identity | none needed | none needed | a fingerprint, and a stable id on first deliberate use |
-| normalisation at ingress | the identity function | window pixels to screen pixels | transport codes to the closed vocabulary |
+| normalisation at ingress | the identity function | window pixels to screen pixels, transport button values to the vocabulary | transport codes to the closed vocabulary |
 | after a gap in ticking | assumes neutral | keeps its position | asks the device |
 | absence of a control | — | a mouse only proves a button by pressing it | a pad only proves an axis by moving it |
 | vendor differences | the OS has already applied them | the OS has already normalised them; no mappers, ever | a mapper per family, editorial only |

@@ -90,6 +90,11 @@ builds the thing.** A game never imports `Clock`, `Display` or `Loop`, and
 never constructs one; it says `BlitsPerSecond()` and gets an engine already
 holding all of them.
 
+`BlitsPerSecond.current()` is the other half of that: the engine if one has
+been built, `None` if not, and never a construction. Asking whether the engine
+exists is a different question from wanting it, and the constructor cannot
+answer the first without settling it.
+
 What it holds, it hands over whole. `bps.clock` is the `Clock`, not a view of
 one, and `bps.layers` is the draw order itself — so there is no facade chapter
 to write. Reading `bps.clock.frame` is reading [clock.md](clock.md)'s subject.
@@ -97,12 +102,14 @@ to write. Reading `bps.clock.frame` is reading [clock.md](clock.md)'s subject.
 | on the engine | is | described in |
 |---|---|---|
 | `bps.loop`, `bps.start()` | the game's tick, and the machine servicing it | this page |
+| `BlitsPerSecond.current()` | the engine if one exists, without building one | this page |
 | `bps.clock`, `bps.framerate` | the simulation clock | [clock.md](clock.md) |
 | `bps.state`, `bps.backgrounded`, `suspend()`, `resume()`, `stop()` | the state machine's verbs | [lifecycle.md](lifecycle.md) |
 | `bps.events` | the bus every window event is teed onto | [display.md](display.md) |
 | `bps.width`, `bps.height` | 640x360, fixed | [display.md](display.md) |
+| `bps.title` | what the window, the taskbar and alt-tab call this game | [display.md](display.md) |
 | `bps.layers` | the draw order | [layers.md](../graphics/layers.md) |
-| `bps.keyboard` | the keyboard, cut onto the frame boundary | [input](../input/input.md) |
+| `bps.keyboard`, `bps.mouse`, `bps.pads` | every input device, cut onto the same frame boundary | [input](../input/input.md) |
 | `bps.audio` | the audio graph: build voices on it, schedule writes to them | [audio](../audio/audio.md) |
 | `bps.metrics`, `bps.logger`, `bps.config` | the sinks, and the one that is not | [system](../system/system.md) |
 | `bps.background` | the clear colour. **Temporary**, and its own docstring says what deletes it | — |

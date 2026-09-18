@@ -58,6 +58,11 @@ class InputWindow(Generic[_Scan, _Fact]):
     # One implementation for every device. What these need of a fact is a
     # protocol rather than device knowledge: a `kind` whose enum has PRESS and
     # RELEASE, the `held` set the law puts on it, and `control`.
+    #
+    # A bare control goes through `matches` here too, rather than straight to
+    # set membership. All three verbs then accept exactly what a queryable
+    # vocabulary offers and refuse exactly what it does not: a term the device
+    # never reports must not answer one verb and raise on the next.
 
     def held(self, condition: Term) -> bool:
         """Did this cross its boundary and not cross back?
@@ -70,7 +75,7 @@ class InputWindow(Generic[_Scan, _Fact]):
     def pressed(self, condition: Term) -> bool:
         """Did this cross its boundary during this interval?"""
         if not isinstance(condition, Condition):
-            return condition in self.scan.pressed
+            return matches(condition, self.scan.pressed)
         return any(
             not matches(condition, before) and matches(condition, after)
             for before, after in self._transitions()
@@ -79,7 +84,7 @@ class InputWindow(Generic[_Scan, _Fact]):
     def released(self, condition: Term) -> bool:
         """Did this cross back during this interval?"""
         if not isinstance(condition, Condition):
-            return condition in self.scan.released
+            return matches(condition, self.scan.released)
         return any(
             matches(condition, before) and not matches(condition, after)
             for before, after in self._transitions()

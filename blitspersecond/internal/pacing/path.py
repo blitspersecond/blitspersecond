@@ -20,8 +20,6 @@ import os
 import sys
 from typing import Mapping
 
-from blitspersecond.common import environment_flag
-
 
 ENV_GAMESCOPE_BACKEND = "BPS_GAMESCOPE_BACKEND"
 

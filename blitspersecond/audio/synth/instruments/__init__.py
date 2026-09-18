@@ -7,11 +7,11 @@ velocity. Call a factory twice and you have two independent voices, because
 a Stage IS the voice -- which of them receives a hit is the game's policy,
 never the engine's.
 
-Three roots, tuned eight ways:
+Three roots and seven tunings, ten callables in all:
 
-    drum        Pulse -> Resonator -> Tanh -> LowPass       kick, toms, rims
-    noise_drum  Noise -> BandPass -> Envelope -> Tanh       snare, clap, shaker
-    metal_drum  Metal -> BandPass -> Tanh -> Envelope       hat, cowbell, cymbal
+    drum        Pulse -> Resonator -> Tanh -> LowPass -> Gain   kick
+    noise_drum  Noise -> BandPass -> Envelope -> Tanh -> Gain   snare, clap, shaker
+    metal_drum  Metal -> BandPass -> Tanh -> Envelope -> Gain   hat, cowbell, cymbal
 
 The register surface of each is just the raw vocabulary of the operators
 inside it -- `gate`, `frequency`, `cutoff`, `level` and so on. Ergonomic

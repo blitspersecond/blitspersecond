@@ -378,3 +378,85 @@ def test_every_transition_carries_the_held_set_its_own_button_is_in():
     for fact in window.facts:
         if fact.kind in (MouseEvent.PRESS, MouseEvent.RELEASE):
             assert fact.button in fact.held, fact
+
+
+# -- the buttons are a queryable vocabulary ------------------------------
+#
+# What these pin: `mouse.PRIMARY` used to be the bare pyglet integer, so
+# `pressed` answered it by set membership while `held` reached the condition
+# algebra and refused it as a number. A click worked and the drag after it
+# raised.
+
+from pyglet.window import mouse as pyglet_mouse
+
+from blitspersecond.input.kbm.mouse import FORWARD, MouseButton
+
+
+def test_the_verbs_accept_the_vocabulary_the_mouse_itself_publishes():
+    events, mouse = _mouse()
+    events.dispatch_event("on_mouse_press", 0, 719, PRIMARY, 0)
+    mouse.cut(1)
+
+    assert mouse.held(mouse.PRIMARY)
+    assert mouse.pressed(mouse.PRIMARY)
+    assert not mouse.released(mouse.PRIMARY)
+
+
+def test_a_drag_reads_held_in_the_frames_after_the_click():
+    events, mouse = _mouse()
+    events.dispatch_event("on_mouse_press", 0, 719, PRIMARY, 0)
+    mouse.cut(1)
+    events.dispatch_event("on_mouse_drag", 100, 700, 100, -19, PRIMARY, 0)
+    mouse.cut(2)
+
+    assert mouse.held(PRIMARY)
+    assert not mouse.pressed(PRIMARY)
+
+
+def test_buttons_compose_the_way_keys_and_pad_buttons_do():
+    events, mouse = _mouse()
+    events.dispatch_event("on_mouse_press", 0, 719, PRIMARY, 0)
+    events.dispatch_event("on_mouse_press", 0, 719, SECONDARY, 0)
+    window = mouse.cut(1)
+
+    assert window.held(PRIMARY | FORWARD)
+    assert window.held(PRIMARY & SECONDARY)
+    assert not window.held(PRIMARY & MIDDLE)
+    assert window.held(PRIMARY & ~MIDDLE)
+    assert window.pressed(PRIMARY & SECONDARY)
+    assert not window.released(PRIMARY | SECONDARY)
+
+
+def test_a_negation_turns_true_at_the_release_that_satisfies_it():
+    events, mouse = _mouse()
+    events.dispatch_event("on_mouse_press", 0, 719, PRIMARY, 0)
+    events.dispatch_event("on_mouse_press", 0, 719, SECONDARY, 0)
+    mouse.cut(1)
+    events.dispatch_event("on_mouse_release", 0, 719, SECONDARY, 0)
+    window = mouse.cut(2)
+
+    assert window.pressed(PRIMARY & ~SECONDARY)
+
+
+def test_a_scan_and_a_fact_carry_the_button_not_the_transport_value():
+    # The raw pyglet value goes in, because that is what a window delivers.
+    events, mouse = _mouse()
+    events.dispatch_event("on_mouse_press", 0, 719, pyglet_mouse.LEFT, 0)
+    window = mouse.cut(1)
+
+    assert window.facts[0].button is MouseButton.PRIMARY
+    assert window.scan.held == {MouseButton.PRIMARY}
+    assert all(isinstance(b, MouseButton) for b in window.scan.held)
+    assert all(isinstance(b, MouseButton) for b in window.scan.pressed)
+
+
+def test_a_bare_number_is_still_refused_by_every_verb():
+    # The repair is a vocabulary, not a relaxed check: an integer that merely
+    # equals a button remains something the verbs will not answer.
+    events, mouse = _mouse()
+    events.dispatch_event("on_mouse_press", 0, 719, PRIMARY, 0)
+    mouse.cut(1)
+
+    for verb in (mouse.held, mouse.pressed, mouse.released):
+        with pytest.raises(TypeError):
+            verb(int(PRIMARY))

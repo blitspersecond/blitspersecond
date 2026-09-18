@@ -262,6 +262,35 @@ class BlitsPerSecond(metaclass=SingletonMeta):
     # `_display` deliberately -- see `internal/__init__.py`.
 
     @property
+    def title(self) -> str:
+        """The name on the window, the taskbar and the alt-tab list.
+
+            bps.title = "Green Hill Zone"
+
+        A property rather than a constructor argument for the reason
+        `_FRAMERATE` is a constant: `BlitsPerSecond()` is the idempotent
+        "engine exists" barrier, so an argument there would be honoured by
+        the first call and silently dropped by every one after it. A title is
+        also the one piece of window state a game genuinely does change while
+        running -- a level name, a paused marker -- so it needs a setter
+        anyway.
+
+        Until a game sets one the window says `BlitsPerSecond`, which is the
+        only honest answer available before a game names itself.
+
+        Every assignment is a call into the window system, not a cached value
+        compared against the last one. Setting it once per frame is sixty
+        window-manager calls a second; whether that is worth it is the game's
+        call to make, and a frame counter in the title bar is a normal enough
+        reason to make it.
+        """
+        return self._display.title  # type: ignore[union-attr]
+
+    @title.setter
+    def title(self, title: str) -> None:
+        self._display.title = title  # type: ignore[union-attr]
+
+    @property
     def background(self) -> tuple[float, float, float]:
         """The colour the screen clears to. TEMPORARY -- delete this the
         moment a real engine layer can draw.

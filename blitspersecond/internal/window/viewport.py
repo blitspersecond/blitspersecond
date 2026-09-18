@@ -1,8 +1,8 @@
 """WHERE the internal screen lands on a real window.
 
-One caller today: the present pass, mapping out to window pixels. The
-pointer reads back through this same function when it lands, so that the two
-directions cannot disagree about where the picture is.
+Two callers: the present pass maps out to window pixels, and the pointer
+inverts the same viewport on its way in, so the two directions cannot
+disagree about where the picture is.
 
 The geometry, the refusals, and why it never shrinks:
 `bps/reference/engine/display.md`.

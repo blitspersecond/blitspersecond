@@ -65,6 +65,22 @@ class Display:
         return integer_viewport(self.width, self.height, *self._surface.get_size())
 
     @property
+    def title(self) -> str:
+        """What the window system is currently calling this window.
+
+        Read back off the surface rather than mirrored here. The window
+        already holds a caption and the window manager already holds a copy
+        of it, so a third one on Display could only ever be the one that is
+        wrong -- and the way it would go wrong is invisible until somebody
+        reads the title back and disagrees with the title bar.
+        """
+        return self._surface.caption
+
+    @title.setter
+    def title(self, title: str) -> None:
+        self._surface.set_caption(title)
+
+    @property
     def refresh_rate(self) -> float | None:
         return self._surface.refresh_rate
 

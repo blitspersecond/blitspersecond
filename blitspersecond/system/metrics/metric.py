@@ -6,7 +6,7 @@ somewhere else:
 
 * **Static facts** -- presentation path, cadence, audio device, blocksize --
   are log lines, and already exist as log lines in
-  `display.internal.pacing.session` and the audio driver's `stats()`.
+  `internal/pacing/session.py` and the audio driver's `stats()`.
 * **Per-frame state** -- `flip_health`, `pacing_mode` -- is a column in
   `system.frame_pacing`, which is TRACING and deliberately not this.
 * **Percentiles** are computed by a report, from the raw frames, so nothing

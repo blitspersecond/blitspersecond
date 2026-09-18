@@ -25,10 +25,12 @@ license-files = ["LICENSE"]
 dependencies = [
     "pyglet>=2.1.15",       # window, GL context, event loop
     "numpy>=2.4.6",         # every pixel buffer and tile batch
-    "pillow>=12.3.0",       # resources/image.py: asset decode
-    "sounddevice>=0.5.5",   # audio/driver: PortAudio output
-    "numba>=0.66.0",        # audio/operators: stateful kernels
-    "colorama>=0.4.6",      # system/monitor/logger.py
+    "pillow>=12.3.0",       # graphics/pixel_buffer.py: asset decode
+    "sounddevice>=0.5.5",   # audio/transport/driver.py: PortAudio output
+    # njit kernels on both sides of the engine, not audio alone:
+    # graphics/collision, graphics/quads, and two audio operators.
+    "numba>=0.66.0",
+    "colorama>=0.4.6",      # system/logger/colored_formatter.py
 ]
 
 [project.optional-dependencies]
@@ -64,7 +66,8 @@ include = ["blitspersecond*"]
 blitspersecond = [
     "assets/shaders/*.vert",
     "assets/shaders/*.frag",
-    # The system character sets are part of GlyphEngine, not repo furniture.
+    # The system character sets are the console's, not repo furniture:
+    # graphics/console/charset.py reads them from here at runtime.
     "assets/charset/*.png",
     "assets/charset/*.md",
 ]

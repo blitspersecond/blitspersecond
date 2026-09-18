@@ -3,7 +3,8 @@
 Off is the normal case. `BPS_FRAMEPACE_CSV` switches it on, and while it is
 off the loop pays a predictable `None` check at each instrumentation point and
 nothing else. Presentation reaches this through the `FramePacingSink` protocol
-in `internal/pacing/sink.py`, so nothing under `internal/` imports a recorder.
+in `internal/pacing/sink.py`, so nothing under `internal/pacing/` imports a
+recorder -- `internal/display.py` hands `from_environment` in as a factory.
 
 **Preallocated, never grown.** A 150,000-row buffer is claimed up front --
 about 40 minutes at 60fps -- so that recording a frame cannot allocate inside

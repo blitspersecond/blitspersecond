@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from enum import Enum, auto
+from enum import Enum, IntEnum, auto
 from math import floor
 from typing import TYPE_CHECKING, Callable, Deque
 
@@ -18,6 +18,7 @@ from pyglet.window import mouse as _mouse
 
 from blitspersecond.common import Location, fps
 from blitspersecond.common.screen import SCREEN
+from blitspersecond.input.condition import Composable
 from blitspersecond.input.stream import Queryable, InputStream, InputWindow
 
 if TYPE_CHECKING:
@@ -70,26 +71,50 @@ def screen_location(
     )
 
 
-#: The buttons the engine reports, named for what they MEAN rather than where
-#: they sit. Handedness is the OS's job: pyglet's LEFT already IS the player's
-#: primary button by the time an event arrives, so an in-engine swap toggle
-#: would double-swap a lefty and MUST NEVER BE ADDED.
-PRIMARY = _mouse.LEFT
-SECONDARY = _mouse.RIGHT
-MIDDLE = _mouse.MIDDLE
-BACK = _mouse.MOUSE4
-FORWARD = _mouse.MOUSE5
+class MouseButton(Composable, IntEnum):
+    """One button the engine reports, named for what it MEANS rather than
+    where it sits.
+
+    Handedness is the OS's job: pyglet's LEFT already IS the player's primary
+    button by the time an event arrives, so an in-engine swap toggle would
+    double-swap a lefty and MUST NEVER BE ADDED.
+
+    **`Composable` comes FIRST so its operators shadow `int`'s**, and this is
+    a type at all for the reason `Key` is: the query verbs take a term from a
+    queryable vocabulary, and a bare transport integer is not one however
+    right it looks. The values are pyglet's own, so nothing is renumbered --
+    what is added is a name that composes and that `held` accepts.
+
+    PRIMARY and SECONDARY are the floor every pointer meets; MIDDLE, BACK and
+    FORWARD are reported but must never be a game's ONLY way to do something,
+    and that is design law rather than a check -- window events cannot reveal
+    a button's absence. Which tier each is in, and why:
+    `bps/reference/input/pointer.md`, *The ideal mouse*.
+    """
+
+    PRIMARY = _mouse.LEFT
+    SECONDARY = _mouse.RIGHT
+    MIDDLE = _mouse.MIDDLE
+    BACK = _mouse.MOUSE4
+    FORWARD = _mouse.MOUSE5
+
+
+#: The vocabulary, reachable without the type name: `mouse.PRIMARY`.
+PRIMARY = MouseButton.PRIMARY
+SECONDARY = MouseButton.SECONDARY
+MIDDLE = MouseButton.MIDDLE
+BACK = MouseButton.BACK
+FORWARD = MouseButton.FORWARD
 
 #: Everything the engine will report, and nothing else. Anything a device
 #: sends beyond these is dropped at ingress, so `held` stays a set a game can
 #: enumerate.
-#:
-#: PRIMARY and SECONDARY are the floor every pointer meets; MIDDLE, BACK and
-#: FORWARD are reported but must never be a game's ONLY way to do something,
-#: and that is design law rather than a check -- window events cannot reveal a
-#: button's absence. Which tier each is in, and why:
-#: `bps/reference/input/pointer.md`, *The ideal mouse*.
-BUTTONS = frozenset((PRIMARY, SECONDARY, MIDDLE, BACK, FORWARD))
+BUTTONS = frozenset(MouseButton)
+
+#: Transport value to member. The conversion happens once, at ingress, so a
+#: scan and a fact carry the button a game asks about rather than an integer
+#: that merely hashes like one.
+_TYPED = {int(button): button for button in MouseButton}
 
 
 class MouseEvent(Enum):
@@ -126,7 +151,7 @@ class MouseFact:
     #: Where on the 640x360 screen, clamped. Always meaningful.
     position: Location
     #: PRESS and RELEASE only; None otherwise. One of `BUTTONS`.
-    button: int | None
+    button: MouseButton | None
     #: MOVE only. Internal pixels moved, float and unclamped -- so a drag that
     #: runs into the screen edge keeps its distance where `position` cannot.
     #: Not derivable from consecutive positions, which are clamped and whole.
@@ -134,10 +159,10 @@ class MouseFact:
     #: SCROLL only. Wheel clicks: positive away from the player.
     scroll: float
     modifiers: int
-    held: frozenset[int]
+    held: frozenset[MouseButton]
 
     @property
-    def control(self) -> int | None:
+    def control(self) -> MouseButton | None:
         """What this fact is about, under the name every device uses.
 
         The query verbs walk facts from any device with one piece of code, so
@@ -166,9 +191,9 @@ class MouseScan:
     delta: tuple[float, float]
     #: Wheel clicks this interval, summed. Positive away from the player.
     scroll: float
-    held: frozenset[int]
-    pressed: frozenset[int]
-    released: frozenset[int]
+    held: frozenset[MouseButton]
+    pressed: frozenset[MouseButton]
+    released: frozenset[MouseButton]
     #: This interval's releases came from focus loss, not from the player
     #: letting go. The buttons may well still be physically down.
     cleared: bool = False
@@ -254,7 +279,7 @@ class MouseIngress(Queryable):
             deque()
         )
         self._stream: InputStream[MouseScan, MouseFact] = InputStream(rate)
-        self._held: set[int] = set()
+        self._held: set[MouseButton] = set()
         self._position = Location(SCREEN.width // 2, SCREEN.height // 2)
         self._dropped = 0
         self._lost = 0
@@ -359,8 +384,8 @@ class MouseIngress(Queryable):
         self._lost, self._dropped = self._dropped, 0
         viewport = self._viewport()
         scale = viewport.scale
-        pressed: set[int] = set()
-        released: set[int] = set()
+        pressed: set[MouseButton] = set()
+        released: set[MouseButton] = set()
         facts: list[MouseFact] = []
         moved_x = moved_y = 0.0
         scrolled = 0.0
@@ -432,10 +457,12 @@ class MouseIngress(Queryable):
                 )
 
             elif kind is _Arrival.PRESS:
-                button = int(a)
-                # Beyond the ideal mouse: dropped here, so nothing downstream
-                # has to know the button existed.
-                if button not in BUTTONS:
+                # Typed here and nowhere else. Beyond the ideal mouse is
+                # dropped at the same step, so nothing downstream has to know
+                # the button existed -- and nothing downstream ever holds a
+                # transport integer the query verbs would refuse.
+                button = _TYPED.get(int(a))
+                if button is None:
                     continue
                 if button not in self._held:
                     self._held.add(button)
@@ -454,8 +481,8 @@ class MouseIngress(Queryable):
                 )
 
             else:  # RELEASE
-                button = int(a)
-                if button not in BUTTONS:
+                button = _TYPED.get(int(a))
+                if button is None:
                     continue
                 if button not in self._held:
                     # A release for a button we do not believe is down: the
