@@ -201,8 +201,8 @@ class Loop:
         # ceiling prime, and it arrives out of the arithmetic rather than
         # being arranged -- on a 144Hz panel the first slot at or after
         # 16.67ms is slot 3, so frame one gets a whole interval on screen.
-        _frame(engine, clock, metrics, display, layers, inputs)
         try:
+            _frame(engine, clock, metrics, display, layers, inputs)
             while lifecycle.running:
                 try:
                     presentation.wait_for(clock.frame)
@@ -302,7 +302,7 @@ class Loop:
                     _frame(engine, clock, metrics, display, layers, inputs)
                     presentation.observe_work(perf_counter() - started)
                 except Exception as error:
-                    engine._logger.error(f"Error during main loop: {error}")
+                    engine._logger.exception(f"Error during main loop: {error}")
                     lifecycle.fail(
                         f"main loop exception: {type(error).__name__}"
                     )
@@ -310,6 +310,20 @@ class Loop:
         except KeyboardInterrupt:
             # 128 + SIGINT, the shell's convention for "killed by Ctrl-C".
             lifecycle.stop("KeyboardInterrupt", 130)
+        except Exception as error:
+            # The prime frame is the one tick that runs outside the while, so
+            # it is the one tick the in-loop handler cannot reach. It used to
+            # run outside this `try` as well, and a game whose FIRST tick
+            # raised left through `run()` without an epilogue: no `finish()`,
+            # no `stopped()`, and so no `Driver.close()`. The audio worker is
+            # a daemon by design, so it was still inside a PortAudio write
+            # when sounddevice's atexit handler called `Pa_Terminate()` under
+            # it -- an ALSA segfault landing on top of the traceback that
+            # explained the actual mistake.
+            #
+            # Frame one now fails the way frame one hundred already did.
+            engine._logger.exception(f"Error during main loop: {error}")
+            lifecycle.fail(f"main loop exception: {type(error).__name__}")
 
         presentation.finish()
         # Reported while logging is alive, not from atexit after test runners
