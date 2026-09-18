@@ -19,9 +19,41 @@ from blitspersecond.input import Modifier, Motion, key
 from blitspersecond.input.condition import AllOf, AnyOf, Condition, Not, matches
 
 
+#: The one family whose BPS name differs from pyglet's. pyglet cannot spell a
+#: leading digit, so the number row is `_0` to `_9`; here `NUM_0` to `NUM_9`
+#: are already the keypad, so it is `DIGIT_0` to `DIGIT_9`. Ten names, listed
+#: rather than inferred, so that a SECOND divergence has to be added on
+#: purpose instead of arriving under a pattern. The values still have to
+#: match, which is what the tripwire below is for.
+_RENAMED = {f"DIGIT_{digit}": f"_{digit}" for digit in range(10)}
+
+
 def test_every_symbol_is_pyglets_own_value():
     for name, symbol in key.__members__.items():
-        assert int(symbol) == getattr(pyglet_key, name), name
+        assert int(symbol) == getattr(pyglet_key, _RENAMED.get(name, name)), name
+
+
+def test_every_symbol_pyglet_reports_is_in_the_vocabulary():
+    """The extent tripwire, and the one this file did not have.
+
+    The number row was absent from `Key` outright until 2026-09-18 -- not
+    renumbered, not renamed, just gone, because the ten members pyglet spells
+    with a leading underscore are the ten a filter on ordinary spellings
+    drops. Every value test in this file passed throughout: they check the
+    symbols that ARE here, and nothing checked which ones should be.
+
+    Motions are excluded deliberately and `Motion` says why. Modifiers are a
+    bitfield and are `Modifier`.
+    """
+    theirs = {
+        name
+        for name, value in vars(pyglet_key).items()
+        if isinstance(value, int)
+        and not name.startswith(("MOD_", "MOTION_"))
+        and (name.isupper() or name[1:].isdigit())
+    }
+    ours = set(key.__members__) | set(_RENAMED.values())
+    assert not theirs - ours, sorted(theirs - ours)
 
 
 def test_every_motion_is_pyglets_own_value():

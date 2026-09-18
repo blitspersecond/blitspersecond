@@ -73,6 +73,24 @@ class Key(Composable, IntEnum):
     MINUS = 0x002d
     PERIOD = 0x002e
     SLASH = 0x002f
+    # The number row. pyglet spells these `_0` to `_9`, because an identifier
+    # cannot begin with a digit -- which is how they came to be missing here
+    # for a while: they are the only members whose pyglet name a filter on
+    # ordinary spellings drops. The VALUES are still pyglet's, so nothing is
+    # translated; only the name differs, and it has to, because `NUM_0` to
+    # `NUM_9` are already the keypad. A game asking for the key above `W`
+    # wants `DIGIT_2`, and on a keyboard without a keypad it is the only `2`
+    # there is.
+    DIGIT_0 = 0x0030
+    DIGIT_1 = 0x0031
+    DIGIT_2 = 0x0032
+    DIGIT_3 = 0x0033
+    DIGIT_4 = 0x0034
+    DIGIT_5 = 0x0035
+    DIGIT_6 = 0x0036
+    DIGIT_7 = 0x0037
+    DIGIT_8 = 0x0038
+    DIGIT_9 = 0x0039
     COLON = 0x003a
     SEMICOLON = 0x003b
     LESS = 0x003c

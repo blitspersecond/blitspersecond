@@ -251,6 +251,15 @@ carry — `key.LCTRL & key.LALT` on a bare symbol is arithmetic and evaluates to
 `LSHIFT`. Game code writes `key.RETURN`; what it must not write is
 `pyglet.window.key.RETURN`.
 
+**The number row is the one place a name differs from pyglet's.** pyglet calls
+those keys `_0` to `_9`, because an identifier cannot begin with a digit, and
+BPS calls them `DIGIT_0` to `DIGIT_9` — `NUM_0` to `NUM_9` being the keypad
+already. The values are unchanged, so this is still not a translation: only
+the spelling moves, and it moves because a leading underscore reads as private
+on a member game code types constantly. They were missing outright until
+2026-09-18, which is what a filter on ordinary spellings does to the only ten
+members that have not got one.
+
 **There are no scancodes.** pyglet symbols are layout-translated, so WASD on an
 AZERTY keyboard is literally ZQSD. There is no positional key API to reach for,
 and rebinding is the escape hatch.
